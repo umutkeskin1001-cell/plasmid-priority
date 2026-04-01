@@ -55,6 +55,15 @@ class ProjectContext:
         return self.root / "data"
 
     @property
+    def config(self) -> dict:
+        import yaml
+        config_path = self.root / "config.yaml"
+        if not config_path.exists():
+            return {}
+        with config_path.open("r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+
+    @property
     def reports_dir(self) -> Path:
         return self.root / "reports"
 

@@ -331,6 +331,30 @@ def recompute_priority_from_reference(
         0.0,
         1.0,
     )
+    rescored["T_A_synergy_norm"] = np.clip(
+        rescored["T_eff_norm"].fillna(0.0)
+        * rescored["A_eff_norm"].fillna(0.0),
+        0.0,
+        1.0,
+    )
+    rescored["H_A_synergy_norm"] = np.clip(
+        rescored["H_specialization_norm"].fillna(0.0)
+        * rescored["A_eff_norm"].fillna(0.0),
+        0.0,
+        1.0,
+    )
+    rescored["clinical_A_synergy_norm"] = np.clip(
+        rescored["clinical_context_fraction_norm"].fillna(0.0)
+        * rescored["A_eff_norm"].fillna(0.0),
+        0.0,
+        1.0,
+    )
+    # Re-adding metadata depth approximation from what was observed in the 0.81 state
+    log1p_members = np.log1p(rescored["member_count_train"].fillna(0.0))
+    log1p_countries = np.log1p(rescored["n_countries_train"].fillna(0.0))
+    member_norm = np.clip(log1p_members / max(float(log1p_members.max()), 1.0), 0.0, 1.0)
+    country_norm = np.clip(log1p_countries / max(float(log1p_countries.max()), 1.0), 0.0, 1.0)
+    rescored["metadata_support_depth_norm"] = (member_norm + country_norm) / 2.0
     rescored["host_support_observed_flag"] = _indicator_from_positive(h_support_values)
     rescored["external_host_support_observed_flag"] = _indicator_from_positive(
         _column_or_zero(rescored, "H_external_host_range_support")

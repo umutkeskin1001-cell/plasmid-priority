@@ -121,6 +121,7 @@ def _ensure_config_loaded() -> None:
     NOVELTY_SPECIALIST_FIT_CONFIG = config["NOVELTY_SPECIALIST_FIT_CONFIG"]
     _CONFIG_LOADED = True
 
+_ensure_config_loaded()
 
 @dataclass
 class ModelResult:
@@ -482,10 +483,6 @@ def _compute_sample_weight(eligible: pd.DataFrame, *, mode: str | None) -> np.nd
                     [1.0 / max(float(counts.get(label, 1.0)), 1.0) for label in labels],
                     dtype=float,
                 )
-            continue
-        if token == "magnitude_weighted":
-            magnitude = eligible.get("n_new_countries", pd.Series(1.0, index=eligible.index)).fillna(1.0).to_numpy(dtype=float)
-            weights *= np.log1p(magnitude + 1.0)
             continue
         if token == "knownness_balanced":
             knownness = _knownness_score_series(eligible)

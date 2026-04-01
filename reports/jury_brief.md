@@ -12,32 +12,31 @@ This framework retrospectively prioritizes plasmid backbone surveillance units u
 
 ## Current Benchmark and Audit Context
 
-- Current primary benchmark: `support-synergy biological model` with ROC AUC `0.937` and AP `0.897`.
-- Strongest audited metric model: `full_priority` with ROC AUC `0.948` and AP `0.910`.
-- Conservative benchmark: `bio-clean model` with ROC AUC `0.783` and AP `0.663`.
-- Counts-only baseline: `baseline_both` with ROC AUC `0.948` and AP `0.908`.
-- Source-only control: `source_only` with ROC AUC `0.469`.
-- Primary-model selection rationale: current primary retained as the headline benchmark while a higher-metric audit view remains explicit; the strongest audited alternative overlaps on only 2/10 top candidates, recovering to 7/25 and 33/50, so the audit keeps both views explicit
+- Current primary benchmark: `support-synergy biological model` with ROC AUC `0.814` and AP `0.737`.
+- Strongest audited metric model: `support-synergy biological model` with ROC AUC `0.814` and AP `0.737`.
+- Conservative benchmark: `bio-clean model` with ROC AUC `0.761` and AP `0.668`.
+- Counts-only baseline: `baseline_both` with ROC AUC `0.723` and AP `0.648`.
+- Source-only control: `source_only` with ROC AUC `0.452`.
+- Primary-model selection rationale: current primary is also the strongest current single-model benchmark, so the headline and strongest audited metric model now coincide
 
 ## Decision-Support Readout
 
 - Reviewer shortlist size: `10` established high-risk + `10` novel-signal candidates in `candidate_portfolio.tsv`.
 - Read candidate outputs in this order: `candidate_portfolio.tsv` -> `candidate_evidence_matrix.tsv` -> `candidate_threshold_flip.tsv`.
 - Main outcome threshold: `3` later new countries; use `candidate_threshold_flip.tsv` to see which candidates are definition-sensitive.
-- In the multi-objective selection scorecard, the primary model ranks `4/18` after combining overall AUC, AP, lower-half/q1 knownness, matched-knownness, source holdout, and a knownness-dependence penalty.
-- The scorecard leader is `full_priority`, but the headline benchmark remains `support_synergy_priority`; the explicit selection rationale above governs that choice.
-- Augmented biological audit model: `natural_auc_priority` with ROC AUC `0.843` and AP `0.756`; this model adds external host-range, backbone purity, assignment confidence, mash-based novelty, and replicon architecture without changing the current headline benchmark.
-- Knownness-robust biological audit model: `knownness_robust_priority` with ROC AUC `0.863` and AP `0.791`; this variant keeps the biological core but replaces external host-range with recurrent AMR structure, pMLST coherence, and eco-clinical context under class+knownness balancing.
-- Support-calibrated biological model: `support_calibrated_priority` with ROC AUC `0.880` and AP `0.826`; this variant keeps the knownness-robust biological core but makes annotation support explicit through host-range support, pMLST presence, and AMR support depth.
-- Support-synergy biological model: `support_synergy_priority` with ROC AUC `0.937` and AP `0.897`; this variant keeps the support-calibrated core but adds metadata support depth, external host-range magnitude, and host-range x transfer synergy to recover sparse-support errors without adding count proxies.
-- Error-focused host-transfer synergy model: `host_transfer_synergy_priority` with ROC AUC `0.863` and AP `0.791`; this variant adds explicit host-range x transfer coupling to recover sparse-backbone mistakes without introducing direct knownness counts.
-- Threat-architecture audit model: `threat_architecture_priority` with ROC AUC `0.864` and AP `0.791`; this variant keeps the host-transfer coupling but adds AMR clinical-threat burden plus replicon multiplicity to recover sparse-backbone misses with biologically interpretable structure.
-- Taxonomy-aware H audit model: `phylogeny_aware_priority` with ROC AUC `0.840` and AP `0.760`; this variant preserves the augmented biological core but swaps the H axis for a lineage-aware host specialization signal.
-- Structure-aware biological audit model: `structured_signal_priority` with ROC AUC `0.847` and AP `0.773`; this variant keeps the taxonomy-aware H axis and adds host evenness plus recurrent AMR structure.
+- In the multi-objective selection scorecard, the primary model ranks `1/18` after combining overall AUC, AP, lower-half/q1 knownness, matched-knownness, source holdout, and a knownness-dependence penalty.
+- Augmented biological audit model: `natural_auc_priority` with ROC AUC `0.786` and AP `0.697`; this model adds external host-range, backbone purity, assignment confidence, mash-based novelty, and replicon architecture without changing the current headline benchmark.
+- Knownness-robust biological audit model: `knownness_robust_priority` with ROC AUC `0.804` and AP `0.713`; this variant keeps the biological core but replaces external host-range with recurrent AMR structure, pMLST coherence, and eco-clinical context under class+knownness balancing.
+- Support-calibrated biological model: `support_calibrated_priority` with ROC AUC `0.808` and AP `0.725`; this variant keeps the knownness-robust biological core but makes annotation support explicit through host-range support, pMLST presence, and AMR support depth.
+- Support-synergy biological model: `support_synergy_priority` with ROC AUC `0.814` and AP `0.737`; this variant keeps the support-calibrated core but adds metadata support depth, external host-range magnitude, and host-range x transfer synergy to recover sparse-support errors without adding count proxies.
+- Error-focused host-transfer synergy model: `host_transfer_synergy_priority` with ROC AUC `0.804` and AP `0.714`; this variant adds explicit host-range x transfer coupling to recover sparse-backbone mistakes without introducing direct knownness counts.
+- Threat-architecture audit model: `threat_architecture_priority` with ROC AUC `0.804` and AP `0.713`; this variant keeps the host-transfer coupling but adds AMR clinical-threat burden plus replicon multiplicity to recover sparse-backbone misses with biologically interpretable structure.
+- Taxonomy-aware H audit model: `phylogeny_aware_priority` with ROC AUC `0.779` and AP `0.697`; this variant preserves the augmented biological core but swaps the H axis for a lineage-aware host specialization signal.
+- Structure-aware biological audit model: `structured_signal_priority` with ROC AUC `0.784` and AP `0.681`; this variant keeps the taxonomy-aware H axis and adds host evenness plus recurrent AMR structure.
 - Current primary top-10 yield: precision `1.000`, recall `0.028`.
-- Conservative top-10 yield: precision `0.800`, recall `0.022`.
-- Counts-only baseline top-10 yield: precision `1.000`, recall `0.028`.
-- Current-primary vs strongest-metric top-10 overlap: `2/10` candidates; top-25 overlap: `7/25`; top-50 overlap: `33/50`.
+- Conservative top-10 yield: precision `0.900`, recall `0.025`.
+- Counts-only baseline top-10 yield: precision `0.900`, recall `0.025`.
+- Current-primary vs strongest-metric top-10 overlap: `10/10` candidates; top-25 overlap: `25/25`; top-50 overlap: `50/50`.
 - Top-25 is the more decision-relevant cut: current primary precision `1.000`, recall `0.069`.
 - Published-primary top-25 contains `0` lower-knownness candidates, so the `novel_signal` track should be read as a separate exploratory watchlist rather than as the same shortlist.
 - Lowest-knownness quartile performance is weaker (primary ROC AUC `0.979`), so early-signal claims should stay conservative.
@@ -83,7 +82,7 @@ This framework retrospectively prioritizes plasmid backbone surveillance units u
 - The outcome is later visibility increase, not direct proof of transmission fitness or public-health impact.
 - Backbone definitions are operational surveillance units and should not be presented as biological truth claims.
 - The current primary benchmark is the official headline ranking, but adaptive and exploratory audits remain useful for stress-testing its behavior.
-- Current scored backbone count: `6845`.
+- Current scored backbone count: `6841`.
 
 ## Zero-Floor Component Behavior
 
