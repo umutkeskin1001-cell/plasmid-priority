@@ -1,12 +1,12 @@
 model_name	count_column	status	n_backbones	spearman_corr	pearson_corr	mean_count_top_25	median_count_top_25	mean_count_overall	median_count_overall
-support_synergy_priority	n_new_countries_recomputed	ok	989	0.8533736926465363	0.6367672553391451	16.04	14.0	3.5551061678463096	2.0
-bio_clean_priority	n_new_countries_recomputed	ok	989	0.5162057621489174	0.4532401274055926	8.56	6.0	3.5551061678463096	2.0
-natural_auc_priority	n_new_countries_recomputed	ok	989	0.685069450436669	0.5042459014034673	12.68	13.0	3.5551061678463096	2.0
-knownness_robust_priority	n_new_countries_recomputed	ok	989	0.7100782404459031	0.5593622792902535	15.44	14.0	3.5551061678463096	2.0
-support_calibrated_priority	n_new_countries_recomputed	ok	989	0.7370609234239629	0.6015795016871442	14.76	14.0	3.5551061678463096	2.0
-support_synergy_priority	n_new_countries_recomputed	ok	989	0.8533736926465363	0.6367672553391451	16.04	14.0	3.5551061678463096	2.0
-host_transfer_synergy_priority	n_new_countries_recomputed	ok	989	0.7125792309460305	0.5606196593675535	15.44	14.0	3.5551061678463096	2.0
-ecology_clinical_priority	n_new_countries_recomputed	ok	989	0.6875806785909925	0.5202749218961665	14.36	13.0	3.5551061678463096	2.0
+support_synergy_priority	n_new_countries_recomputed	ok	989	0.5982963187854143	0.5402824204806551	13.88	11.0	3.5551061678463096	2.0
+bio_clean_priority	n_new_countries_recomputed	ok	989	0.48906340555301864	0.45923906422349453	10.28	8.0	3.5551061678463096	2.0
+natural_auc_priority	n_new_countries_recomputed	ok	989	0.5461986902017479	0.5144924124165242	14.52	12.0	3.5551061678463096	2.0
+knownness_robust_priority	n_new_countries_recomputed	ok	989	0.5719032660656179	0.5197834897758593	15.24	14.0	3.5551061678463096	2.0
+support_calibrated_priority	n_new_countries_recomputed	ok	989	0.5817806576170709	0.5220755437213402	14.04	14.0	3.5551061678463096	2.0
+support_synergy_priority	n_new_countries_recomputed	ok	989	0.5982963187854143	0.5402824204806551	13.88	11.0	3.5551061678463096	2.0
+host_transfer_synergy_priority	n_new_countries_recomputed	ok	989	0.5712778388984037	0.5189667567052676	13.72	12.0	3.5551061678463096	2.0
+ecology_clinical_priority	n_new_countries_recomputed	ok	989	0.5601480833023099	0.5293679795786315	13.56	10.0	3.5551061678463096	2.0
 adaptive_natural_priority	n_new_countries_recomputed	ok	989	0.7329882525394457	0.5363539023945187	12.68	13.0	3.5551061678463096	2.0
 adaptive_knownness_robust_priority	n_new_countries_recomputed	ok	989	0.7842327359078569	0.6081804648589247	15.48	14.0	3.5551061678463096	2.0
 adaptive_knownness_blend_priority	n_new_countries_recomputed	ok	989	0.7634575547442385	0.5996125536035638	15.48	14.0	3.5551061678463096	2.0
@@ -14,4 +14,4 @@ adaptive_support_calibrated_blend_priority	n_new_countries_recomputed	ok	989	0.7
 adaptive_support_synergy_blend_priority	n_new_countries_recomputed	ok	989	0.8527250333602544	0.6510080644791022	16.04	14.0	3.5551061678463096	2.0
 adaptive_host_transfer_synergy_blend_priority	n_new_countries_recomputed	ok	989	0.7761488565462188	0.6066101157138349	15.44	14.0	3.5551061678463096	2.0
 adaptive_threat_architecture_blend_priority	n_new_countries_recomputed	ok	989	0.764003470048638	0.6001347817939539	15.44	14.0	3.5551061678463096	2.0
-baseline_both	n_new_countries_recomputed	ok	989	0.8778035361534642	0.7214779515173407	23.8	23.0	3.5551061678463096	2.0
+baseline_both	n_new_countries_recomputed	ok	989	0.4270240442597786	0.5138867708646514	13.88	11.0	3.5551061678463096	2.0

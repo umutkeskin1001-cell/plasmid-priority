@@ -1108,7 +1108,7 @@ def build_standardized_coefficient_table(
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
     X, _ = _prepare_feature_matrices(eligible, eligible, columns, fit_kwargs=fit_kwargs)
     sample_weight = _compute_sample_weight(eligible, mode=fit_kwargs.get("sample_weight_mode"))
-    beta, _, _ = _fit_standardized_model(
+    beta, _, _, _ = _fit_standardized_model(
         X,
         y,
         l2=float(fit_kwargs.get("l2", l2)),
@@ -1158,7 +1158,7 @@ def build_coefficient_stability_table(
             train_weight = sample_weight[train_mask] if sample_weight is not None else None
             train = eligible.loc[train_mask].copy()
             X_train, _ = _prepare_feature_matrices(train, train, columns, fit_kwargs=fit_kwargs)
-            beta, _, _ = _fit_standardized_model(
+            beta, _, _, _ = _fit_standardized_model(
                 X_train,
                 y[train_mask],
                 l2=float(fit_kwargs.get("l2", l2)),

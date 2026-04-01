@@ -329,6 +329,7 @@ class ModelAuditTests(unittest.TestCase):
             {
                 "backbone_id": [f"bb_{i}" for i in range(12)],
                 "member_count_train": [1] * 12,
+                "n_countries_train": [1] * 12,
                 "priority_index": [0.95, 0.91, 0.89, 0.84, 0.8, 0.77, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45],
                 "T_eff": [0.9, 0.85, 0.82, 0.78, 0.76, 0.71, 0.66, 0.6, 0.55, 0.5, 0.44, 0.4],
                 "H_eff": [0.88, 0.84, 0.8, 0.74, 0.7, 0.68, 0.63, 0.58, 0.52, 0.47, 0.42, 0.38],

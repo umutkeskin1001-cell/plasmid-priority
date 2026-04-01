@@ -120,6 +120,8 @@ class ScoringTests(unittest.TestCase):
         scored = pd.DataFrame(
             {
                 "backbone_id": ["bb1", "bb2", "bb3"],
+                "member_count_train": [1, 2, 3],
+                "n_countries_train": [1, 2, 3],
                 "T_eff": [0.1, 0.4, 0.8],
                 "H_eff": [0.2, 0.3, 0.9],
                 "A_eff": [0.05, 0.5, 0.7],
@@ -133,6 +135,8 @@ class ScoringTests(unittest.TestCase):
         scored = pd.DataFrame(
             {
                 "backbone_id": ["bb1", "bb2", "bb3"],
+                "member_count_train": [1, 2, 3],
+                "n_countries_train": [1, 2, 3],
                 "T_eff": [0.0, 0.2, 0.8],
                 "H_eff": [0.0, 0.3, 0.9],
                 "A_eff": [0.0, 0.5, 0.7],
@@ -148,6 +152,8 @@ class ScoringTests(unittest.TestCase):
         scored = pd.DataFrame(
             {
                 "backbone_id": ["bb1", "bb2", "bb3"],
+                "member_count_train": [1, 2, 3],
+                "n_countries_train": [1, 2, 3],
                 "T_eff": [0.0, 0.2, 0.8],
                 "H_eff": [0.0, 0.3, 0.9],
                 "A_eff": [0.0, 0.5, 0.7],
