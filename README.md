@@ -1,0 +1,109 @@
+# Plasmid Priority
+
+Plasmid Priority is a retrospective genomic surveillance prioritization framework for operational plasmid backbone classes. It scores backbones with mobility (`T`), observed host diversity (`H`), and AMR burden/consistency (`A`), then tests whether higher-priority backbones are retrospectively associated with later new-country visibility increase.
+
+## Scientific Boundaries
+
+This repository does not claim to predict true biological spread, prove transmission, or act as a clinical risk tool. The primary outcome is a visibility-based retrospective label, not direct epidemiological spread.
+
+## Core Data Sources
+
+Current computational inputs in the fast pipeline:
+
+- PLSDB FASTA + canonical metadata + side tables
+- RefSeq plasmid FASTA
+- Pathogen Detection metadata tables
+- WHO MIA text extraction for curated reference validation
+- Local CARD and MOB-suite archives for descriptive support
+- Local AMRFinderPlus database for optional small-panel concordance checks (may be absent from a given release build)
+
+Repository-retained reserve assets not required by the current fast analytical path:
+
+- RefSeq assembly summary
+- NCBI taxonomy dump
+- Project-local ResFinder and PlasmidFinder databases
+
+Supportive layers include the WHO Medically Important Antimicrobials document, Pathogen Detection metadata, the local CARD archive, the local MOB-suite reference archive, and, when available, a small-panel AMRFinder concordance check. In this repository, these layers are descriptive support or sanity-check layers only; they are never used as model training features and must not be presented as standalone external validation claims.
+
+## Repository Layout
+
+- `src/plasmid_priority/`: reusable package code
+- `scripts/`: numbered pipeline entry points
+- `data/manifests/`: path authority and machine-readable data contract
+- `data/experiments/`: exploratory search outputs and non-canonical experiment artifacts
+- `tests/`: unit and smoke-level checks
+
+## Quick Start
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[analysis]"  # Installs the package and analysis dependencies
+python scripts/01_check_inputs.py
+python scripts/26_run_tests_or_smoke.py
+```
+
+## Current Scope
+
+The current implementation now covers the main retrospective pipeline:
+
+- manifest-driven input validation
+- canonical metadata harmonization and deduplication
+- operational backbone assignment and T/H/A feature generation
+- retrospective Module A scoring and validation
+- conservative and proxy-audit model comparisons
+- subgroup validation, coefficient audit, and feature-dropout analysis
+- exploratory Module B AMR comparison
+- supportive Module C Pathogen Detection metadata analysis, including clinical/environmental strata
+- supportive CARD ontology and MOB-suite literature/cluster support analysis
+- final report tables and figures under `reports/`
+
+## Interpreting Results
+
+The results of the pipeline are structured to be directly usable for scientific presentations and jury evaluations:
+
+1. **Narratives** (`reports/jury_brief.md` & `reports/ozet_tr.md`): The main English and Turkish narrative summaries for jury-facing interpretation.
+2. **Core Figures** (`reports/core_figures/`): The high-impact visualizations ready for slide decks.
+3. **Core Report Tables** (`reports/core_tables/`): The curated shortlist, model-selection, and portfolio tables that belong in presentations and handouts.
+4. **Canonical Analysis Tables** (`data/analysis/`): The full machine-readable audit outputs. Large technical tables live here instead of being mirrored into multiple report folders.
+5. **Experimental Artifacts** (`data/experiments/`): Model-search outputs, exploratory sweeps, and their checksum registry.
+6. **Compact Summary Output**: `reports/tubitak_final_metrics.txt` carries the exact TÜBİTAK-ready headline metrics.
+
+## Recommended Run Order
+
+```bash
+make pipeline
+```
+
+If `.venv/` exists, the `Makefile` automatically uses `.venv/bin/python`.
+
+For fast iteration after backbone scores and models already exist, run only the analysis/reporting tail:
+
+```bash
+make analysis-refresh
+```
+
+To just rebuild the TÜBİTAK summary output after modifying how metrics are pulled:
+```bash
+make tubitak-summary
+```
+
+To refresh only the headline scientific core without supportive appendix layers:
+```bash
+make core-refresh
+```
+
+To refresh only the descriptive/supportive modules and then rebuild the report:
+```bash
+make support-refresh
+```
+
+To build a curated release bundle plus experiment registry:
+```bash
+make release-bundle
+```
+
+To remove stale generated clutter before a fresh rebuild:
+```bash
+make clean-generated
+```

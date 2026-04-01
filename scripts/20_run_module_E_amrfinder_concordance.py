@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Run a small AMRFinder probe and compare it with the provided AMR consensus."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+from pathlib import Path
+
+import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+from plasmid_priority.config import build_context
+from plasmid_priority.modeling import get_primary_model_name
+from plasmid_priority.reporting import (
+    ManagedScriptRun,
+    build_amrfinder_concordance_tables,
+    parse_amrfinder_probe_report,
+    run_amrfinder_probe,
+    select_amrfinder_probe_panel,
+    write_selected_fasta_records,
+)
+from plasmid_priority.utils.dataframe import read_tsv
+from plasmid_priority.utils.files import ensure_directory
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--n-per-group",
+        type=int,
+        default=20,
+        help="Number of high and low priority backbones to probe.",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=max(1, os.cpu_count() or 1),
+        help="AMRFinder threads for the probe run.",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+    context = build_context(PROJECT_ROOT)
+    scored_path = context.root / "data/scores/backbone_scored.tsv"
+    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
+    metrics_path = context.root / "data/analysis/module_a_metrics.json"
+    predictions_path = context.root / "data/analysis/module_a_predictions.tsv"
+    all_plasmids_fasta = context.asset_path("bronze_all_plasmids_fasta")
+    amrfinder_db_root = context.asset_path("amrfinder_db_dir")
+
+    probe_panel_path = context.root / "data/analysis/amrfinder_probe_panel.tsv"
+    probe_fasta_path = context.root / "data/tmp/amrfinder_probe_panel.fasta"
+    probe_hits_path = context.root / "data/analysis/amrfinder_probe_hits.tsv"
+    concordance_detail_path = context.root / "data/analysis/amrfinder_concordance_detail.tsv"
+    concordance_summary_path = context.root / "data/analysis/amrfinder_concordance_summary.tsv"
+    ensure_directory(probe_panel_path.parent)
+    ensure_directory(probe_fasta_path.parent)
+
+    with ManagedScriptRun(context, "20_run_module_E_amrfinder_concordance") as run:
+        for path in (scored_path, backbones_path, amr_consensus_path, metrics_path, predictions_path, all_plasmids_fasta, amrfinder_db_root):
+            run.record_input(path)
+        for path in (probe_panel_path, probe_hits_path, concordance_detail_path, concordance_summary_path):
+            run.record_output(path)
+        run.note("AMRFinder probe is a concordance sanity check on a small representative panel, not a full resequencing annotation pass.")
+
+        scored = read_tsv(scored_path)
+        backbones = read_tsv(
+            backbones_path,
+            usecols=["backbone_id", "sequence_accession", "is_canonical_representative", "species", "genus"],
+        )
+        amr_consensus = read_tsv(amr_consensus_path)
+        with metrics_path.open("r", encoding="utf-8") as handle:
+            model_metrics = json.load(handle)
+        predictions = read_tsv(predictions_path)
+        primary_model_name = get_primary_model_name(list(model_metrics))
+        primary_scores = predictions.loc[
+            predictions["model_name"] == primary_model_name,
+            ["backbone_id", "oof_prediction"],
+        ].rename(columns={"oof_prediction": "primary_model_oof_prediction"})
+        scored = scored.merge(primary_scores, on="backbone_id", how="left")
+
+        panel = select_amrfinder_probe_panel(
+            scored,
+            backbones,
+            n_per_group=args.n_per_group,
+            score_column="primary_model_oof_prediction",
+            eligible_only=True,
+        )
+        panel.to_csv(probe_panel_path, sep="\t", index=False)
+        run.set_rows_out("amrfinder_probe_panel_rows", int(len(panel)))
+
+        extraction = write_selected_fasta_records(
+            all_plasmids_fasta,
+            panel["sequence_accession"].astype(str).tolist(),
+            probe_fasta_path,
+        )
+        if extraction["missing"]:
+            run.warn(f"AMRFinder probe FASTA missing {len(extraction['missing'])} selected accessions.")
+        run.set_metric("amrfinder_probe_requested", int(extraction["requested"]))
+        run.set_metric("amrfinder_probe_found", int(extraction["found"]))
+
+        if shutil.which("amrfinder") is None:
+            run.warn("AMRFinder executable not found in PATH; skipping supportive concordance probe.")
+            probe_hits_path.write_text("", encoding="utf-8")
+            concordance_detail, concordance_summary = build_amrfinder_concordance_tables(
+                panel.head(0),
+                amr_consensus,
+                pd.DataFrame(),
+            )
+        else:
+            probe_result = run_amrfinder_probe(
+                probe_fasta_path,
+                probe_hits_path,
+                amrfinder_db_root=amrfinder_db_root,
+                threads=args.threads,
+            )
+            if probe_result["stderr"].strip():
+                run.note(probe_result["stderr"].strip())
+
+            amrfinder_probe = parse_amrfinder_probe_report(probe_hits_path)
+            concordance_detail, concordance_summary = build_amrfinder_concordance_tables(panel, amr_consensus, amrfinder_probe)
+        concordance_detail.to_csv(concordance_detail_path, sep="\t", index=False)
+        concordance_summary.to_csv(concordance_summary_path, sep="\t", index=False)
+        run.set_rows_out("amrfinder_concordance_detail_rows", int(len(concordance_detail)))
+        run.set_rows_out("amrfinder_concordance_summary_rows", int(len(concordance_summary)))
+        if not concordance_summary.empty:
+            overall = concordance_summary.loc[concordance_summary["priority_group"] == "overall"].iloc[0]
+            run.set_metric("amrfinder_mean_gene_jaccard", float(overall["mean_gene_jaccard"]))
+            run.set_metric("amrfinder_mean_class_jaccard", float(overall["mean_class_jaccard"]))
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

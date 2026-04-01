@@ -1,0 +1,73 @@
+card_amr_gene_family	high	low	prevalence_delta_high_minus_low
+aminoglycoside antibiotic	0.6153846153846154	0.020242914979757	0.5951417004048584
+disinfecting agents and antiseptics	0.4331983805668016	0.0080971659919028	0.4251012145748987
+tetracycline antibiotic	0.4251012145748988	0.020242914979757	0.4048582995951417
+diaminopyrimidine antibiotic	0.4008097165991903	0.0040485829959514	0.3967611336032389
+sulfonamide antibiotic;sulfone antibiotic	0.3927125506072874	0.0121457489878542	0.3805668016194332
+phenicol antibiotic	0.3724696356275304	0.0080971659919028	0.3643724696356275
+fluoroquinolone antibiotic	0.3279352226720647	0.0	0.3279352226720647
+macrolide antibiotic	0.3238866396761133	0.0040485829959514	0.3198380566801619
+aminoglycoside antibiotic;fluoroquinolone antibiotic	0.2348178137651821	0.0040485829959514	0.2307692307692307
+cephalosporin;monobactam;penicillin beta-lactam	0.2267206477732793	0.0	0.2267206477732793
+rifamycin antibiotic	0.2024291497975708	0.0	0.2024291497975708
+glycopeptide antibiotic	0.2105263157894736	0.0121457489878542	0.1983805668016194
+lincosamide antibiotic;macrolide antibiotic;streptogramin A antibiotic;streptogramin B antibiotic;streptogramin antibiotic	0.1659919028340081	0.0	0.1659919028340081
+peptide antibiotic	0.1700404858299595	0.0040485829959514	0.165991902834008
+phosphonic acid antibiotic	0.1659919028340081	0.0121457489878542	0.1538461538461538
+penicillin beta-lactam	0.145748987854251	0.0	0.145748987854251
+cephalosporin;penicillin beta-lactam	0.1417004048582996	0.0	0.1417004048582996
+cephalosporin	0.1376518218623481	0.0	0.1376518218623481
+macrolide antibiotic;streptogramin antibiotic	0.1376518218623481	0.0040485829959514	0.1336032388663967
+lincosamide antibiotic	0.1012145748987854	0.0	0.1012145748987854
+fluoroquinolone antibiotic;tetracycline antibiotic	0.1093117408906882	0.0121457489878542	0.097165991902834
+carbapenem;cephalosporin;penicillin beta-lactam	0.0850202429149797	0.0	0.0850202429149797
+nucleoside antibiotic	0.0728744939271255	0.0	0.0728744939271255
+carbapenem;cephalosporin;monobactam;penicillin beta-lactam	0.0647773279352226	0.0	0.0647773279352226
+diaminopyrimidine antibiotic;fluoroquinolone antibiotic;glycylcycline;nitrofuran antibiotic;tetracycline antibiotic	0.0526315789473684	0.0	0.0526315789473684
+glycylcycline;tetracycline antibiotic	0.048582995951417	0.0	0.048582995951417
+macrolide antibiotic;streptogramin B antibiotic;streptogramin antibiotic	0.0364372469635627	0.0	0.0364372469635627
+lincosamide antibiotic;macrolide antibiotic;streptogramin antibiotic	0.0364372469635627	0.0	0.0364372469635627
+carbapenem	0.0364372469635627	0.0	0.0364372469635627
+mupirocin-like antibiotic	0.0323886639676113	0.0	0.0323886639676113
+carbapenem;penicillin beta-lactam	0.0323886639676113	0.0	0.0323886639676113
+lincosamide antibiotic;oxazolidinone antibiotic;phenicol antibiotic;pleuromutilin antibiotic;streptogramin A antibiotic;streptogramin antibiotic	0.0323886639676113	0.0	0.0323886639676113
+fluoroquinolone antibiotic;macrolide antibiotic;penicillin beta-lactam;tetracycline antibiotic	0.0242914979757085	0.0	0.0242914979757085
+cephalosporin;disinfecting agents and antiseptics;fluoroquinolone antibiotic;glycylcycline;penicillin beta-lactam;phenicol antibiotic;rifamycin antibiotic;tetracycline antibiotic	0.020242914979757	0.0	0.020242914979757
+oxazolidinone antibiotic;phenicol antibiotic;tetracycline antibiotic	0.0161943319838056	0.0	0.0161943319838056
+streptogramin A antibiotic;streptogramin antibiotic	0.0161943319838056	0.0	0.0161943319838056
+nitroimidazole antibiotic	0.020242914979757	0.0040485829959514	0.0161943319838056
+fluoroquinolone antibiotic;macrolide antibiotic;penicillin beta-lactam	0.0161943319838056	0.0	0.0161943319838056
+disinfecting agents and antiseptics;nucleoside antibiotic	0.0161943319838056	0.0	0.0161943319838056
+aminocoumarin antibiotic;aminoglycoside antibiotic	0.0161943319838056	0.0	0.0161943319838056
+aminoglycoside antibiotic;fluoroquinolone antibiotic;phosphonic acid antibiotic	0.0161943319838056	0.0	0.0161943319838056
+elfamycin antibiotic	0.0161943319838056	0.0	0.0161943319838056
+diaminopyrimidine antibiotic;fluoroquinolone antibiotic;phenicol antibiotic	0.0121457489878542	0.0	0.0121457489878542
+carbapenem;cephalosporin	0.0121457489878542	0.0	0.0121457489878542
+carbapenem;cephalosporin;disinfecting agents and antiseptics;fluoroquinolone antibiotic;glycylcycline;monobactam;penicillin beta-lactam;phenicol antibiotic;rifamycin antibiotic;tetracycline antibiotic	0.0121457489878542	0.0	0.0121457489878542
+lincosamide antibiotic;pleuromutilin antibiotic;streptogramin A antibiotic;streptogramin antibiotic	0.0121457489878542	0.0	0.0121457489878542
+disinfecting agents and antiseptics;fluoroquinolone antibiotic;lincosamide antibiotic;nucleoside antibiotic;phenicol antibiotic	0.0121457489878542	0.0	0.0121457489878542
+aminocoumarin antibiotic	0.0121457489878542	0.0	0.0121457489878542
+disinfecting agents and antiseptics;phenicol antibiotic;tetracycline antibiotic	0.0121457489878542	0.0	0.0121457489878542
+glycopeptide antibiotic;lincosamide antibiotic;oxazolidinone antibiotic;phenicol antibiotic;streptogramin antibiotic	0.0080971659919028	0.0	0.0080971659919028
+sulfonamide antibiotic	0.0080971659919028	0.0	0.0080971659919028
+disinfecting agents and antiseptics;phenicol antibiotic	0.0080971659919028	0.0	0.0080971659919028
+lincosamide antibiotic;pleuromutilin antibiotic;streptogramin antibiotic	0.0080971659919028	0.0	0.0080971659919028
+fluoroquinolone antibiotic;nybomycin-like antibiotic	0.0080971659919028	0.0	0.0080971659919028
+aminoglycoside antibiotic;carbapenem;cephalosporin;fluoroquinolone antibiotic;macrolide antibiotic;penicillin beta-lactam;peptide antibiotic	0.0080971659919028	0.0	0.0080971659919028
+aminoglycoside antibiotic;cephalosporin;disinfecting agents and antiseptics;macrolide antibiotic;peptide antibiotic;rifamycin antibiotic;tetracycline antibiotic	0.0080971659919028	0.0	0.0080971659919028
+aminoglycoside antibiotic;disinfecting agents and antiseptics;fluoroquinolone antibiotic;penicillin beta-lactam;tetracycline antibiotic	0.0080971659919028	0.0	0.0080971659919028
+oxazolidinone antibiotic;phenicol antibiotic	0.0080971659919028	0.0	0.0080971659919028
+fusidane antibiotic	0.0040485829959514	0.0	0.0040485829959514
+aminocoumarin antibiotic;aminoglycoside antibiotic;carbapenem;cephalosporin;disinfecting agents and antiseptics;fluoroquinolone antibiotic;glycylcycline;macrolide antibiotic;penicillin beta-lactam;peptide antibiotic;phenicol antibiotic;rifamycin antibiotic;tetracycline antibiotic	0.0040485829959514	0.0	0.0040485829959514
+aminocoumarin antibiotic;aminoglycoside antibiotic;cephalosporin;diaminopyrimidine antibiotic;fluoroquinolone antibiotic;macrolide antibiotic;penicillin beta-lactam;phenicol antibiotic;tetracycline antibiotic	0.0040485829959514	0.0	0.0040485829959514
+aminoglycoside antibiotic;carbapenem;cephalosporin;disinfecting agents and antiseptics;fluoroquinolone antibiotic;macrolide antibiotic;penicillin beta-lactam;phenicol antibiotic;tetracycline antibiotic	0.0040485829959514	0.0	0.0040485829959514
+lincosamide antibiotic;macrolide antibiotic;orthosomycin antibiotic	0.0040485829959514	0.0	0.0040485829959514
+antibacterial free fatty acids	0.0040485829959514	0.0	0.0040485829959514
+lincosamide antibiotic;macrolide antibiotic	0.0040485829959514	0.0	0.0040485829959514
+cephalosporin;fluoroquinolone antibiotic;macrolide antibiotic;penicillin beta-lactam;tetracycline antibiotic	0.0040485829959514	0.0	0.0040485829959514
+cephalosporin;fluoroquinolone antibiotic;penicillin beta-lactam	0.0040485829959514	0.0	0.0040485829959514
+cephalosporin;moenomycin antibiotic;penicillin beta-lactam;peptide antibiotic	0.0040485829959514	0.0	0.0040485829959514
+lincosamide antibiotic;pleuromutilin antibiotic;streptogramin A antibiotic;streptogramin B antibiotic;streptogramin antibiotic	0.0040485829959514	0.0	0.0040485829959514
+lincosamide antibiotic;oxazolidinone antibiotic;phenicol antibiotic;streptogramin antibiotic	0.0040485829959514	0.0	0.0040485829959514
+disinfecting agents and antiseptics;fluoroquinolone antibiotic	0.0040485829959514	0.0	0.0040485829959514
+fluoroquinolone antibiotic;macrolide antibiotic;phenicol antibiotic;tetracycline antibiotic	0.0040485829959514	0.0	0.0040485829959514

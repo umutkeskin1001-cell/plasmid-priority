@@ -1,0 +1,17 @@
+model_name	ordinal_column	status	n_backbones	spearman_corr	pearson_corr	mean_ordinal_top_25	mean_ordinal_overall
+support_synergy_priority	spread_severity_bin	ok	989	0.8303230022589785	0.8242952184071473	3.0	1.2922143579373104
+bio_clean_priority	spread_severity_bin	ok	989	0.5053232810013347	0.4773943006403256	2.28	1.2922143579373104
+natural_auc_priority	spread_severity_bin	ok	989	0.6710126768664181	0.6323858452763986	2.96	1.2922143579373104
+knownness_robust_priority	spread_severity_bin	ok	989	0.6918659796408734	0.6858438192732851	2.96	1.2922143579373104
+support_calibrated_priority	spread_severity_bin	ok	989	0.7154495237750025	0.7123964993009759	2.96	1.2922143579373104
+support_synergy_priority	spread_severity_bin	ok	989	0.8303230022589785	0.8242952184071473	3.0	1.2922143579373104
+host_transfer_synergy_priority	spread_severity_bin	ok	989	0.693554620135142	0.6860479479843928	2.96	1.2922143579373104
+ecology_clinical_priority	spread_severity_bin	ok	989	0.6714242302767051	0.6347678738200501	2.92	1.2922143579373104
+adaptive_natural_priority	spread_severity_bin	ok	989	0.7123627654498347	0.6500491568734582	2.96	1.2922143579373104
+adaptive_knownness_robust_priority	spread_severity_bin	ok	989	0.7591564027182168	0.7311161708381364	2.96	1.2922143579373104
+adaptive_knownness_blend_priority	spread_severity_bin	ok	989	0.7406117840721421	0.7271981721145659	2.96	1.2922143579373104
+adaptive_support_calibrated_blend_priority	spread_severity_bin	ok	989	0.7560219090533661	0.7437626114399082	2.96	1.2922143579373104
+adaptive_support_synergy_blend_priority	spread_severity_bin	ok	989	0.827446733270575	0.8197929435205438	3.0	1.2922143579373104
+adaptive_host_transfer_synergy_blend_priority	spread_severity_bin	ok	989	0.7515855542388277	0.7299338250565159	2.96	1.2922143579373104
+adaptive_threat_architecture_blend_priority	spread_severity_bin	ok	989	0.7406939278919811	0.7253667263243312	2.96	1.2922143579373104
+baseline_both	spread_severity_bin	ok	989	0.8565786125395547	0.846095202186599	3.0	1.2922143579373104

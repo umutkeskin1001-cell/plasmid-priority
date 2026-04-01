@@ -1,0 +1,4 @@
+period	n_rows	n_rows_with_country	country_non_null_fraction	n_unique_countries	n_rows_with_macro_region	macro_region_mapped_fraction	n_backbones_with_any_country	n_backbones_without_country
+all_rows	201054	57441	0.2856993643498761	155	57441	0.2856993643498761	5844	1001
+later	67054	55792	0.832045813821696	151	55792	0.832045813821696	5581	426
+training	134000	1649	0.0123059701492537	81	1649	0.0123059701492537	1011	5620

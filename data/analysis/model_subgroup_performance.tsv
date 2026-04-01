@@ -1,0 +1,82 @@
+model_name	subgroup_name	subgroup_value	n_backbones	n_positive	roc_auc	average_precision	brier_score	status
+support_synergy_priority	overall	all	989	362	0.937402521874752	0.896670007911643	0.1137182001286246	ok
+support_synergy_priority	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+support_synergy_priority	dominant_source	refseq_leaning	960	362	0.9347410336480718	0.8970311877150048	0.1165180256040547	ok
+support_synergy_priority	member_count_band	1	237	0				skipped_insufficient_label_variation
+support_synergy_priority	member_count_band	2	118	0				skipped_insufficient_label_variation
+support_synergy_priority	member_count_band	3_plus	634	362	0.8581816704582386	0.8973446382267846	0.1726066785194539	ok
+support_synergy_priority	country_count_band	1	882	289	0.939490129947426	0.8819116076849866	0.1067895676152063	ok
+support_synergy_priority	country_count_band	2	90	60	0.8944444444444445	0.9517735761757604	0.1745889992616428	ok
+support_synergy_priority	country_count_band	3	17	13				skipped_insufficient_label_variation
+bio_clean_priority	overall	all	989	362	0.7830103888551112	0.6631649686284598	0.200221904800003	ok
+bio_clean_priority	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+bio_clean_priority	dominant_source	refseq_leaning	960	362	0.7802620151887506	0.6683261766016215	0.2053410761720239	ok
+bio_clean_priority	member_count_band	1	237	0				skipped_insufficient_label_variation
+bio_clean_priority	member_count_band	2	118	0				skipped_insufficient_label_variation
+bio_clean_priority	member_count_band	3_plus	634	362	0.7123212544686384	0.7590523176333759	0.2897858257792217	ok
+bio_clean_priority	country_count_band	1	882	289	0.7731084101133757	0.6137748986310962	0.191737274213315	ok
+bio_clean_priority	country_count_band	2	90	60	0.7161111111111111	0.8309574573570737	0.2729107030957884	ok
+bio_clean_priority	country_count_band	3	17	13				skipped_insufficient_label_variation
+knownness_robust_priority	overall	all	989	362	0.8628873791711826	0.7909226757346244	0.152297927870062	ok
+knownness_robust_priority	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+knownness_robust_priority	dominant_source	refseq_leaning	960	362	0.8593100389881557	0.792998323172767	0.1546355582946245	ok
+knownness_robust_priority	member_count_band	1	237	0				skipped_insufficient_label_variation
+knownness_robust_priority	member_count_band	2	118	0				skipped_insufficient_label_variation
+knownness_robust_priority	member_count_band	3_plus	634	362	0.7514015274618133	0.8144903338133052	0.2022090945849446	ok
+knownness_robust_priority	country_count_band	1	882	289	0.8622218850837626	0.7603691846565791	0.1479950031228022	ok
+knownness_robust_priority	country_count_band	2	90	60	0.75	0.8774136626455793	0.1928802191987728	ok
+knownness_robust_priority	country_count_band	3	17	13				skipped_insufficient_label_variation
+host_transfer_synergy_priority	overall	all	989	362	0.8630151471093606	0.7910940580554292	0.151893325961265	ok
+host_transfer_synergy_priority	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+host_transfer_synergy_priority	dominant_source	refseq_leaning	960	362	0.8591114026497163	0.7927243029584289	0.154474824731479	ok
+host_transfer_synergy_priority	member_count_band	1	237	0				skipped_insufficient_label_variation
+host_transfer_synergy_priority	member_count_band	2	118	0				skipped_insufficient_label_variation
+host_transfer_synergy_priority	member_count_band	3_plus	634	362	0.7494718882027949	0.8130684019877814	0.2029574442021788	ok
+host_transfer_synergy_priority	country_count_band	1	882	289	0.8626361763830619	0.7614344392411376	0.1474763188002288	ok
+host_transfer_synergy_priority	country_count_band	2	90	60	0.7472222222222222	0.8753934035735311	0.1950427067145551	ok
+host_transfer_synergy_priority	country_count_band	3	17	13				skipped_insufficient_label_variation
+ecology_clinical_priority	overall	all	989	362	0.8434225946584191	0.7552452558180573	0.1585438064686291	ok
+ecology_clinical_priority	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+ecology_clinical_priority	dominant_source	refseq_leaning	960	362	0.8375431918549863	0.7560316177857413	0.1630901106506477	ok
+ecology_clinical_priority	member_count_band	1	237	0				skipped_insufficient_label_variation
+ecology_clinical_priority	member_count_band	2	118	0				skipped_insufficient_label_variation
+ecology_clinical_priority	member_count_band	3_plus	634	362	0.7182015762105947	0.7809056812642587	0.2353789211270354	ok
+ecology_clinical_priority	country_count_band	1	882	289	0.8457202541764648	0.7310869130586625	0.1502738034446348	ok
+ecology_clinical_priority	country_count_band	2	90	60	0.6811111111111111	0.8256714278134165	0.2311346715653602	ok
+ecology_clinical_priority	country_count_band	3	17	13				skipped_insufficient_label_variation
+full_priority	overall	all	989	362	0.948253985037934	0.9102004631187948	0.0899335844197404	ok
+full_priority	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+full_priority	dominant_source	refseq_leaning	960	362	0.946197268981319	0.9107490919589604	0.0922751818378032	ok
+full_priority	member_count_band	1	237	0				skipped_insufficient_label_variation
+full_priority	member_count_band	2	118	0				skipped_insufficient_label_variation
+full_priority	member_count_band	3_plus	634	362	0.8807990737731557	0.910221388156985	0.1399188754283723	ok
+full_priority	country_count_band	1	882	289	0.9485928683545636	0.8930992660575332	0.0876344662214974	ok
+full_priority	country_count_band	2	90	60	0.9266666666666667	0.9627261385890364	0.1038433679369084	ok
+full_priority	country_count_band	3	17	13				skipped_insufficient_label_variation
+baseline_both	overall	all	989	362	0.9475732903328136	0.9081610837399744	0.0899371728840245	ok
+baseline_both	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+baseline_both	dominant_source	refseq_leaning	960	362	0.9457099170346828	0.9091081573766826	0.0920604291310375	ok
+baseline_both	member_count_band	1	237	0				skipped_insufficient_label_variation
+baseline_both	member_count_band	2	118	0				skipped_insufficient_label_variation
+baseline_both	member_count_band	3_plus	634	362	0.8791487244068898	0.9081610837399744	0.1398595363370048	ok
+baseline_both	country_count_band	1	882	289	0.946775238217497	0.887537715289937	0.0886827818527126	ok
+baseline_both	country_count_band	2	90	60	0.9355555555555556	0.9692132553310884	0.0967109339981058	ok
+baseline_both	country_count_band	3	17	13				skipped_insufficient_label_variation
+baseline_country_count	overall	all	989	362	0.5414981451620009	0.4545840625686722	0.2208000020152256	ok
+baseline_country_count	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+baseline_country_count	dominant_source	refseq_leaning	960	362	0.5388611208632827	0.4622412697862952	0.2240569104185564	ok
+baseline_country_count	member_count_band	1	237	0				skipped_insufficient_label_variation
+baseline_country_count	member_count_band	2	118	0				skipped_insufficient_label_variation
+baseline_country_count	member_count_band	3_plus	634	362	0.5116438495287617	0.6014200656310513	0.2804134732056513	ok
+baseline_country_count	country_count_band	1	882	289	0.4583374665211784	0.3105213424660986	0.2204447388452971	ok
+baseline_country_count	country_count_band	2	90	60	0.3758333333333333	0.6083290191028168	0.2304405345290749	ok
+baseline_country_count	country_count_band	3	17	13				skipped_insufficient_label_variation
+source_only	overall	all	989	362	0.4687232898922344	0.3459134042138258	0.2266455629628078	ok
+source_only	dominant_source	insd_leaning	29	0				skipped_insufficient_label_variation
+source_only	dominant_source	refseq_leaning	960	362	0.4429590347197841	0.3459134042138259	0.2332869488195937	ok
+source_only	member_count_band	1	237	0				skipped_insufficient_label_variation
+source_only	member_count_band	2	118	0				skipped_insufficient_label_variation
+source_only	member_count_band	3_plus	634	362	0.5040877884302892	0.575750878549909	0.2790399731595101	ok
+source_only	country_count_band	1	882	289	0.4741884850359149	0.3148288722153129	0.2174004123657738	ok
+source_only	country_count_band	2	90	60	0.6122222222222222	0.7412706241598429	0.298226357547228	ok
+source_only	country_count_band	3	17	13				skipped_insufficient_label_variation

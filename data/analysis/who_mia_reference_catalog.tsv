@@ -1,0 +1,19 @@
+who_mia_category	who_mia_class	who_mapping_scope	mapped_amr_tokens	reference_class_present_in_text
+CIA	Aminoglycosides	both_humans_and_animals	AMINOGLYCOSIDE	True
+CIA	Ansamycins	both_humans_and_animals	RIFAMYCIN	True
+CIA	Glycylcyclines	humans_only	GLYCYLCYCLINE	True
+CIA	Macrolides	both_humans_and_animals	MACROLIDE	True
+CIA	Monobactams	humans_only	MONOBACTAM	True
+CIA	Oxazolidinones	humans_only	OXAZOLIDINONE	True
+HIA	Amphenicols	both_humans_and_animals	PHENICOL	True
+HIA	Fusidanes	both_humans_and_animals	FUSIDANE,FUSIDIC ACID	True
+HIA	Lincosamides	both_humans_and_animals	LINCOSAMIDE	True
+HIA	Sulfonamides, dihydrofolate reductase inhibitors and combinations	both_humans_and_animals	DIAMINOPYRIMIDINE,SULFONAMIDE,TRIMETHOPRIM	True
+HIA	Tetracyclines	both_humans_and_animals	TETRACYCLINE	True
+HPCIA	Carbapenems with or without inhibitors	humans_only	CARBAPENEM	True
+HPCIA	Glycopeptides and lipoglycopeptides	humans_only	GLYCOPEPTIDE	True
+HPCIA	Phosphonic acid derivatives	both_humans_and_animals	FOSFOMYCIN,PHOSPHONIC ACID	True
+HPCIA	Polymyxins	both_humans_and_animals	COLISTIN,POLYMYXIN	True
+HPCIA	Quinolones	both_humans_and_animals	FLUOROQUINOLONE,QUINOLONE	True
+IA	Nitrofuran derivatives	both_humans_and_animals	NITROFURAN	True
+IA	Pleuromutilins	both_humans_and_animals	PLEUROMUTILIN	True
