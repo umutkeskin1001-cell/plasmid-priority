@@ -1,34 +1,60 @@
-.DS_Store
-.agents/
-.conda-firthlogist/
-.venv-firthlogist/
-.cursorignore
-.cursorrules
+# ==========================================
+# 🐍 Python & Geliştirme Ortamı
+# ==========================================
 __pycache__/
 *.py[cod]
+*$py.class
+.venv/
+.venv-*/
+.conda-*/
+.env
 .pytest_cache/
 .coverage
-.venv/
+.mypy_cache/
+.ipynb_checkpoints/
 *.egg-info/
+dist/
+build/
+*.log
 
-data/raw/
-data/external/
-data/bronze/
-data/silver/
-data/features/
-data/scores/
-data/tmp/
-data/experiments/*
-reports/core_figures/
-reports/core_tables/
-reports/diagnostic_tables/
-reports/release/
-reports/tubitak_final_metrics.txt
-data/analysis/*.manifest.json
-reports/*.manifest.json
+# ==========================================
+# 🖥️ IDE & Sistem Dosyaları
+# ==========================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.agents/
+.cursorignore
+.cursorrules
 
+# ==========================================
+# 📊 Veri (Data) - Sadece Tanımları Tutalım
+# ==========================================
+# Tüm veri klasörlerini kapat
+data/*/
+
+# Ama manifests ve experiments içindeki kodları aç
 !data/manifests/
 !data/manifests/data_locations.md
 !data/manifests/data_contract.json
+!data/experiments/
 !data/experiments/README.md
 !data/experiments/*.py
+
+# ==========================================
+# 📝 Raporlar ve Çıktılar (Outputs)
+# ==========================================
+# Klasörleri kapat
+reports/*/
+
+# Ama rapor şablonlarını ve markdown dosyalarını gönderelim
+!reports/
+!reports/*.md
+!reports/**/*.md
+
+# Büyük figür ve tablo çıktılarını tekrar yasakla (garantiye alalım)
+reports/**/*.pdf
+reports/**/*.png
+reports/**/*.tsv
+*.manifest.json

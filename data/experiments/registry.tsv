@@ -1,0 +1,9 @@
+artifact_name	relative_path	suffix	size_bytes	modified_utc	sha256
+adaptive_blend_search.tsv	data/experiments/adaptive_blend_search.tsv	.tsv	19905	2026-03-30T16:29:12+00:00	737437c39a63c6491f9a8f925335cacc7386fee2bb45f26abadba3c4d71bd840
+adaptive_knownness_blend_search.tsv	data/experiments/adaptive_knownness_blend_search.tsv	.tsv	15241	2026-03-30T16:30:37+00:00	1c5e56ed3772ddc43a033c0a768b0d4e37ce840069b2deeaae92277d725eccd0
+adaptive_knownness_oof_blend_search.tsv	data/experiments/adaptive_knownness_oof_blend_search.tsv	.tsv	15276	2026-03-30T16:31:05+00:00	28aa35dbae5067c3769cefa539e729c628954ec4b1e1046b3c07add0fedee26a
+exploratory_poly_auc_check.py	data/experiments/exploratory_poly_auc_check.py	.py	2939	2026-04-02T19:40:36+00:00	62f2c0e79ca2bf148d9470dc0d0dfb0f8852730d200113b3993619309b36de91
+knownness_deep_search.tsv	data/experiments/knownness_deep_search.tsv	.tsv	53422	2026-03-30T16:22:40+00:00	cfdf9b3d4478623412adc0821f489f91b943f85432b5f24b74e74231bff68c45
+knownness_greedy_search.tsv	data/experiments/knownness_greedy_search.tsv	.tsv	3746	2026-03-30T15:53:52+00:00	a091e46dad0edb837f2ea6dcc0b4a73d6d4320cfec021a6e79c3cbd6c9d2b142
+knownness_natural_model_search.tsv	data/experiments/knownness_natural_model_search.tsv	.tsv	1143776	2026-03-30T15:54:14+00:00	9e49024db5d1af2034ae75e6496367a549bbfd4ee0506d52011556797d0497c2
+tmp_model_search.tsv	data/experiments/tmp_model_search.tsv	.tsv	8370	2026-03-30T18:47:47+00:00	ea407c2255f07c14e965c829ca2518a64a04b6bd3a5182ec0c2df729ac4da0aa

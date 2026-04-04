@@ -1,0 +1,26 @@
+=================================================================
+  TÜBİTAK RAPORU İÇİN İSTATİSTİKSEL ÖZET
+=================================================================
+Ana Model           : bio_clean_priority
+Ana Outcome Eşiği   : Sonradan >= 3 yeni ülke
+
+1. AYIRICILIK GÜCÜ (ROC AUC)
+   Değer            : 0.7454
+   %95 Güven Aralığı: [0.7139 - 0.7780]
+
+2. PRECISION-RECALL ÖZETİ (Average Precision)
+   Değer            : 0.6538
+   Temel Oran       : 0.3660
+   Lift (Kazanç)    : 0.2878
+
+3. KALİBRASYON (Brier Score)
+   Değer            : 0.1884
+
+4. FORMAL ANLAMLILIK (Permütasyon Testi)
+   Seçim-düzeltilmiş ROC AUC p-değeri : = 0.0050
+   Sabit-skor ROC AUC p-değeri      : < 0.001
+   Permütasyon sayısı: 2000
+
+5. SIRALAMA UYUMU (Ham yeni ülke sayısı)
+   Spearman ρ       : 0.6238 [0.5801 - 0.6621]
+=================================================================
