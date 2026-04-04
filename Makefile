@@ -67,7 +67,7 @@ smoke:
 quality: check typecheck smoke
 	@echo "Kalite kapilari gecti."
 
-ci: quality
+ci: check typecheck
 
 pipeline:
 	$(PYTHON) scripts/run_workflow.py pipeline
