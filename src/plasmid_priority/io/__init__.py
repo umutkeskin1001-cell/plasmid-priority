@@ -10,4 +10,3 @@ __all__ = [
     "peek_table_columns",
     "read_ncbi_assembly_summary_columns",
 ]
-

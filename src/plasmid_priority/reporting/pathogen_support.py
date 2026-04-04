@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 import pandas as pd
 
 from plasmid_priority.reporting.external_support import select_priority_groups
+
+
+class _SupportCount(TypedDict):
+    pd_species_record_count: int
+    pd_matching_record_count: int
+    matched_genes: set[str]
+    matched_locations: Counter[str]
 
 
 def normalize_species_token(value: object) -> str:
@@ -38,7 +46,7 @@ def extract_pd_gene_symbols(value: object) -> set[str]:
 
 
 def _top_items(series: pd.Series, *, n: int = 3) -> list[str]:
-    counter = Counter()
+    counter: Counter[str] = Counter()
     for value in series.fillna(""):
         for item in [part.strip() for part in str(value).split(",") if part.strip()]:
             counter[item] += 1
@@ -65,7 +73,15 @@ def build_pathogen_targets(
         return pd.DataFrame()
 
     merged = backbones.merge(
-        selected[["backbone_id", "priority_group", "priority_index", "selection_score", "selection_score_column"]],
+        selected[
+            [
+                "backbone_id",
+                "priority_group",
+                "priority_index",
+                "selection_score",
+                "selection_score_column",
+            ]
+        ],
         on="backbone_id",
         how="inner",
     )
@@ -87,8 +103,22 @@ def build_pathogen_targets(
         )
         dominant_species = species_counts.index[0] if not species_counts.empty else ""
         dominant_genus = (
-            frame["genus"].fillna("").astype(str).str.strip().replace({"": pd.NA}).dropna().value_counts().index[0]
-            if frame["genus"].fillna("").astype(str).str.strip().replace({"": pd.NA}).dropna().shape[0] > 0
+            frame["genus"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace({"": pd.NA})
+            .dropna()
+            .value_counts()
+            .index[0]
+            if frame["genus"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace({"": pd.NA})
+            .dropna()
+            .shape[0]
+            > 0
             else ""
         )
         rows.append(
@@ -107,7 +137,9 @@ def build_pathogen_targets(
         )
 
     targets = pd.DataFrame(rows)
-    targets["target_gene_set"] = targets["top_amr_genes"].map(lambda text: {x for x in text.split(",") if x})
+    targets["target_gene_set"] = targets["top_amr_genes"].map(
+        lambda text: {x for x in text.split(",") if x}
+    )
     return targets
 
 
@@ -129,7 +161,7 @@ def build_pathogen_detection_support(
         if species:
             by_species[species].append(row)
 
-    support_counts = {
+    support_counts: dict[str, _SupportCount] = {
         row["backbone_id"]: {
             "pd_species_record_count": 0,
             "pd_matching_record_count": 0,
@@ -140,8 +172,12 @@ def build_pathogen_detection_support(
     }
 
     usecols = ["#Organism group", "Scientific name", "AMR genotypes", "Location"]
-    for chunk in pd.read_csv(pathogen_metadata_path, sep="\t", usecols=usecols, chunksize=chunk_size):
-        chunk["species_norm"] = chunk["Scientific name"].fillna(chunk["#Organism group"]).map(normalize_species_token)
+    for chunk in pd.read_csv(
+        pathogen_metadata_path, sep="\t", usecols=usecols, chunksize=chunk_size
+    ):
+        chunk["species_norm"] = (
+            chunk["Scientific name"].fillna(chunk["#Organism group"]).map(normalize_species_token)
+        )
         chunk = chunk.loc[chunk["species_norm"].isin(by_species.keys())].copy()
         if chunk.empty:
             continue
@@ -149,13 +185,15 @@ def build_pathogen_detection_support(
         species_counts = chunk["species_norm"].value_counts()
         for species_norm, species_count in species_counts.items():
             for target in by_species[str(species_norm)]:
-                support_counts[target["backbone_id"]]["pd_species_record_count"] += int(species_count)
+                support_counts[str(target["backbone_id"])]["pd_species_record_count"] += int(
+                    species_count
+                )
         for row in chunk.itertuples(index=False):
             species_norm = row.species_norm
             location = "" if pd.isna(row.Location) else str(row.Location).strip()
             gene_set = row.gene_set
             for target in by_species[species_norm]:
-                record = support_counts[target["backbone_id"]]
+                record = support_counts[str(target["backbone_id"])]
                 matched_genes = gene_set & target["target_gene_set"]
                 if matched_genes:
                     record["pd_matching_record_count"] += 1
@@ -165,7 +203,7 @@ def build_pathogen_detection_support(
 
     detail_rows: list[dict[str, object]] = []
     for row in targets.to_dict(orient="records"):
-        counts = support_counts[row["backbone_id"]]
+        counts = support_counts[str(row["backbone_id"])]
         matched_locations = counts["matched_locations"].most_common(3)
         detail_rows.append(
             {
@@ -301,15 +339,22 @@ def build_pathogen_group_comparison(
         rows.append(
             {
                 "pathogen_dataset": str(dataset_name),
-                "matching_rule": "dominant species exact match plus at least one shared top backbone AMR gene",
+                "matching_rule": (
+                    "dominant species exact match plus "
+                    "at least one shared top backbone AMR gene"
+                ),
                 "n_high": int(len(high)),
                 "n_low": int(len(low)),
                 "mean_matching_fraction_high": float(high_fraction.mean()),
                 "mean_matching_fraction_low": float(low_fraction.mean()),
-                "delta_mean_matching_fraction_high_minus_low": float(high_fraction.mean() - low_fraction.mean()),
+                "delta_mean_matching_fraction_high_minus_low": float(
+                    high_fraction.mean() - low_fraction.mean()
+                ),
                 "support_fraction_high": float(high_support.mean()),
                 "support_fraction_low": float(low_support.mean()),
-                "delta_support_fraction_high_minus_low": float(high_support.mean() - low_support.mean()),
+                "delta_support_fraction_high_minus_low": float(
+                    high_support.mean() - low_support.mean()
+                ),
                 "permutation_p_mean_matching_fraction": _permutation_pvalue(
                     high_fraction,
                     low_fraction,

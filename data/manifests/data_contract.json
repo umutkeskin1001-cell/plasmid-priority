@@ -257,6 +257,54 @@
       "stage": "derived",
       "required": false,
       "description": "Derived combined FASTA built from the PLSDB and RefSeq inputs."
+    },
+    {
+      "key": "coefficient_stability_cv",
+      "relative_path": "data/analysis/coefficient_stability_cv.tsv",
+      "kind": "file",
+      "stage": "derived",
+      "required": false,
+      "description": "Five-fold coefficient stability export for the current headline model."
+    },
+    {
+      "key": "group_holdout_performance",
+      "relative_path": "data/analysis/group_holdout_performance.tsv",
+      "kind": "file",
+      "stage": "derived",
+      "required": false,
+      "description": "Holdout performance by dominant source and dominant training region."
+    },
+    {
+      "key": "weighted_country_outcome_audit",
+      "relative_path": "data/analysis/weighted_country_outcome_audit.tsv",
+      "kind": "file",
+      "stage": "derived",
+      "required": false,
+      "description": "Weighted later-country-burden alignment audit for scored backbones."
+    },
+    {
+      "key": "operational_risk_dictionary",
+      "relative_path": "data/analysis/operational_risk_dictionary.tsv",
+      "kind": "file",
+      "stage": "derived",
+      "required": false,
+      "description": "Calibrated operational risk dictionary before shortlist filtering."
+    },
+    {
+      "key": "operational_risk_watchlist",
+      "relative_path": "reports/core_tables/operational_risk_watchlist.tsv",
+      "kind": "file",
+      "stage": "derived",
+      "required": false,
+      "description": "Deployment-facing shortlist watchlist with action/review/abstain tiers."
+    },
+    {
+      "key": "spatial_holdout_summary",
+      "relative_path": "reports/core_tables/spatial_holdout_summary.tsv",
+      "kind": "file",
+      "stage": "derived",
+      "required": false,
+      "description": "Model-level summary of dominant-region spatial holdout performance."
     }
   ]
 }

@@ -2,23 +2,25 @@
 
 from __future__ import annotations
 
-import pandas as pd
+from typing import cast
+
 import numpy as np
+import pandas as pd
 
 
 def _length_bin(length_val: float) -> str:
     try:
-        l = float(length_val)
-        if np.isnan(l):
+        length = float(length_val)
+        if np.isnan(length):
             return "Len_unknown"
     except (ValueError, TypeError):
         return "Len_unknown"
-        
-    if l < 50000:
+
+    if length < 50000:
         return "Len_<50k"
-    elif l < 100000:
+    elif length < 100000:
         return "Len_50k-100k"
-    elif l < 200000:
+    elif length < 200000:
         return "Len_100k-200k"
     else:
         return "Len_>200k"
@@ -40,7 +42,9 @@ def _fallback_key_from_parts(
 def _fallback_key_series(frame: pd.DataFrame) -> pd.Series:
     mobility = frame["predicted_mobility"].fillna("").astype(str).str.strip().replace("", "unknown")
     mpf = frame["mpf_type"].fillna("").astype(str).str.strip().replace("", "no_mpf")
-    replicon = frame["primary_replicon"].fillna("").astype(str).str.strip().replace("", "no_replicon")
+    replicon = (
+        frame["primary_replicon"].fillna("").astype(str).str.strip().replace("", "no_replicon")
+    )
     base = "OP::" + mobility + "::" + mpf + "::" + replicon
 
     lengths = pd.to_numeric(
@@ -60,7 +64,7 @@ def fallback_backbone_key(row: pd.Series) -> str:
     mobility = str(row.get("predicted_mobility", "")).strip() or "unknown"
     mpf = str(row.get("mpf_type", "")).strip() or "no_mpf"
     replicon = str(row.get("primary_replicon", "")).strip() or "no_replicon"
-    length_str = _length_bin(row.get("sequence_length", float("nan")))
+    length_str = _length_bin(cast(float, row.get("sequence_length", float("nan"))))
     return _fallback_key_from_parts(
         mobility=mobility,
         mpf=mpf,
@@ -77,7 +81,7 @@ def _fallback_backbone_key_from_record(record: dict[str, object]) -> str:
     mobility = str(record.get("predicted_mobility", "")).strip() or "unknown"
     mpf = str(record.get("mpf_type", "")).strip() or "no_mpf"
     replicon = str(record.get("primary_replicon", "")).strip() or "no_replicon"
-    length_str = _length_bin(record.get("sequence_length", float("nan")))
+    length_str = _length_bin(cast(float, record.get("sequence_length", float("nan"))))
     return _fallback_key_from_parts(
         mobility=mobility,
         mpf=mpf,
@@ -91,7 +95,9 @@ def _training_row_backbone_id(row: pd.Series) -> str:
     return primary if primary else fallback_backbone_key(row)
 
 
-def assign_backbone_ids_training_only(records: pd.DataFrame, *, split_year: int = 2015) -> pd.DataFrame:
+def assign_backbone_ids_training_only(
+    records: pd.DataFrame, *, split_year: int = 2015
+) -> pd.DataFrame:
     """Assign backbones using only training-period signatures and mark unseen future-only groups."""
     assigned = records.copy()
     years = pd.to_numeric(assigned["resolved_year"], errors="coerce").fillna(0).astype(int)
@@ -99,13 +105,14 @@ def assign_backbone_ids_training_only(records: pd.DataFrame, *, split_year: int 
     primary = assigned["primary_cluster_id"].fillna("").astype(str).str.strip()
     fallback_key = _fallback_key_series(assigned)
 
-
     training = assigned.loc[training_mask].copy()
     if training.empty:
         empty = assigned.copy()
         empty["backbone_id"] = ""
         empty["backbone_assignment_rule"] = "training_only_unavailable"
         empty["backbone_seen_in_training"] = False
+        empty["backbone_assignment_mode"] = "training_only"
+        empty["backbone_assignment_split_year"] = int(split_year)
         return empty
 
     training_primary = primary.loc[training_mask]
@@ -119,9 +126,9 @@ def assign_backbone_ids_training_only(records: pd.DataFrame, *, split_year: int 
         .set_index("primary_cluster_id")["backbone_id"]
         .to_dict()
     )
-    fallback_training = pd.DataFrame({"fallback_key": training_fallback, "backbone_id": training_backbone_id}).loc[
-        training_primary.eq("")
-    ]
+    fallback_training = pd.DataFrame(
+        {"fallback_key": training_fallback, "backbone_id": training_backbone_id}
+    ).loc[training_primary.eq("")]
     if not fallback_training.empty:
         fallback_mapping = (
             fallback_training[["fallback_key", "backbone_id"]]
@@ -156,6 +163,8 @@ def assign_backbone_ids_training_only(records: pd.DataFrame, *, split_year: int 
     assigned["backbone_id"] = backbone_id
     assigned["backbone_assignment_rule"] = rule
     assigned["backbone_seen_in_training"] = seen
+    assigned["backbone_assignment_mode"] = "training_only"
+    assigned["backbone_assignment_split_year"] = int(split_year)
     return assigned
 
 
@@ -169,6 +178,8 @@ def assign_backbone_ids(records: pd.DataFrame) -> pd.DataFrame:
     assigned["backbone_assignment_rule"] = primary.where(primary.ne(""), "fallback").map(
         lambda value: "primary_cluster_id" if value != "fallback" else "mobility_mpf_replicon"
     )
+    assigned["backbone_assignment_mode"] = "all_records"
+    assigned["backbone_assignment_split_year"] = pd.NA
     return assigned
 
 
@@ -181,7 +192,9 @@ def _dominant_share(series: pd.Series) -> float:
     return float(counts.iloc[0] / counts.sum())
 
 
-def _dominant_share_by_backbone(training: pd.DataFrame, column: str, backbone_order: pd.Series) -> pd.Series:
+def _dominant_share_by_backbone(
+    training: pd.DataFrame, column: str, backbone_order: pd.Series
+) -> pd.Series:
     values = training[["backbone_id", column]].copy()
     values[column] = values[column].fillna("").astype(str).str.strip()
     values = values.loc[values[column] != ""]
@@ -196,7 +209,15 @@ def compute_backbone_coherence(records: pd.DataFrame, *, split_year: int = 2015)
     """Compute a conservative within-backbone coherence score on training-period rows."""
     training = records.loc[records["resolved_year"].fillna(0).astype(int) <= split_year].copy()
     if training.empty:
-        return pd.DataFrame(columns=["backbone_id", "coherence_score", "mobility_dominance", "replicon_dominance", "topology_dominance"])
+        return pd.DataFrame(
+            columns=[
+                "backbone_id",
+                "coherence_score",
+                "mobility_dominance",
+                "replicon_dominance",
+                "topology_dominance",
+            ]
+        )
     backbone_order = training["backbone_id"].drop_duplicates().astype(str)
     training["backbone_id"] = training["backbone_id"].astype(str)
 

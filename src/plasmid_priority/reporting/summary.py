@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from plasmid_priority.config import ProjectContext
 from plasmid_priority.utils.files import atomic_write_json, ensure_directory, relative_path_str
@@ -37,7 +37,7 @@ class ManagedScriptRun:
         ensure_directory(self.context.logs_dir)
         return self
 
-    def __exit__(self, exc_type, exc, _tb) -> bool:
+    def __exit__(self, exc_type, exc, _tb) -> Literal[False]:
         self.end_time = _utc_now()
         if exc is None and self.status == "running":
             self.status = "ok"
@@ -88,4 +88,3 @@ class ManagedScriptRun:
             "metrics": self.metrics,
             "notes": self.notes,
         }
-

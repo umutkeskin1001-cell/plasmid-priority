@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import unittest
 
 import pandas as pd
-
 
 from plasmid_priority.dedup import annotate_canonical_ids
 
@@ -33,4 +31,3 @@ class DedupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

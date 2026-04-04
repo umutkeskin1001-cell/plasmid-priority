@@ -1,13 +1,115 @@
 from __future__ import annotations
 
-from pathlib import Path
+import tempfile
 import unittest
+from pathlib import Path
 
+import pandas as pd
 
-from plasmid_priority.harmonize import normalize_country
+from plasmid_priority.harmonize import build_harmonized_plasmid_table, normalize_country
 
 
 class HarmonizeTests(unittest.TestCase):
+    def test_build_harmonized_plasmid_table_merges_plasmidfinder_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            inventory_path = root / "inventory.tsv"
+            typing_path = root / "typing.csv"
+            biosample_path = root / "biosample.csv"
+            plasmidfinder_path = root / "plasmidfinder.csv"
+
+            pd.DataFrame(
+                [
+                    {
+                        "sequence_accession": "acc1",
+                        "biosample_uid": 1,
+                        "record_origin": "refseq",
+                        "resolved_year": 2020,
+                    }
+                ]
+            ).to_csv(inventory_path, sep="\t", index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "NUCCORE_ACC": "acc1",
+                        "gc": 0.5,
+                        "size": 5000,
+                        "num_contigs": 1,
+                        "rep_type(s)": "rep_cluster_1",
+                        "relaxase_type(s)": "",
+                        "mpf_type": "",
+                        "orit_type(s)": "",
+                        "predicted_mobility": "mobilizable",
+                        "mash_neighbor_distance": 0.1,
+                        "predicted_host_range_overall_rank": "genus",
+                        "predicted_host_range_overall_name": "Escherichia",
+                        "reported_host_range_lit_rank": "",
+                        "reported_host_range_lit_name": "",
+                        "associated_pmid(s)": "",
+                        "primary_cluster_id": "AA001",
+                        "secondary_cluster_id": "",
+                        "observed_host_range_ncbi_rank": "genus",
+                        "observed_host_range_ncbi_name": "Escherichia",
+                        "PMLST_scheme": "",
+                        "PMLST_sequence_type": "",
+                        "PMLST_alleles": "",
+                    }
+                ]
+            ).to_csv(typing_path, index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "BIOSAMPLE_UID": 1,
+                        "LOCATION_name": "Istanbul, Turkey",
+                        "LOCATION_query": "",
+                        "BIOSAMPLE_title": "sample",
+                        "BIOSAMPLE_package": "Microbe; version 1.0",
+                        "BIOSAMPLE_pathogenicity": "",
+                        "ECOSYSTEM_tags": "",
+                        "DISEASE_tags": "",
+                    }
+                ]
+            ).to_csv(biosample_path, index=False)
+            pd.DataFrame(
+                [
+                    {
+                        "NUCCORE_ACC": "acc1",
+                        "typing": "IncFIB(K)",
+                        "identity": 98.0,
+                        "coverage": 100.0,
+                    },
+                    {
+                        "NUCCORE_ACC": "acc1",
+                        "typing": "IncFIB(K)",
+                        "identity": 99.0,
+                        "coverage": 100.0,
+                    },
+                    {
+                        "NUCCORE_ACC": "acc1",
+                        "typing": "ColRNAI",
+                        "identity": 95.0,
+                        "coverage": 90.0,
+                    },
+                ]
+            ).to_csv(plasmidfinder_path, index=False)
+
+            harmonized = build_harmonized_plasmid_table(
+                inventory_path,
+                typing_path,
+                biosample_path,
+                plasmidfinder_path,
+            )
+
+        self.assertEqual(len(harmonized), 1)
+        row = harmonized.iloc[0]
+        self.assertEqual(row["country"], "Turkey")
+        self.assertEqual(row["plasmidfinder_hit_count"], 3.0)
+        self.assertEqual(row["plasmidfinder_type_count"], 2.0)
+        self.assertEqual(row["plasmidfinder_dominant_type"], "IncFIB(K)")
+        self.assertAlmostEqual(float(row["plasmidfinder_dominant_type_share"]), 2.0 / 3.0)
+        self.assertAlmostEqual(float(row["plasmidfinder_max_identity"]), 99.0)
+        self.assertAlmostEqual(float(row["plasmidfinder_mean_coverage"]), 96.6666666667, places=6)
+
     def test_normalize_country_extracts_real_country_from_address_suffix(self) -> None:
         self.assertEqual(
             normalize_country("Erciyes University, Cevre Sokak, Kayseri, Turkey"),
@@ -25,7 +127,9 @@ class HarmonizeTests(unittest.TestCase):
     def test_normalize_country_handles_embedded_country_aliases(self) -> None:
         self.assertEqual(normalize_country("Turkey,Hatay"), "Turkey")
         self.assertEqual(normalize_country("Wanshan Islands, China"), "China")
-        self.assertEqual(normalize_country("Alcitepe, Eceabat, Canakkale, Marmara Region, Turkey"), "Turkey")
+        self.assertEqual(
+            normalize_country("Alcitepe, Eceabat, Canakkale, Marmara Region, Turkey"), "Turkey"
+        )
 
     def test_normalize_country_uk_constituent_nations(self) -> None:
         """England, Scotland, Wales, Northern Ireland should all resolve to UK."""
@@ -68,4 +172,3 @@ class HarmonizeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

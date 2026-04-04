@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import gzip
+import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, TextIO
-import os
+from typing import BinaryIO, Iterator, TextIO, cast
 
 from plasmid_priority.utils.files import ensure_directory
 
@@ -62,7 +62,7 @@ def iter_fasta_summaries(path: Path) -> Iterator[FastaRecordSummary]:
             if line.startswith(">"):
                 if current_header is not None:
                     accession = extract_accession(current_header)
-                    description = current_header[1 + len(accession):].strip()
+                    description = current_header[1 + len(accession) :].strip()
                     yield FastaRecordSummary(
                         accession=accession,
                         header=current_header[1:],
@@ -76,7 +76,7 @@ def iter_fasta_summaries(path: Path) -> Iterator[FastaRecordSummary]:
 
     if current_header is not None:
         accession = extract_accession(current_header)
-        description = current_header[1 + len(accession):].strip()
+        description = current_header[1 + len(accession) :].strip()
         yield FastaRecordSummary(
             accession=accession,
             header=current_header[1:],
@@ -104,14 +104,14 @@ def concatenate_fastas(
     total_bases = 0
     temp_path: Path | None = None
 
-    writer: TextIO | None = None
+    writer: BinaryIO | None = None
     if not dry_run:
         handle = tempfile.NamedTemporaryFile(
             "wb",
             dir=output_path.parent,
             delete=False,
         )
-        writer = handle
+        writer = cast(BinaryIO, handle)
         temp_path = Path(handle.name)
 
     try:

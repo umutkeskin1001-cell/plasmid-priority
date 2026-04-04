@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from collections import Counter
-from pathlib import Path
 import re
 import tarfile
+from collections import Counter
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-
 
 # Canonical source is schemas.who_mia; re-exported here for backward
 # compatibility with scripts that import from this module.
@@ -102,7 +101,9 @@ def select_priority_groups(
     low = working.sort_values(score_column, ascending=True).head(n_per_group).copy()
     high["priority_group"] = "high"
     low["priority_group"] = "low"
-    selected = pd.concat([high, low], ignore_index=True).drop_duplicates("backbone_id", keep="first")
+    selected = pd.concat([high, low], ignore_index=True).drop_duplicates(
+        "backbone_id", keep="first"
+    )
     selected["selection_score"] = selected[score_column].astype(float)
     selected["selection_score_column"] = score_column
     if "priority_index" not in selected.columns:
@@ -112,7 +113,11 @@ def select_priority_groups(
 
 def build_who_mia_reference_catalog(who_text_path: Path) -> pd.DataFrame:
     """Summarize the curated WHO MIA class map against the local reference text extraction."""
-    normalized_text = re.sub(r"\s+", " ", who_text_path.read_text(encoding="utf-8", errors="ignore")).strip().lower()
+    normalized_text = (
+        re.sub(r"\s+", " ", who_text_path.read_text(encoding="utf-8", errors="ignore"))
+        .strip()
+        .lower()
+    )
     class_tokens: dict[tuple[str, str, str], set[str]] = {}
     for amr_token, mapping in WHO_MIA_CLASS_MAP.items():
         key = (
@@ -157,7 +162,15 @@ def build_priority_backbone_support_frame(
         return pd.DataFrame()
 
     merged = backbones.merge(
-        selected[["backbone_id", "priority_group", "priority_index", "selection_score", "selection_score_column"]],
+        selected[
+            [
+                "backbone_id",
+                "priority_group",
+                "priority_index",
+                "selection_score",
+                "selection_score_column",
+            ]
+        ],
         on="backbone_id",
         how="inner",
     )
@@ -246,7 +259,9 @@ def _build_prevalence_comparison(
     group_totals: dict[str, int] | None = None,
 ) -> pd.DataFrame:
     if membership.empty:
-        return _empty_support_frame([value_column, "high", "low", "prevalence_delta_high_minus_low"])
+        return _empty_support_frame(
+            [value_column, "high", "low", "prevalence_delta_high_minus_low"]
+        )
 
     membership = membership.drop_duplicates(["backbone_id", value_column])
     totals = group_totals or membership.groupby("priority_group")["backbone_id"].nunique().to_dict()
@@ -257,7 +272,9 @@ def _build_prevalence_comparison(
     )
     summary["group_total_backbones"] = summary["priority_group"].map(totals)
     summary["prevalence"] = summary["n_backbones"] / summary["group_total_backbones"]
-    pivot = summary.pivot(index=value_column, columns="priority_group", values="prevalence").fillna(0.0)
+    pivot = summary.pivot(index=value_column, columns="priority_group", values="prevalence").fillna(
+        0.0
+    )
     pivot["prevalence_delta_high_minus_low"] = pivot.get("high", 0.0) - pivot.get("low", 0.0)
     return pivot.reset_index().sort_values("prevalence_delta_high_minus_low", ascending=False)
 
@@ -300,7 +317,12 @@ def build_card_support(
         "mean_card_drug_class_count",
     ]
     family_columns = ["card_amr_gene_family", "high", "low", "prevalence_delta_high_minus_low"]
-    mechanism_columns = ["card_resistance_mechanism", "high", "low", "prevalence_delta_high_minus_low"]
+    mechanism_columns = [
+        "card_resistance_mechanism",
+        "high",
+        "low",
+        "prevalence_delta_high_minus_low",
+    ]
 
     if priority_backbones.empty:
         return (
@@ -347,7 +369,9 @@ def build_card_support(
                         "card_amr_gene_family": family,
                     }
                 )
-            for mechanism in sorted({value for value in matches["card_resistance_mechanism"] if value}):
+            for mechanism in sorted(
+                {value for value in matches["card_resistance_mechanism"] if value}
+            ):
                 mechanism_counter[mechanism] += 1
                 mechanism_membership.append(
                     {
@@ -406,12 +430,18 @@ def build_card_support(
     family_comparison = _build_prevalence_comparison(
         pd.DataFrame(family_membership),
         value_column="card_amr_gene_family",
-        group_totals=detail.groupby("priority_group")["backbone_id"].nunique().astype(int).to_dict(),
+        group_totals=detail.groupby("priority_group")["backbone_id"]
+        .nunique()
+        .astype(int)
+        .to_dict(),
     )
     mechanism_comparison = _build_prevalence_comparison(
         pd.DataFrame(mechanism_membership),
         value_column="card_resistance_mechanism",
-        group_totals=detail.groupby("priority_group")["backbone_id"].nunique().astype(int).to_dict(),
+        group_totals=detail.groupby("priority_group")["backbone_id"]
+        .nunique()
+        .astype(int)
+        .to_dict(),
     )
     return detail, summary, family_comparison, mechanism_comparison
 
@@ -508,7 +538,9 @@ def build_who_mia_support(
                 "amr_class_count": total_class_count,
                 "who_mia_mapped_class_count": mapped_class_count,
                 "who_mia_unmapped_class_count": max(total_class_count - mapped_class_count, 0),
-                "who_mia_mapped_fraction": mapped_class_count / total_class_count if total_class_count > 0 else 0.0,
+                "who_mia_mapped_fraction": mapped_class_count / total_class_count
+                if total_class_count > 0
+                else 0.0,
                 "who_mia_top_categories": _top_counter_items(category_counter),
                 "who_mia_top_classes": _top_counter_items(class_counter),
                 "who_mia_scope_labels": _top_counter_items(scope_counter),
@@ -542,7 +574,10 @@ def build_who_mia_support(
     category_comparison = _build_prevalence_comparison(
         pd.DataFrame(category_membership),
         value_column="who_mia_category",
-        group_totals=detail.groupby("priority_group")["backbone_id"].nunique().astype(int).to_dict(),
+        group_totals=detail.groupby("priority_group")["backbone_id"]
+        .nunique()
+        .astype(int)
+        .to_dict(),
     )
     return detail, summary, category_comparison
 
@@ -642,14 +677,32 @@ def build_mobsuite_support(
         .agg(
             mobsuite_literature_record_count=("sample_id", "size"),
             mobsuite_literature_sample_count=("sample_id", "nunique"),
-            mobsuite_literature_host_species_count=("host_species", lambda series: series.fillna("").astype(str).str.strip().replace({"": pd.NA}).dropna().nunique()),
-            mobsuite_reported_host_range_taxid_count=("reported_host_range_taxid", lambda series: pd.Series(series).dropna().nunique()),
-            mobsuite_literature_pmid_count=("pmid", lambda series: pd.Series(series).dropna().nunique()),
+            mobsuite_literature_host_species_count=(
+                "host_species",
+                lambda series: (
+                    series.fillna("")
+                    .astype(str)
+                    .str.strip()
+                    .replace({"": pd.NA})
+                    .dropna()
+                    .nunique()
+                ),
+            ),
+            mobsuite_reported_host_range_taxid_count=(
+                "reported_host_range_taxid",
+                lambda series: pd.Series(series).dropna().nunique(),
+            ),
+            mobsuite_literature_pmid_count=(
+                "pmid",
+                lambda series: pd.Series(series).dropna().nunique(),
+            ),
             mobsuite_literature_year_min=("year", "min"),
             mobsuite_literature_year_max=("year", "max"),
             mobsuite_literature_conjugative_note_fraction=(
                 "notes",
-                lambda series: series.fillna("").astype(str).str.contains("conjugative", case=False).mean(),
+                lambda series: (
+                    series.fillna("").astype(str).str.contains("conjugative", case=False).mean()
+                ),
             ),
         )
         .reset_index()
@@ -663,14 +716,21 @@ def build_mobsuite_support(
         clusters.groupby("rep_type(s)")
         .agg(
             mobsuite_cluster_record_count=("sample_id", "size"),
-            mobsuite_cluster_taxid_count=("taxid", lambda series: pd.Series(series).dropna().nunique()),
+            mobsuite_cluster_taxid_count=(
+                "taxid",
+                lambda series: pd.Series(series).dropna().nunique(),
+            ),
             mobsuite_cluster_mobilizable_fraction=(
                 "predicted_mobility",
-                lambda series: series.fillna("").astype(str).str.strip().str.lower().eq("mobilizable").mean(),
+                lambda series: (
+                    series.fillna("").astype(str).str.strip().str.lower().eq("mobilizable").mean()
+                ),
             ),
             mobsuite_cluster_conjugative_fraction=(
                 "predicted_mobility",
-                lambda series: series.fillna("").astype(str).str.contains("conjugative", case=False).mean(),
+                lambda series: (
+                    series.fillna("").astype(str).str.contains("conjugative", case=False).mean()
+                ),
             ),
             mobsuite_cluster_relaxase_presence_fraction=(
                 "relaxase_type(s)",
@@ -691,7 +751,9 @@ def build_mobsuite_support(
 
     detail = priority_backbones.copy()
     if "selection_score" not in detail.columns:
-        detail["selection_score"] = pd.to_numeric(detail.get("priority_index", 0.0), errors="coerce").fillna(0.0)
+        detail["selection_score"] = pd.to_numeric(
+            detail.get("priority_index", 0.0), errors="coerce"
+        ).fillna(0.0)
     if "selection_score_column" not in detail.columns:
         detail["selection_score_column"] = "priority_index"
     keep_columns = [
@@ -739,11 +801,20 @@ def build_mobsuite_support(
             n_backbones=("backbone_id", "nunique"),
             n_with_literature_support=("mobsuite_any_literature_support", "sum"),
             n_with_cluster_support=("mobsuite_any_cluster_support", "sum"),
-            mean_reported_host_range_taxid_count=("mobsuite_reported_host_range_taxid_count", "mean"),
-            median_reported_host_range_taxid_count=("mobsuite_reported_host_range_taxid_count", "median"),
+            mean_reported_host_range_taxid_count=(
+                "mobsuite_reported_host_range_taxid_count",
+                "mean",
+            ),
+            median_reported_host_range_taxid_count=(
+                "mobsuite_reported_host_range_taxid_count",
+                "median",
+            ),
             mean_cluster_taxid_count=("mobsuite_cluster_taxid_count", "mean"),
             mean_cluster_conjugative_fraction=("mobsuite_cluster_conjugative_fraction", "mean"),
-            mean_cluster_relaxase_presence_fraction=("mobsuite_cluster_relaxase_presence_fraction", "mean"),
+            mean_cluster_relaxase_presence_fraction=(
+                "mobsuite_cluster_relaxase_presence_fraction",
+                "mean",
+            ),
         )
         .reset_index()
     )

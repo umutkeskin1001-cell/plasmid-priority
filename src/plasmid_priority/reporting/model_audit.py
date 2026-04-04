@@ -3,42 +3,96 @@
 from __future__ import annotations
 
 import hashlib
+import os
+from concurrent.futures import ThreadPoolExecutor
+from typing import TypedDict, cast
 
 import numpy as np
 import pandas as pd
+from sklearn.metrics import average_precision_score
 
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     annotate_knownness_metadata,
-    evaluate_feature_columns,
     evaluate_model_name,
     fit_full_model_predictions,
     fit_predict_model_holdout,
-    get_primary_model_name,
+    get_feature_track,
+    get_model_track,
 )
 from plasmid_priority.modeling.module_a import (
     _compute_sample_weight,
     _eligible_xy,
+    _ensure_feature_columns,
+    _oof_predictions_from_eligible,
+)
+from plasmid_priority.modeling.module_a_support import (
+    _fit_kwarg_float,
+    _fit_kwarg_int,
+    _fit_kwarg_mode,
     _model_fit_kwargs,
     _oof_predictions,
     _standardize_apply,
     _standardize_fit,
     _stratified_folds,
 )
-from plasmid_priority.scoring import recompute_priority_from_reference
+from plasmid_priority.reporting.candidate_tables import (
+    annotate_candidate_explanation_fields as _annotate_candidate_explanation_fields,
+)
+from plasmid_priority.reporting.candidate_tables import (
+    build_candidate_dossier_table as _build_candidate_dossier_table,
+)
+from plasmid_priority.reporting.candidate_tables import (
+    build_candidate_portfolio_table as _build_candidate_portfolio_table,
+)
+from plasmid_priority.reporting.candidate_tables import (
+    build_candidate_risk_table as _build_candidate_risk_table,
+)
+from plasmid_priority.reporting.candidate_tables import (
+    build_decision_yield_table as _build_decision_yield_table,
+)
+from plasmid_priority.reporting.candidate_tables import (
+    build_threshold_flip_table as _build_threshold_flip_table,
+)
+from plasmid_priority.scoring import DEFAULT_NORMALIZATION_METHOD, recompute_priority_from_reference
 from plasmid_priority.utils.dataframe import coalescing_left_merge
+from plasmid_priority.utils.parallel import limit_native_threads
 from plasmid_priority.validation import (
     average_precision,
     average_precision_enrichment,
     average_precision_lift,
     brier_score,
     expected_calibration_error,
+    max_calibration_error,
     paired_auc_delong,
     paired_bootstrap_deltas,
-    paired_bootstrap_delta,
     positive_prevalence,
     roc_auc_score,
 )
+
+
+class _BootstrapCandidateStats(TypedDict):
+    top_hits: int
+    top_hits_top10: int
+    top_hits_top25: int
+    ranks: list[int]
+
+
+FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS: dict[str, float] = {
+    "matched_knownness_gap_min": -0.005,
+    "source_holdout_gap_min": -0.005,
+    "spatial_holdout_gap_min": -0.03,
+    "ece_max": 0.05,
+    "selection_adjusted_p_max": 0.01,
+}
+
+
+annotate_candidate_explanation_fields = _annotate_candidate_explanation_fields
+build_candidate_dossier_table = _build_candidate_dossier_table
+build_candidate_portfolio_table = _build_candidate_portfolio_table
+build_candidate_risk_table = _build_candidate_risk_table
+build_decision_yield_table = _build_decision_yield_table
+build_threshold_flip_table = _build_threshold_flip_table
 
 
 def _stable_unit_interval(text: str, *, salt: str) -> float:
@@ -46,30 +100,152 @@ def _stable_unit_interval(text: str, *, salt: str) -> float:
     return float(int.from_bytes(digest[:8], "big") / 2**64)
 
 
+def _resolve_parallel_jobs(requested_jobs: int | None, *, max_tasks: int, cap: int = 8) -> int:
+    if max_tasks <= 1:
+        return 1
+    env_cap = os.getenv("PLASMID_PRIORITY_MAX_JOBS")
+    if env_cap:
+        try:
+            cap = max(1, min(cap, int(env_cap)))
+        except ValueError:
+            pass
+    if requested_jobs is None:
+        requested = min(cap, os.cpu_count() or 1)
+    else:
+        requested = int(requested_jobs)
+    return max(1, min(requested, max_tasks, cap))
+
+
+def _active_model_metrics(model_metrics: pd.DataFrame) -> pd.DataFrame:
+    if model_metrics.empty or "status" not in model_metrics.columns:
+        return model_metrics.copy()
+    active = model_metrics.loc[model_metrics["status"].fillna("ok").astype(str).eq("ok")].copy()
+    return active if not active.empty else model_metrics.copy()
+
+
 def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
     """Select the most decision-relevant models and label their evidence role."""
+    model_metrics = _active_model_metrics(model_metrics)
     selected = [
         ("source_only", "easy_proxy", "source composition only"),
         ("baseline_both", "easy_proxy", "training visibility counts only"),
-        ("full_priority", "handcrafted_score", "counts plus arithmetic conservative priority index"),
+        (
+            "full_priority",
+            "handcrafted_score",
+            "counts plus arithmetic conservative priority index",
+        ),
         ("T_plus_H_plus_A", "legacy_biological_core", "legacy support-adjusted T/H/A components"),
-        ("bio_clean_priority", "biological_core", "raw biological T/A plus host specialization and oriT support"),
-        ("parsimonious_priority", "legacy_published_primary", "support-adjusted T/H/A plus coherence; retained as the legacy interpretable benchmark"),
-        ("natural_auc_priority", "augmented_biological_core", "biological core plus external host-range, backbone purity, assignment confidence, mash-based novelty, and replicon architecture"),
-        ("phylogeny_aware_priority", "phylogeny_augmented_core", "augmented biological core with host specialization replaced by taxonomy-aware phylogenetic host breadth"),
-        ("structured_signal_priority", "structure_augmented_core", "phylogeny-aware biological core plus host evenness and recurrent AMR structure"),
-        ("ecology_clinical_priority", "eco_clinical_augmented_core", "augmented biological core plus clinical-context prevalence and ecological-context diversity"),
-        ("knownness_robust_priority", "knownness_robust_core", "augmented biological core plus clinical-context prevalence, ecological-context diversity, recurrent AMR structure, and pMLST coherence under class+knownness balancing"),
-        ("support_calibrated_priority", "support_calibrated_core", "knownness-robust biological core plus explicit host-range support, pMLST presence, and AMR support depth for sparse-annotation error recovery"),
-        ("support_synergy_priority", "published_primary", "support-calibrated biological core plus metadata support depth, external host-range magnitude, and host-range x transfer synergy; chosen as the current primary benchmark"),
-        ("host_transfer_synergy_priority", "error_focused_augmented_core", "knownness-robust biological core plus explicit host-transfer synergy and external host-range support for sparse-backbone error recovery"),
-        ("threat_architecture_priority", "threat_architecture_audit", "host-transfer augmented biological core plus AMR clinical-threat burden and replicon multiplicity for sparse-backbone error recovery"),
-        ("contextual_bio_priority", "contextual_biological_core", "augmented biological core plus PMLST coherence and eco-clinical context diversity"),
-        ("visibility_adjusted_priority", "deconfounded_evidence", "raw biological T/A plus host specialization and visibility-adjusted support residuals"),
-        ("balanced_evidence_priority", "evidence_aware", "raw biological axes plus axis-specific evidence depth"),
-        ("evidence_aware_priority", "support_heavy_evidence", "raw mobility plus global evidence-depth support"),
+        (
+            "bio_clean_priority",
+            "biological_core",
+            "raw biological T/A plus host specialization and oriT support",
+        ),
+        (
+            "bio_residual_synergy_priority",
+            "discovery_synergy_research",
+            "discovery-safe biological core with predeclared mobility, observed-host-range, coherence, and AMR synergy terms",
+        ),
+        (
+            "hybrid_agreement_priority",
+            "hybrid_agreement_research",
+            "stacked discovery logistic plus nonlinear gradient-boosted surrogate with isotonic blending and explicit agreement review flags",
+        ),
+        (
+            "firth_parsimonious_priority",
+            "rare_event_bias_reduced",
+            "parsimonious discovery surface refit with Firth bias reduction for separation- and rare-event-robust coefficients",
+        ),
+        (
+            "parsimonious_priority",
+            "legacy_published_primary",
+            "support-adjusted T/H/A plus coherence; retained as the legacy interpretable benchmark",
+        ),
+        (
+            "natural_auc_priority",
+            "augmented_biological_core",
+            "biological core plus external host-range, backbone purity, assignment confidence, mash-based novelty, and replicon architecture",
+        ),
+        (
+            "phylogeny_aware_priority",
+            "phylogeny_augmented_core",
+            "augmented biological core with host specialization replaced by taxonomy-aware phylogenetic host breadth",
+        ),
+        (
+            "structured_signal_priority",
+            "structure_augmented_core",
+            "phylogeny-aware biological core plus phylogenetically augmented host specialization, host dispersion, host evenness, recurrent AMR structure, replicon multiplicity, and orthogonal PlasmidFinder complexity",
+        ),
+        (
+            "ecology_clinical_priority",
+            "eco_clinical_augmented_core",
+            "augmented biological core plus clinical-context prevalence and ecological-context diversity",
+        ),
+        (
+            "knownness_robust_priority",
+            "knownness_robust_core",
+            "augmented biological core plus clinical-context prevalence, ecological-context diversity, recurrent AMR structure, and pMLST coherence under class+knownness balancing",
+        ),
+        (
+            "support_calibrated_priority",
+            "support_calibrated_core",
+            "knownness-robust biological core plus explicit host-range support, pMLST presence, and AMR support depth for sparse-annotation error recovery",
+        ),
+        (
+            "support_synergy_priority",
+            "support_synergy_core",
+            "support-calibrated biological core plus normalized pMLST prevalence, orthogonal PlasmidFinder replicon support, residualized AMR support, guarded context support, metadata support depth, external host-range magnitude, and host-range x transfer synergy; retained as the lighter predecessor to the current fusion benchmark",
+        ),
+        (
+            "monotonic_latent_priority",
+            "monotonic_latent_core",
+            "support-calibrated biological core plus saturating AMR burden, replicon multiplicity, host-range, and eco-clinical latent axes for nonlinear biological documentation",
+        ),
+        (
+            "regime_stability_priority",
+            "governance_regime_stability",
+            "knownness- and source-residualized biological core with monotonic saturation and guardrail-first weighting for the governance track",
+        ),
+        (
+            "phylo_support_fusion_priority",
+            "published_primary",
+            "support-synergy biological core plus phylogenetically augmented host specialization, host dispersion, explicit replicon multiplicity, and orthogonal PlasmidFinder structure/support; chosen as the current primary benchmark",
+        ),
+        (
+            "host_transfer_synergy_priority",
+            "error_focused_augmented_core",
+            "knownness-robust biological core plus explicit host-transfer synergy and external host-range support for sparse-backbone error recovery",
+        ),
+        (
+            "threat_architecture_priority",
+            "threat_architecture_audit",
+            "host-transfer augmented biological core plus decomposed AMR richness and burden, AMR clinical-threat burden, and replicon multiplicity for sparse-backbone error recovery",
+        ),
+        (
+            "contextual_bio_priority",
+            "contextual_biological_core",
+            "augmented biological core plus PMLST coherence and eco-clinical context diversity",
+        ),
+        (
+            "visibility_adjusted_priority",
+            "deconfounded_evidence",
+            "raw biological T/A plus host specialization and visibility-adjusted support residuals",
+        ),
+        (
+            "balanced_evidence_priority",
+            "evidence_aware",
+            "raw biological axes plus axis-specific evidence depth",
+        ),
+        (
+            "evidence_aware_priority",
+            "support_heavy_evidence",
+            "raw mobility plus global evidence-depth support",
+        ),
         ("proxy_light_priority", "legacy_integrated", "legacy support-adjusted integrated model"),
-        ("enhanced_priority", "proxy_integrated", "support-adjusted model plus explicit count proxies"),
+        (
+            "enhanced_priority",
+            "proxy_integrated",
+            "support-adjusted model plus explicit count proxies",
+        ),
     ]
     available = model_metrics.set_index("model_name", drop=False)
     rows = []
@@ -84,19 +260,118 @@ def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
         reference_model = "enhanced_priority"
     elif not available.empty:
         reference_model = str(available["roc_auc"].astype(float).idxmax())
-    reference_auc = float(available.loc[reference_model, "roc_auc"]) if reference_model in available.index else np.nan
-    enhanced_auc = float(available.loc["enhanced_priority", "roc_auc"]) if "enhanced_priority" in available.index else np.nan
+    reference_auc = (
+        float(available.loc[reference_model, "roc_auc"])
+        if reference_model in available.index
+        else np.nan
+    )
+    enhanced_auc = (
+        float(available.loc["enhanced_priority", "roc_auc"])
+        if "enhanced_priority" in available.index
+        else np.nan
+    )
     for model_name, evidence_role, evidence_summary in selected:
         if model_name not in available.index:
             continue
         row = available.loc[model_name].to_dict()
+        row["model_track"] = _safe_model_track(model_name)
+        row["track_summary"] = _model_track_summary(str(row["model_track"]))
         row["evidence_role"] = evidence_role
         row["evidence_summary"] = evidence_summary
         row["primary_reference_model"] = reference_model
-        row["delta_auc_vs_primary_reference"] = float(row["roc_auc"]) - reference_auc if np.isfinite(reference_auc) else np.nan
-        row["delta_auc_vs_enhanced_priority"] = float(row["roc_auc"]) - enhanced_auc if np.isfinite(enhanced_auc) else np.nan
+        row["delta_auc_vs_primary_reference"] = (
+            float(row["roc_auc"]) - reference_auc if np.isfinite(reference_auc) else np.nan
+        )
+        row["delta_auc_vs_enhanced_priority"] = (
+            float(row["roc_auc"]) - enhanced_auc if np.isfinite(enhanced_auc) else np.nan
+        )
+        row["leakage_review_required"] = bool(
+            np.isfinite(float(row["roc_auc"])) and float(row["roc_auc"]) >= 0.90
+        )
+        row["leakage_review_reason"] = (
+            "roc_auc_ge_0p90_on_current_feature_universe" if row["leakage_review_required"] else ""
+        )
         rows.append(row)
     return pd.DataFrame(rows)
+
+
+def _guardrail_loss_from_scorecard_row(scorecard_row: pd.Series) -> float:
+    knownness_gap = pd.to_numeric(
+        pd.Series([scorecard_row.get("knownness_matched_gap", np.nan)]), errors="coerce"
+    ).iloc[0]
+    source_gap = pd.to_numeric(
+        pd.Series([scorecard_row.get("source_holdout_gap", np.nan)]), errors="coerce"
+    ).iloc[0]
+    gaps: list[float] = []
+    if pd.notna(knownness_gap):
+        gaps.append(abs(float(knownness_gap)))
+    if pd.notna(source_gap):
+        gaps.append(abs(float(source_gap)))
+    if not gaps:
+        return float("nan")
+    loss = float(sum(gaps))
+    if bool(scorecard_row.get("leakage_review_required", False)):
+        loss += 0.25
+    return loss
+
+
+def _safe_model_track(model_name: object) -> str:
+    try:
+        return str(get_model_track(str(model_name)))
+    except (KeyError, TypeError, ValueError):
+        return "unclassified"
+
+
+def _model_track_summary(track: str) -> str:
+    summaries = {
+        "baseline": "count- and source-proxy control surface",
+        "discovery": "pre-event biological discovery surface",
+        "governance": "support-augmented governance/watch-only surface",
+        "unclassified": "unclassified experimental surface",
+    }
+    return summaries.get(str(track), "unclassified experimental surface")
+
+
+def _select_governance_scorecard_row(scorecard: pd.DataFrame) -> pd.Series:
+    if scorecard.empty or "model_name" not in scorecard.columns:
+        return pd.Series(dtype=object)
+    working = scorecard.copy()
+    if "model_track" not in working.columns:
+        working["model_track"] = working["model_name"].map(_safe_model_track)
+    governance_mask = working["model_track"].astype(str).eq("governance")
+    if governance_mask.any():
+        working = working.loc[governance_mask].copy()
+    if "roc_auc" not in working.columns:
+        working["roc_auc"] = np.nan
+    if "average_precision" not in working.columns:
+        working["average_precision"] = np.nan
+    working["guardrail_loss"] = working.apply(_guardrail_loss_from_scorecard_row, axis=1)
+    working["governance_priority_score"] = (
+        pd.to_numeric(
+            working.get("roc_auc", pd.Series(np.nan, index=working.index)), errors="coerce"
+        ).fillna(0.0)
+        - working["guardrail_loss"].fillna(1.0)
+        - 0.25
+        * pd.to_numeric(
+            working.get("leakage_review_required", pd.Series(False, index=working.index)),
+            errors="coerce",
+        )
+        .fillna(0.0)
+        .astype(float)
+    )
+    strict_mask = (
+        working.get("strict_knownness_acceptance_flag", pd.Series(False, index=working.index))
+        .fillna(False)
+        .astype(bool)
+    )
+    if strict_mask.any():
+        working = working.loc[strict_mask].copy()
+    working = working.sort_values(
+        ["governance_priority_score", "guardrail_loss", "roc_auc", "average_precision"],
+        ascending=[False, True, False, False],
+        kind="mergesort",
+    )
+    return working.iloc[0] if not working.empty else pd.Series(dtype=object)
 
 
 def _safe_spearman(left: pd.Series, right: pd.Series) -> float:
@@ -117,8 +392,6 @@ def _rank_percentile_series(series: pd.Series) -> pd.Series:
     return result
 
 
-
-
 def build_h_feature_diagnostics(
     scored: pd.DataFrame,
     *,
@@ -134,15 +407,27 @@ def build_h_feature_diagnostics(
         return pd.DataFrame()
 
     ranking_column = score_column if score_column in scored.columns else "priority_index"
-    h_feature_names = {"H_eff_norm", "H_breadth_norm", "H_specialization_norm", "H_support_norm", "H_support_norm_residual"}
+    h_feature_names = {
+        "H_eff_norm",
+        "H_breadth_norm",
+        "H_specialization_norm",
+        "H_support_norm",
+        "H_support_norm_residual",
+    }
     row: dict[str, object] = {
         "n_scored_backbones": int(len(scored)),
         "n_eligible_backbones": int(len(eligible)),
         "nonzero_h_fraction_all": float(scored["H_eff_norm"].fillna(0.0).gt(0.0).mean()),
         "nonzero_h_fraction_eligible": float(eligible["H_eff_norm"].fillna(0.0).gt(0.0).mean()),
-        "h_eff_norm_mean_positive": float(eligible.loc[eligible["spread_label"] == 1, "H_eff_norm"].fillna(0.0).mean()),
-        "h_eff_norm_mean_negative": float(eligible.loc[eligible["spread_label"] == 0, "H_eff_norm"].fillna(0.0).mean()),
-        "h_eff_norm_vs_spread_label_spearman": _safe_spearman(eligible["H_eff_norm"], eligible["spread_label"]),
+        "h_eff_norm_mean_positive": float(
+            eligible.loc[eligible["spread_label"] == 1, "H_eff_norm"].fillna(0.0).mean()
+        ),
+        "h_eff_norm_mean_negative": float(
+            eligible.loc[eligible["spread_label"] == 0, "H_eff_norm"].fillna(0.0).mean()
+        ),
+        "h_eff_norm_vs_spread_label_spearman": _safe_spearman(
+            eligible["H_eff_norm"], eligible["spread_label"]
+        ),
         "h_eff_norm_vs_member_count_train_spearman": _safe_spearman(
             eligible["H_eff_norm"],
             eligible["log1p_member_count_train"],
@@ -151,8 +436,18 @@ def build_h_feature_diagnostics(
             eligible["H_eff_norm"],
             eligible["log1p_n_countries_train"],
         ),
-        "h_eff_norm_top100_mean": float(scored.sort_values(ranking_column, ascending=False).head(100)["H_eff_norm"].fillna(0.0).mean()),
-        "h_eff_norm_bottom100_mean": float(scored.sort_values(ranking_column, ascending=True).head(100)["H_eff_norm"].fillna(0.0).mean()),
+        "h_eff_norm_top100_mean": float(
+            scored.sort_values(ranking_column, ascending=False)
+            .head(100)["H_eff_norm"]
+            .fillna(0.0)
+            .mean()
+        ),
+        "h_eff_norm_bottom100_mean": float(
+            scored.sort_values(ranking_column, ascending=True)
+            .head(100)["H_eff_norm"]
+            .fillna(0.0)
+            .mean()
+        ),
     }
     if "H_breadth_norm" in eligible.columns:
         row["h_breadth_norm_vs_spread_label_spearman"] = _safe_spearman(
@@ -164,10 +459,16 @@ def build_h_feature_diagnostics(
             eligible["log1p_member_count_train"],
         )
         row["h_breadth_norm_top100_mean"] = float(
-            scored.sort_values(ranking_column, ascending=False).head(100)["H_breadth_norm"].fillna(0.0).mean()
+            scored.sort_values(ranking_column, ascending=False)
+            .head(100)["H_breadth_norm"]
+            .fillna(0.0)
+            .mean()
         )
         row["h_breadth_norm_bottom100_mean"] = float(
-            scored.sort_values(ranking_column, ascending=True).head(100)["H_breadth_norm"].fillna(0.0).mean()
+            scored.sort_values(ranking_column, ascending=True)
+            .head(100)["H_breadth_norm"]
+            .fillna(0.0)
+            .mean()
         )
     if "H_specialization_norm" in eligible.columns:
         row["h_specialization_norm_vs_spread_label_spearman"] = _safe_spearman(
@@ -179,10 +480,16 @@ def build_h_feature_diagnostics(
             eligible["log1p_member_count_train"],
         )
         row["h_specialization_norm_top100_mean"] = float(
-            scored.sort_values(ranking_column, ascending=False).head(100)["H_specialization_norm"].fillna(0.0).mean()
+            scored.sort_values(ranking_column, ascending=False)
+            .head(100)["H_specialization_norm"]
+            .fillna(0.0)
+            .mean()
         )
         row["h_specialization_norm_bottom100_mean"] = float(
-            scored.sort_values(ranking_column, ascending=True).head(100)["H_specialization_norm"].fillna(0.0).mean()
+            scored.sort_values(ranking_column, ascending=True)
+            .head(100)["H_specialization_norm"]
+            .fillna(0.0)
+            .mean()
         )
     if "H_genus_richness_norm" in eligible.columns:
         row["h_genus_richness_norm_vs_spread_label_spearman"] = _safe_spearman(
@@ -212,7 +519,9 @@ def build_h_feature_diagnostics(
             eligible["log1p_member_count_train"],
         )
     if "H_raw" in eligible.columns:
-        row["h_raw_vs_spread_label_spearman"] = _safe_spearman(eligible["H_raw"], eligible["spread_label"])
+        row["h_raw_vs_spread_label_spearman"] = _safe_spearman(
+            eligible["H_raw"], eligible["spread_label"]
+        )
         row["h_raw_vs_member_count_train_spearman"] = _safe_spearman(
             eligible["H_raw"],
             eligible["log1p_member_count_train"],
@@ -227,10 +536,16 @@ def build_h_feature_diagnostics(
             eligible["log1p_member_count_train"],
         )
         row["h_phylogenetic_norm_top100_mean"] = float(
-            scored.sort_values(ranking_column, ascending=False).head(100)["H_phylogenetic_norm"].fillna(0.0).mean()
+            scored.sort_values(ranking_column, ascending=False)
+            .head(100)["H_phylogenetic_norm"]
+            .fillna(0.0)
+            .mean()
         )
         row["h_phylogenetic_norm_bottom100_mean"] = float(
-            scored.sort_values(ranking_column, ascending=True).head(100)["H_phylogenetic_norm"].fillna(0.0).mean()
+            scored.sort_values(ranking_column, ascending=True)
+            .head(100)["H_phylogenetic_norm"]
+            .fillna(0.0)
+            .mean()
         )
     if "host_phylogenetic_dispersion_norm" in eligible.columns:
         row["host_phylogenetic_dispersion_norm_vs_spread_label_spearman"] = _safe_spearman(
@@ -275,12 +590,18 @@ def build_h_feature_diagnostics(
         )
 
     if coefficient_table is not None and not coefficient_table.empty:
-        matches = coefficient_table.loc[coefficient_table["feature_name"].isin(h_feature_names)].copy()
+        matches = coefficient_table.loc[
+            coefficient_table["feature_name"].isin(h_feature_names)
+        ].copy()
         if "abs_coefficient" not in matches.columns and "coefficient" in matches.columns:
             matches["abs_coefficient"] = matches["coefficient"].astype(float).abs()
         row["primary_model_uses_h"] = bool(len(matches))
-        row["primary_model_h_features"] = ",".join(matches["feature_name"].astype(str).tolist()) if not matches.empty else ""
-        row["primary_model_h_total_abs_coefficient"] = float(matches["abs_coefficient"].sum()) if not matches.empty else np.nan
+        row["primary_model_h_features"] = (
+            ",".join(matches["feature_name"].astype(str).tolist()) if not matches.empty else ""
+        )
+        row["primary_model_h_total_abs_coefficient"] = (
+            float(matches["abs_coefficient"].sum()) if not matches.empty else np.nan
+        )
         if not matches.empty:
             dominant = matches.sort_values("abs_coefficient", ascending=False).iloc[0]
             row["primary_model_h_primary_feature"] = str(dominant["feature_name"])
@@ -288,7 +609,9 @@ def build_h_feature_diagnostics(
     else:
         row["primary_model_uses_h"] = False
     if dropout_table is not None and not dropout_table.empty:
-        matches = dropout_table.loc[dropout_table["feature_name"].isin(h_feature_names), "roc_auc_drop_vs_full"]
+        matches = dropout_table.loc[
+            dropout_table["feature_name"].isin(h_feature_names), "roc_auc_drop_vs_full"
+        ]
         row["h_feature_dropout_auc_drop"] = float(matches.sum()) if not matches.empty else np.nan
     if model_metrics is not None and not model_metrics.empty:
         available = model_metrics.set_index("model_name", drop=False)
@@ -304,15 +627,30 @@ def build_h_feature_diagnostics(
     if mobsuite_detail is not None and not mobsuite_detail.empty:
         supported = mobsuite_detail.loc[
             mobsuite_detail["mobsuite_any_literature_support"].fillna(False).astype(bool)
-            & mobsuite_detail["mobsuite_reported_host_range_taxid_count"].fillna(0).astype(float).gt(0.0)
+            & mobsuite_detail["mobsuite_reported_host_range_taxid_count"]
+            .fillna(0)
+            .astype(float)
+            .gt(0.0)
         ].copy()
         row["mobsuite_supported_backbones"] = int(len(supported))
         if not supported.empty and "priority_group" in supported.columns:
-            group_summary = supported.groupby("priority_group", as_index=True)["mobsuite_reported_host_range_taxid_count"].agg(["count", "mean"])
-            row["mobsuite_high_literature_supported_n"] = int(group_summary.loc["high", "count"]) if "high" in group_summary.index else 0
-            row["mobsuite_low_literature_supported_n"] = int(group_summary.loc["low", "count"]) if "low" in group_summary.index else 0
-            row["mobsuite_high_mean_reported_host_range_taxid_count"] = float(group_summary.loc["high", "mean"]) if "high" in group_summary.index else np.nan
-            row["mobsuite_low_mean_reported_host_range_taxid_count"] = float(group_summary.loc["low", "mean"]) if "low" in group_summary.index else np.nan
+            group_summary = supported.groupby("priority_group", as_index=True)[
+                "mobsuite_reported_host_range_taxid_count"
+            ].agg(["count", "mean"])
+            row["mobsuite_high_literature_supported_n"] = (
+                int(group_summary.loc["high", "count"]) if "high" in group_summary.index else 0
+            )
+            row["mobsuite_low_literature_supported_n"] = (
+                int(group_summary.loc["low", "count"]) if "low" in group_summary.index else 0
+            )
+            row["mobsuite_high_mean_reported_host_range_taxid_count"] = (
+                float(group_summary.loc["high", "mean"])
+                if "high" in group_summary.index
+                else np.nan
+            )
+            row["mobsuite_low_mean_reported_host_range_taxid_count"] = (
+                float(group_summary.loc["low", "mean"]) if "low" in group_summary.index else np.nan
+            )
             if "high" in group_summary.index and "low" in group_summary.index:
                 row["mobsuite_high_minus_low_mean_reported_host_range_taxid_count"] = float(
                     group_summary.loc["high", "mean"] - group_summary.loc["low", "mean"]
@@ -349,14 +687,23 @@ def build_knownness_audit_tables(
     ]
     merged = primary.merge(baseline, on="backbone_id", how="inner", validate="1:1")
     available_meta_columns = [column for column in meta_columns if column in scored.columns]
-    merged = merged.merge(scored[available_meta_columns], on="backbone_id", how="left", validate="1:1")
+    merged = merged.merge(
+        scored[available_meta_columns], on="backbone_id", how="left", validate="1:1"
+    )
     if merged.empty:
         return pd.DataFrame(), pd.DataFrame()
-    for column in ("operational_priority_index", "bio_priority_index", "evidence_support_index", "priority_index"):
+    for column in (
+        "operational_priority_index",
+        "bio_priority_index",
+        "evidence_support_index",
+        "priority_index",
+    ):
         if column not in merged.columns:
             merged[column] = np.nan
 
-    merged["operational_priority_index"] = merged["operational_priority_index"].fillna(merged["priority_index"])
+    merged["operational_priority_index"] = merged["operational_priority_index"].fillna(
+        merged["priority_index"]
+    )
     merged = annotate_knownness_metadata(merged)
 
     summary_row: dict[str, object] = {
@@ -364,8 +711,12 @@ def build_knownness_audit_tables(
         "baseline_model_name": baseline_model_name,
         "n_backbones": int(len(merged)),
         "n_positive": int(merged["spread_label"].sum()),
-        "overall_primary_roc_auc": roc_auc_score(merged["spread_label"], merged["primary_prediction"]),
-        "overall_baseline_roc_auc": roc_auc_score(merged["spread_label"], merged["baseline_prediction"]),
+        "overall_primary_roc_auc": roc_auc_score(
+            merged["spread_label"], merged["primary_prediction"]
+        ),
+        "overall_baseline_roc_auc": roc_auc_score(
+            merged["spread_label"], merged["baseline_prediction"]
+        ),
         "overall_delta_roc_auc": roc_auc_score(merged["spread_label"], merged["primary_prediction"])
         - roc_auc_score(merged["spread_label"], merged["baseline_prediction"]),
         "primary_prediction_vs_knownness_spearman": _safe_spearman(
@@ -398,14 +749,18 @@ def build_knownness_audit_tables(
         "lower_half_knownness_primary_roc_auc": np.nan,
         "lower_half_knownness_baseline_roc_auc": np.nan,
         "lower_half_knownness_delta_roc_auc": np.nan,
-        "lowest_knownness_quartile_supported": bool((merged["knownness_quartile"] == "q1_lowest").any()),
+        "lowest_knownness_quartile_supported": bool(
+            (merged["knownness_quartile"] == "q1_lowest").any()
+        ),
         "lowest_knownness_quartile_n_backbones": 0,
         "lowest_knownness_quartile_n_positive": 0,
         "lowest_knownness_quartile_primary_roc_auc": np.nan,
         "lowest_knownness_quartile_baseline_roc_auc": np.nan,
         "lowest_knownness_quartile_delta_roc_auc": np.nan,
     }
-    summary_row["priority_index_vs_knownness_spearman"] = summary_row["operational_priority_index_vs_knownness_spearman"]
+    summary_row["priority_index_vs_knownness_spearman"] = summary_row[
+        "operational_priority_index_vs_knownness_spearman"
+    ]
 
     cohort_specs = [
         ("lower_half_knownness", merged["knownness_half"] == "lower_half"),
@@ -425,15 +780,18 @@ def build_knownness_audit_tables(
             cohort["spread_label"],
             cohort["baseline_prediction"],
         )
-        summary_row[f"{label}_delta_roc_auc"] = (
-            summary_row[f"{label}_primary_roc_auc"] - summary_row[f"{label}_baseline_roc_auc"]
+        summary_row[f"{label}_delta_roc_auc"] = float(
+            cast(float, summary_row[f"{label}_primary_roc_auc"])
+            - cast(float, summary_row[f"{label}_baseline_roc_auc"])
         )
 
     top_candidates = merged.sort_values("primary_prediction", ascending=False).head(top_k).copy()
     summary_row["top_k"] = int(top_k)
     summary_row["top_k_mean_knownness_score"] = float(top_candidates["knownness_score"].mean())
     summary_row["eligible_mean_knownness_score"] = float(merged["knownness_score"].mean())
-    summary_row["top_k_lower_half_knownness_count"] = int((top_candidates["knownness_half"] == "lower_half").sum())
+    summary_row["top_k_lower_half_knownness_count"] = int(
+        (top_candidates["knownness_half"] == "lower_half").sum()
+    )
     summary_row["top_k_lower_half_knownness_fraction"] = float(
         (top_candidates["knownness_half"] == "lower_half").mean()
     )
@@ -469,8 +827,12 @@ def build_knownness_audit_tables(
         )
     strata = pd.DataFrame(stratum_rows)
     if not strata.empty:
-        weighted_primary = float(np.average(strata["primary_roc_auc"], weights=strata["n_backbones"]))
-        weighted_baseline = float(np.average(strata["baseline_roc_auc"], weights=strata["n_backbones"]))
+        weighted_primary = float(
+            np.average(strata["primary_roc_auc"], weights=strata["n_backbones"])
+        )
+        weighted_baseline = float(
+            np.average(strata["baseline_roc_auc"], weights=strata["n_backbones"])
+        )
         summary_row["matched_strata_count"] = int(len(strata))
         summary_row["matched_strata_n_backbones"] = int(strata["n_backbones"].sum())
         summary_row["matched_strata_primary_weighted_roc_auc"] = weighted_primary
@@ -520,7 +882,9 @@ def build_novelty_margin_summary(
         "baseline_model_name": baseline_model_name,
         "n_backbones": int(len(merged)),
         "n_positive": int(merged["spread_label"].sum()),
-        "novelty_margin_overall_roc_auc": roc_auc_score(merged["spread_label"], merged["novelty_margin"]),
+        "novelty_margin_overall_roc_auc": roc_auc_score(
+            merged["spread_label"], merged["novelty_margin"]
+        ),
         "novelty_margin_overall_average_precision": average_precision(
             merged["spread_label"],
             merged["novelty_margin"],
@@ -558,12 +922,24 @@ def build_novelty_margin_summary(
         ascending=[False, False, False],
     ).head(top_k)
     row["top_k"] = int(top_k)
-    row["watchlist_positive_count"] = int(watchlist["spread_label"].sum()) if not watchlist.empty else 0
-    row["watchlist_positive_fraction"] = float(watchlist["spread_label"].mean()) if not watchlist.empty else np.nan
-    row["watchlist_mean_novelty_margin"] = float(watchlist["novelty_margin"].mean()) if not watchlist.empty else np.nan
-    row["watchlist_mean_primary_prediction"] = float(watchlist["primary_prediction"].mean()) if not watchlist.empty else np.nan
-    row["watchlist_mean_baseline_prediction"] = float(watchlist["baseline_prediction"].mean()) if not watchlist.empty else np.nan
-    row["watchlist_mean_knownness_score"] = float(watchlist["knownness_score"].mean()) if not watchlist.empty else np.nan
+    row["watchlist_positive_count"] = (
+        int(watchlist["spread_label"].sum()) if not watchlist.empty else 0
+    )
+    row["watchlist_positive_fraction"] = (
+        float(watchlist["spread_label"].mean()) if not watchlist.empty else np.nan
+    )
+    row["watchlist_mean_novelty_margin"] = (
+        float(watchlist["novelty_margin"].mean()) if not watchlist.empty else np.nan
+    )
+    row["watchlist_mean_primary_prediction"] = (
+        float(watchlist["primary_prediction"].mean()) if not watchlist.empty else np.nan
+    )
+    row["watchlist_mean_baseline_prediction"] = (
+        float(watchlist["baseline_prediction"].mean()) if not watchlist.empty else np.nan
+    )
+    row["watchlist_mean_knownness_score"] = (
+        float(watchlist["knownness_score"].mean()) if not watchlist.empty else np.nan
+    )
     return pd.DataFrame([row])
 
 
@@ -606,7 +982,13 @@ def _build_gate_consistency_row(
         (working["knownness_score"] - upper_boundary).abs(),
     )
     near_n = min(len(working), max(int(min_n), int(np.ceil(len(working) * near_fraction))))
-    near = working.sort_values(["distance_to_gate", "knownness_score"], ascending=[True, True], kind="mergesort").head(near_n).copy()
+    near = (
+        working.sort_values(
+            ["distance_to_gate", "knownness_score"], ascending=[True, True], kind="mergesort"
+        )
+        .head(near_n)
+        .copy()
+    )
     if near.empty:
         return None
 
@@ -669,8 +1051,16 @@ def build_gate_consistency_audit(
     for model_name, frame in adaptive_predictions.groupby("model_name", sort=False):
         if frame.empty or "knownness_score" not in frame.columns:
             continue
-        lower_mask = frame.get("knownness_half", pd.Series("", index=frame.index)).astype(str).eq("lower_half")
-        upper_mask = frame.get("knownness_half", pd.Series("", index=frame.index)).astype(str).eq("upper_half")
+        lower_mask = (
+            frame.get("knownness_half", pd.Series("", index=frame.index))
+            .astype(str)
+            .eq("lower_half")
+        )
+        upper_mask = (
+            frame.get("knownness_half", pd.Series("", index=frame.index))
+            .astype(str)
+            .eq("upper_half")
+        )
         if {
             "lower_half_route_prediction",
             "upper_half_route_prediction",
@@ -733,225 +1123,6 @@ def build_gate_consistency_audit(
     return pd.DataFrame(rows)
 
 
-def build_candidate_portfolio_table(
-    candidate_dossiers: pd.DataFrame,
-    novelty_watchlist: pd.DataFrame,
-    *,
-    established_n: int = 10,
-    novel_n: int = 10,
-) -> pd.DataFrame:
-    """Create a two-track candidate portfolio: established high-risk and novel lower-knownness signals."""
-    established = pd.DataFrame()
-    if not candidate_dossiers.empty:
-        established_pool = candidate_dossiers.copy()
-        if "eligible_for_oof" in established_pool.columns:
-            established_pool = established_pool.loc[established_pool["eligible_for_oof"].fillna(False)].copy()
-        positive_column = next(
-            (column for column in ("visibility_expansion_label", "spread_label") if column in established_pool.columns),
-            None,
-        )
-        if positive_column is not None:
-            positive_pool = established_pool.loc[
-                established_pool[positive_column].fillna(0).astype(float) >= 1.0
-            ].copy()
-            non_positive_pool = established_pool.loc[~established_pool.index.isin(positive_pool.index)].copy()
-        else:
-            positive_pool = established_pool.copy()
-            non_positive_pool = established_pool.iloc[0:0].copy()
-        if "false_positive_risk_tier" in established_pool.columns:
-            preferred = positive_pool.loc[
-                positive_pool["false_positive_risk_tier"].fillna("high").ne("high")
-            ].copy()
-            fallback = pd.concat(
-                [
-                    positive_pool.loc[positive_pool["false_positive_risk_tier"].fillna("high").eq("high")].copy(),
-                    non_positive_pool.copy(),
-                ],
-                ignore_index=True,
-            )
-        else:
-            preferred = positive_pool.copy()
-            fallback = non_positive_pool.copy()
-        confidence_order = {"tier_a": 0, "tier_b": 1, "watchlist": 2}
-        for frame in (preferred, fallback):
-            if "candidate_confidence_tier" in frame.columns:
-                frame["confidence_sort"] = frame["candidate_confidence_tier"].map(confidence_order).fillna(3)
-            else:
-                frame["confidence_sort"] = 3
-        sort_columns = [column for column in ["confidence_sort", "consensus_rank"] if column in preferred.columns]
-        ascending = [True] * len(sort_columns)
-        if "primary_model_candidate_score" in preferred.columns:
-            sort_columns.append("primary_model_candidate_score")
-            ascending.append(False)
-        if sort_columns:
-            preferred = preferred.sort_values(sort_columns, ascending=ascending)
-            fallback = fallback.sort_values(sort_columns, ascending=ascending)
-        established = pd.concat(
-            [preferred.head(established_n), fallback.head(max(established_n - len(preferred.head(established_n)), 0))],
-            ignore_index=True,
-        ).drop_duplicates(subset=["backbone_id"], keep="first").head(established_n)
-    if not established.empty:
-        established = established.assign(
-            portfolio_track="established_high_risk",
-            track_rank=np.arange(1, len(established) + 1),
-        )
-
-    novel = pd.DataFrame()
-    if not novelty_watchlist.empty:
-        novel_pool = novelty_watchlist.copy()
-        novelty_mask = novel_pool.get("novelty_margin_vs_baseline", pd.Series(0.0, index=novel_pool.index)).fillna(0.0) > 0
-        support_mask = novel_pool.get(
-            "external_support_modalities_count",
-            pd.Series(0, index=novel_pool.index),
-        ).fillna(0).astype(int) > 0
-        train_support_mask = novel_pool.get(
-            "member_count_train",
-            pd.Series(0, index=novel_pool.index),
-        ).fillna(0).astype(int) >= 2
-        positive_column = next(
-            (column for column in ("visibility_expansion_label", "spread_label") if column in novel_pool.columns),
-            None,
-        )
-        positive_mask = (
-            novel_pool[positive_column].fillna(0).astype(float) >= 1.0
-            if positive_column is not None
-            else pd.Series(True, index=novel_pool.index)
-        )
-        preferred = novel_pool.loc[positive_mask & novelty_mask & (support_mask | train_support_mask)].copy()
-        fallback = novel_pool.loc[~novel_pool.index.isin(preferred.index)].copy()
-        sort_columns = []
-        ascending = []
-        if "novelty_margin_vs_baseline" in preferred.columns:
-            sort_columns.append("novelty_margin_vs_baseline")
-            ascending.append(False)
-        if "primary_model_candidate_score" in preferred.columns:
-            sort_columns.append("primary_model_candidate_score")
-            ascending.append(False)
-        if sort_columns:
-            preferred = preferred.sort_values(sort_columns, ascending=ascending)
-            fallback = fallback.sort_values(sort_columns, ascending=ascending)
-        novel = pd.concat(
-            [preferred.head(novel_n), fallback.head(max(novel_n - len(preferred.head(novel_n)), 0))],
-            ignore_index=True,
-        ).drop_duplicates(subset=["backbone_id"], keep="first").head(novel_n)
-    if not novel.empty:
-        novel = novel.assign(
-            portfolio_track="novel_signal",
-            track_rank=np.arange(1, len(novel) + 1),
-            candidate_confidence_tier=novel.get("candidate_confidence_tier", "novelty_watchlist"),
-        )
-
-    frames = [frame for frame in (established, novel) if not frame.empty]
-    if not frames:
-        return pd.DataFrame()
-
-    combined = pd.concat(frames, ignore_index=True, sort=False)
-    if "primary_model_candidate_score" not in combined.columns and "primary_model_oof_prediction" in combined.columns:
-        combined["primary_model_candidate_score"] = combined["primary_model_oof_prediction"]
-    if "baseline_both_candidate_score" not in combined.columns and "baseline_both_oof_prediction" in combined.columns:
-        combined["baseline_both_candidate_score"] = combined["baseline_both_oof_prediction"]
-    combined["in_consensus_top50"] = combined.get("consensus_rank", pd.Series(np.nan, index=combined.index)).notna()
-    if "candidate_prediction_source" not in combined.columns:
-        combined["candidate_prediction_source"] = np.where(
-            combined.get("primary_model_oof_prediction", pd.Series(np.nan, index=combined.index)).notna(),
-            "oof",
-            "missing",
-        )
-    if "eligible_for_oof" not in combined.columns:
-        combined["eligible_for_oof"] = combined.get("primary_model_oof_prediction", pd.Series(np.nan, index=combined.index)).notna()
-    support_columns = [
-        "who_mia_any_support",
-        "card_any_support",
-        "mobsuite_any_literature_support",
-        "pd_any_support",
-    ]
-    available_support_columns = [column for column in support_columns if column in combined.columns]
-    for column in available_support_columns:
-        combined[column] = combined[column].astype("boolean")
-    if available_support_columns:
-        support_matrix = pd.DataFrame({column: combined[column] for column in available_support_columns}, index=combined.index)
-        combined["support_profile_available"] = support_matrix.notna().any(axis=1)
-        combined["external_support_modalities_count"] = support_matrix.fillna(False).sum(axis=1).astype(int)
-    else:
-        combined["support_profile_available"] = False
-        combined["external_support_modalities_count"] = 0
-    dominant_source_share = combined[["refseq_share_train", "insd_share_train"]].fillna(0.0).max(axis=1) if {"refseq_share_train", "insd_share_train"}.issubset(combined.columns) else pd.Series(0.0, index=combined.index)
-    cross_source_share = combined[["refseq_share_train", "insd_share_train"]].fillna(0.0).min(axis=1) if {"refseq_share_train", "insd_share_train"}.issubset(combined.columns) else pd.Series(0.0, index=combined.index)
-    combined["source_support_tier"] = np.select(
-        [
-            cross_source_share >= 0.15,
-            combined.get("refseq_share_train", pd.Series(0.0, index=combined.index)).fillna(0.0) >= 0.85,
-            combined.get("insd_share_train", pd.Series(0.0, index=combined.index)).fillna(0.0) >= 0.85,
-            dominant_source_share >= 0.60,
-        ],
-        ["cross_source_supported", "refseq_dominant", "insd_dominant", "source_mixed"],
-        default="source_sparse",
-    )
-    bootstrap_top10 = combined.get("bootstrap_top_10_frequency", pd.Series(0.0, index=combined.index)).fillna(0.0)
-    risk_tier = combined.get("false_positive_risk_tier", pd.Series("unknown", index=combined.index)).fillna("unknown").astype(str)
-    combined["recommended_monitoring_tier"] = np.select(
-        [
-            (bootstrap_top10 >= 0.80) & risk_tier.isin(["low", "medium"]),
-            (bootstrap_top10 >= 0.50) & risk_tier.ne("high"),
-        ],
-        ["core_surveillance", "extended_watchlist"],
-        default="low_confidence_backlog",
-    )
-    combined["evidence_tier"] = combined.get("candidate_confidence_tier", pd.Series("unknown", index=combined.index)).fillna("unknown")
-    combined["action_tier"] = combined.get("recommended_monitoring_tier", pd.Series("unassigned", index=combined.index)).fillna("unassigned")
-    keep_columns = [
-        "portfolio_track",
-        "track_rank",
-        "backbone_id",
-        "candidate_confidence_tier",
-        "evidence_tier",
-        "recommended_monitoring_tier",
-        "action_tier",
-        "in_consensus_top50",
-        "consensus_rank",
-        "consensus_candidate_score",
-        "consensus_support_count",
-        "rank_disagreement_primary_vs_conservative",
-        "priority_index",
-        "operational_priority_index",
-        "bio_priority_index",
-        "evidence_support_index",
-        "primary_model_candidate_score",
-        "baseline_both_candidate_score",
-        "conservative_model_candidate_score",
-        "primary_model_oof_prediction",
-        "baseline_both_oof_prediction",
-        "novelty_margin_vs_baseline",
-        "candidate_prediction_source",
-        "eligible_for_oof",
-        "knownness_score",
-        "knownness_half",
-        "spread_label",
-        "bootstrap_top_k_frequency",
-        "bootstrap_top_10_frequency",
-        "variant_top_k_frequency",
-        "false_positive_risk_tier",
-        "risk_flag_count",
-        "risk_flags",
-        "member_count_train",
-        "n_countries_train",
-        "n_new_countries",
-        "coherence_score",
-        "source_support_tier",
-        "support_profile_available",
-        "external_support_modalities_count",
-        "module_f_enriched_signature_count",
-        "module_f_enriched_signatures",
-        "who_mia_any_support",
-        "card_any_support",
-        "mobsuite_any_literature_support",
-        "pd_any_support",
-        "amrfinder_any_hit",
-    ]
-    available_columns = [column for column in keep_columns if column in combined.columns]
-    return combined[available_columns].reset_index(drop=True)
-
-
 def build_score_distribution_diagnostics(
     scored: pd.DataFrame,
     *,
@@ -969,22 +1140,30 @@ def build_score_distribution_diagnostics(
         "A": "A_eff_norm",
     }
     component_frame = working[list(component_columns.values())].fillna(0.0)
-    dominant_floor = component_frame.idxmin(axis=1).map({value: key for key, value in component_columns.items()})
+    dominant_floor = component_frame.idxmin(axis=1).map(
+        {value: key for key, value in component_columns.items()}
+    )
     working["dominant_floor_component"] = dominant_floor.fillna("unknown")
 
     segments = {
         "all_backbones": pd.Series(True, index=working.index),
         "training_supported": working["member_count_train"].fillna(0).astype(int) > 0,
-        "eligible_candidate_cohort": working["spread_label"].notna() if "spread_label" in working.columns else pd.Series(False, index=working.index),
+        "eligible_candidate_cohort": working["spread_label"].notna()
+        if "spread_label" in working.columns
+        else pd.Series(False, index=working.index),
         "no_training_support": working["member_count_train"].fillna(0).astype(int) == 0,
         "low_score_cluster": working["priority_index"].fillna(0.0) < low_score_threshold,
-        "low_score_supported": (working["priority_index"].fillna(0.0) < low_score_threshold) & working["member_count_train"].fillna(0).astype(int).gt(0),
+        "low_score_supported": (working["priority_index"].fillna(0.0) < low_score_threshold)
+        & working["member_count_train"].fillna(0).astype(int).gt(0),
         "low_score_supported_eligible": (
             (working["priority_index"].fillna(0.0) < low_score_threshold)
             & working["member_count_train"].fillna(0).astype(int).gt(0)
             & (working["spread_label"].notna() if "spread_label" in working.columns else False)
         ),
-        "low_score_no_training_support": (working["priority_index"].fillna(0.0) < low_score_threshold) & working["member_count_train"].fillna(0).astype(int).eq(0),
+        "low_score_no_training_support": (
+            working["priority_index"].fillna(0.0) < low_score_threshold
+        )
+        & working["member_count_train"].fillna(0).astype(int).eq(0),
         "high_score_cluster": working["priority_index"].fillna(0.0) >= high_score_threshold,
     }
 
@@ -1004,16 +1183,28 @@ def build_score_distribution_diagnostics(
                 "share_of_all_backbones": float(len(frame) / total),
                 "mean_priority_index": float(frame["priority_index"].fillna(0.0).mean()),
                 "mean_operational_priority_index": float(
-                    frame.get("operational_priority_index", frame["priority_index"]).fillna(0.0).mean()
+                    frame.get("operational_priority_index", frame["priority_index"])
+                    .fillna(0.0)
+                    .mean()
                 ),
-                "mean_bio_priority_index": float(frame.get("bio_priority_index", pd.Series(0.0, index=frame.index)).fillna(0.0).mean()),
+                "mean_bio_priority_index": float(
+                    frame.get("bio_priority_index", pd.Series(0.0, index=frame.index))
+                    .fillna(0.0)
+                    .mean()
+                ),
                 "mean_evidence_support_index": float(
-                    frame.get("evidence_support_index", pd.Series(0.0, index=frame.index)).fillna(0.0).mean()
+                    frame.get("evidence_support_index", pd.Series(0.0, index=frame.index))
+                    .fillna(0.0)
+                    .mean()
                 ),
                 "median_priority_index": float(frame["priority_index"].fillna(0.0).median()),
                 "mean_member_count_train": float(frame["member_count_train"].fillna(0.0).mean()),
-                "median_member_count_train": float(frame["member_count_train"].fillna(0.0).median()),
-                "zero_training_support_fraction": float(frame["member_count_train"].fillna(0).astype(int).eq(0).mean()),
+                "median_member_count_train": float(
+                    frame["member_count_train"].fillna(0.0).median()
+                ),
+                "zero_training_support_fraction": float(
+                    frame["member_count_train"].fillna(0).astype(int).eq(0).mean()
+                ),
                 "mean_T_eff_norm": float(frame["T_eff_norm"].fillna(0.0).mean()),
                 "mean_H_eff_norm": float(frame["H_eff_norm"].fillna(0.0).mean()),
                 "mean_A_eff_norm": float(frame["A_eff_norm"].fillna(0.0).mean()),
@@ -1036,15 +1227,17 @@ def build_score_axis_summary(
     eligible = scored.loc[scored["spread_label"].notna()].copy()
     if eligible.empty:
         return pd.DataFrame()
-    eligible["operational_priority_index"] = eligible.get("operational_priority_index", eligible.get("priority_index", 0.0)).fillna(
-        eligible.get("priority_index", 0.0)
-    )
+    eligible["operational_priority_index"] = eligible.get(
+        "operational_priority_index", eligible.get("priority_index", 0.0)
+    ).fillna(eligible.get("priority_index", 0.0))
     if "bio_priority_index" not in eligible.columns:
         eligible["bio_priority_index"] = np.nan
     if "evidence_support_index" not in eligible.columns:
         eligible["evidence_support_index"] = np.nan
     if "H_specialization_norm" not in eligible.columns and "H_breadth_norm" in eligible.columns:
-        eligible["H_specialization_norm"] = (1.0 - eligible["H_breadth_norm"].fillna(0.0)).clip(lower=0.0, upper=1.0)
+        eligible["H_specialization_norm"] = (1.0 - eligible["H_breadth_norm"].fillna(0.0)).clip(
+            lower=0.0, upper=1.0
+        )
 
     for column in ("log1p_member_count_train", "log1p_n_countries_train", "refseq_share_train"):
         if column not in eligible.columns:
@@ -1092,13 +1285,19 @@ def build_score_axis_summary(
                 "roc_auc": roc_auc_score(frame["spread_label"], frame[column]),
                 "average_precision": average_precision(frame["spread_label"], frame[column]),
                 "positive_prevalence": positive_prevalence(frame["spread_label"]),
-                "average_precision_lift": average_precision_lift(frame["spread_label"], frame[column]),
-                "average_precision_enrichment": average_precision_enrichment(frame["spread_label"], frame[column]),
+                "average_precision_lift": average_precision_lift(
+                    frame["spread_label"], frame[column]
+                ),
+                "average_precision_enrichment": average_precision_enrichment(
+                    frame["spread_label"], frame[column]
+                ),
                 "knownness_spearman": _safe_spearman(frame[column], frame["knownness_score"]),
                 "mean_value": float(frame[column].mean()),
                 "median_value": float(frame[column].median()),
                 "zero_fraction": float(frame[column].eq(0.0).mean()),
-                "lower_quartile_fraction": float(frame[column].le(frame[column].quantile(0.25)).mean()),
+                "lower_quartile_fraction": float(
+                    frame[column].le(frame[column].quantile(0.25)).mean()
+                ),
             }
         )
     return pd.DataFrame(rows)
@@ -1130,13 +1329,29 @@ def build_component_floor_diagnostics(scored: pd.DataFrame) -> pd.DataFrame:
                 "n_training_supported": int(training_supported.sum()),
                 "n_eligible": int(eligible.sum()),
                 "zero_fraction_all": float(zero_mask.mean()),
-                "zero_fraction_training_reference": float(training_zero.sum() / training_supported.sum()) if training_supported.any() else np.nan,
-                "zero_fraction_eligible": float(eligible_zero.sum() / eligible.sum()) if eligible.any() else np.nan,
-                "normalized_value_when_raw_zero_min": float(norm.loc[zero_mask].min()) if zero_mask.any() else np.nan,
-                "normalized_value_when_raw_zero_median": float(norm.loc[zero_mask].median()) if zero_mask.any() else np.nan,
-                "normalized_value_when_raw_zero_max": float(norm.loc[zero_mask].max()) if zero_mask.any() else np.nan,
-                "normalized_value_when_raw_positive_min": float(norm.loc[raw > 0.0].min()) if (raw > 0.0).any() else np.nan,
-                "normalized_value_when_raw_positive_median": float(norm.loc[raw > 0.0].median()) if (raw > 0.0).any() else np.nan,
+                "zero_fraction_training_reference": float(
+                    training_zero.sum() / training_supported.sum()
+                )
+                if training_supported.any()
+                else np.nan,
+                "zero_fraction_eligible": float(eligible_zero.sum() / eligible.sum())
+                if eligible.any()
+                else np.nan,
+                "normalized_value_when_raw_zero_min": float(norm.loc[zero_mask].min())
+                if zero_mask.any()
+                else np.nan,
+                "normalized_value_when_raw_zero_median": float(norm.loc[zero_mask].median())
+                if zero_mask.any()
+                else np.nan,
+                "normalized_value_when_raw_zero_max": float(norm.loc[zero_mask].max())
+                if zero_mask.any()
+                else np.nan,
+                "normalized_value_when_raw_positive_min": float(norm.loc[raw > 0.0].min())
+                if (raw > 0.0).any()
+                else np.nan,
+                "normalized_value_when_raw_positive_median": float(norm.loc[raw > 0.0].median())
+                if (raw > 0.0).any()
+                else np.nan,
             }
         )
     return pd.DataFrame(rows)
@@ -1149,8 +1364,12 @@ def build_amrfinder_coverage_table(summary: pd.DataFrame) -> pd.DataFrame:
     working = summary.loc[summary["priority_group"] != "overall"].copy()
     if working.empty:
         return pd.DataFrame()
-    working["amrfinder_hit_fraction"] = working["n_with_amrfinder_hits"] / working["n_sequences"].replace(0, np.nan)
-    working["amr_evidence_fraction"] = working["n_with_any_amr_evidence"] / working["n_sequences"].replace(0, np.nan)
+    working["amrfinder_hit_fraction"] = working["n_with_amrfinder_hits"] / working[
+        "n_sequences"
+    ].replace(0, np.nan)
+    working["amr_evidence_fraction"] = working["n_with_any_amr_evidence"] / working[
+        "n_sequences"
+    ].replace(0, np.nan)
     working["nonempty_concordance_evaluable_fraction"] = working["amr_evidence_fraction"]
     return working
 
@@ -1180,7 +1399,9 @@ def build_model_subgroup_performance(
         bins=[-np.inf, 1, 2, np.inf],
         labels=["1", "2", "3_plus"],
     ).astype(str)
-    backbone_meta["country_count_band"] = backbone_meta["n_countries_train"].fillna(0).astype(int).astype(str)
+    backbone_meta["country_count_band"] = (
+        backbone_meta["n_countries_train"].fillna(0).astype(int).astype(str)
+    )
 
     merged = predictions.merge(backbone_meta, on="backbone_id", how="left", validate="m:1")
     merged = merged.loc[merged["model_name"].isin(model_names)].copy()
@@ -1242,14 +1463,23 @@ def build_model_comparison_table(
     comparison_model_names: list[str],
 ) -> pd.DataFrame:
     """Build paired bootstrap comparisons between the primary model and comparators."""
-    required_models = [primary_model_name] + [name for name in comparison_model_names if name != primary_model_name]
+    required_models = [primary_model_name] + [
+        name for name in comparison_model_names if name != primary_model_name
+    ]
     wide = (
-        predictions.loc[predictions["model_name"].isin(required_models), ["backbone_id", "model_name", "oof_prediction", "spread_label"]]
-        .pivot_table(index="backbone_id", columns="model_name", values="oof_prediction", aggfunc="first")
+        predictions.loc[
+            predictions["model_name"].isin(required_models),
+            ["backbone_id", "model_name", "oof_prediction", "spread_label"],
+        ]
+        .pivot_table(
+            index="backbone_id", columns="model_name", values="oof_prediction", aggfunc="first"
+        )
         .reset_index()
     )
     primary_labels = (
-        predictions.loc[predictions["model_name"] == primary_model_name, ["backbone_id", "spread_label"]]
+        predictions.loc[
+            predictions["model_name"] == primary_model_name, ["backbone_id", "spread_label"]
+        ]
         .drop_duplicates("backbone_id")
         .rename(columns={"spread_label": "primary_spread_label"})
     )
@@ -1312,8 +1542,12 @@ def build_model_comparison_table(
                 "primary_average_precision_lift": average_precision_lift(y, primary_scores),
                 "comparison_average_precision_lift": average_precision_lift(y, other_scores),
                 "delta_average_precision": discrimination_deltas["average_precision"]["delta"],
-                "delta_average_precision_ci_lower": discrimination_deltas["average_precision"]["lower"],
-                "delta_average_precision_ci_upper": discrimination_deltas["average_precision"]["upper"],
+                "delta_average_precision_ci_lower": discrimination_deltas["average_precision"][
+                    "lower"
+                ],
+                "delta_average_precision_ci_upper": discrimination_deltas["average_precision"][
+                    "upper"
+                ],
                 "delta_brier_improvement": brier_delta["delta"],
                 "delta_brier_ci_lower": brier_delta["lower"],
                 "delta_brier_ci_upper": brier_delta["upper"],
@@ -1322,7 +1556,9 @@ def build_model_comparison_table(
     return pd.DataFrame(rows).sort_values("delta_roc_auc", ascending=False).reset_index(drop=True)
 
 
-def build_calibration_metric_table(predictions: pd.DataFrame, *, model_names: list[str]) -> pd.DataFrame:
+def build_calibration_metric_table(
+    predictions: pd.DataFrame, *, model_names: list[str]
+) -> pd.DataFrame:
     """Compute compact calibration-quality summaries for selected models."""
     rows = []
     for model_name in model_names:
@@ -1338,7 +1574,9 @@ def build_calibration_metric_table(predictions: pd.DataFrame, *, model_names: li
                 "mean_prediction": float(preds.mean()),
                 "observed_rate": float(y.mean()),
                 "brier_score": brier_score(y, preds),
+                "ece": expected_calibration_error(y, preds),
                 "expected_calibration_error": expected_calibration_error(y, preds),
+                "max_calibration_error": max_calibration_error(y, preds),
             }
         )
     return pd.DataFrame(rows)
@@ -1350,6 +1588,7 @@ def build_source_balance_resampling_table(
     model_name: str,
     n_resamples: int = 20,
     seed: int = 42,
+    n_jobs: int | None = 1,
 ) -> pd.DataFrame:
     """Repeatedly resample a source-balanced cohort and measure model stability."""
     eligible = scored.loc[scored["spread_label"].notna()].copy()
@@ -1364,26 +1603,38 @@ def build_source_balance_resampling_table(
     n_per_group = int(counts.min())
     rng = np.random.default_rng(seed)
     grouped_frames = [frame.copy() for _, frame in eligible.groupby("dominant_source", sort=False)]
-    rows = []
-    for resample_index in range(1, n_resamples + 1):
-        sampled_frames = []
-        sample_seed = int(rng.integers(0, 1_000_000_000))
-        for frame in grouped_frames:
-            sampled_frames.append(frame.sample(n=n_per_group, random_state=sample_seed))
+    sample_plan = [
+        (resample_index, int(rng.integers(0, 1_000_000_000)))
+        for resample_index in range(1, n_resamples + 1)
+    ]
+
+    def _evaluate_resample(task: tuple[int, int]) -> dict[str, object]:
+        resample_index, sample_seed = task
+        sampled_frames = [
+            frame.sample(n=n_per_group, random_state=sample_seed) for frame in grouped_frames
+        ]
         sampled = pd.concat(sampled_frames, ignore_index=True).drop(columns=["dominant_source"])
-        result = evaluate_model_name(sampled, model_name=model_name, n_repeats=2, seed=sample_seed, include_ci=False)
-        rows.append(
-            {
-                "model_name": model_name,
-                "resample_index": resample_index,
-                "sample_seed": sample_seed,
-                "n_backbones": int(len(sampled)),
-                "n_per_source_group": n_per_group,
-                "roc_auc": result.metrics["roc_auc"],
-                "average_precision": result.metrics["average_precision"],
-                "brier_score": result.metrics["brier_score"],
-            }
+        result = evaluate_model_name(
+            sampled, model_name=model_name, n_repeats=2, seed=sample_seed, include_ci=False
         )
+        return {
+            "model_name": model_name,
+            "resample_index": resample_index,
+            "sample_seed": sample_seed,
+            "n_backbones": int(len(sampled)),
+            "n_per_source_group": n_per_group,
+            "roc_auc": result.metrics["roc_auc"],
+            "average_precision": result.metrics["average_precision"],
+            "brier_score": result.metrics["brier_score"],
+        }
+
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(sample_plan))
+    if jobs > 1:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                rows = list(executor.map(_evaluate_resample, sample_plan))
+    else:
+        rows = [_evaluate_resample(task) for task in sample_plan]
     return pd.DataFrame(rows)
 
 
@@ -1406,8 +1657,12 @@ def build_negative_control_audit(
 
     working = scored.copy()
     backbone_ids = working["backbone_id"].fillna("").astype(str)
-    working["negative_control_noise_a"] = backbone_ids.map(lambda value: _stable_unit_interval(value, salt="noise_a"))
-    working["negative_control_noise_b"] = backbone_ids.map(lambda value: _stable_unit_interval(value, salt="noise_b"))
+    working["negative_control_noise_a"] = backbone_ids.map(
+        lambda value: _stable_unit_interval(value, salt="noise_a")
+    )
+    working["negative_control_noise_b"] = backbone_ids.map(
+        lambda value: _stable_unit_interval(value, salt="noise_b")
+    )
     working["negative_control_length"] = backbone_ids.str.len().astype(float)
 
     # Use the same fit parameters as the primary model for all specs so that
@@ -1418,12 +1673,19 @@ def build_negative_control_audit(
     specs = [
         ("primary_model", MODULE_A_FEATURE_SETS[primary_model_name]),
         ("negative_control_noise_a_only", ["negative_control_noise_a"]),
-        ("negative_control_noise_ab_only", ["negative_control_noise_a", "negative_control_noise_b"]),
+        (
+            "negative_control_noise_ab_only",
+            ["negative_control_noise_a", "negative_control_noise_b"],
+        ),
         ("negative_control_length_only", ["negative_control_length"]),
-        ("primary_plus_negative_control_a", MODULE_A_FEATURE_SETS[primary_model_name] + ["negative_control_noise_a"]),
+        (
+            "primary_plus_negative_control_a",
+            MODULE_A_FEATURE_SETS[primary_model_name] + ["negative_control_noise_a"],
+        ),
         (
             "primary_plus_negative_control_ab",
-            MODULE_A_FEATURE_SETS[primary_model_name] + ["negative_control_noise_a", "negative_control_noise_b"],
+            MODULE_A_FEATURE_SETS[primary_model_name]
+            + ["negative_control_noise_a", "negative_control_noise_b"],
         ),
     ]
 
@@ -1431,7 +1693,7 @@ def build_negative_control_audit(
     primary_metrics: dict[str, float] | None = None
     for audit_name, columns in specs:
         eligible, X, y = _eligible_xy(working, columns)
-        sample_weight = _compute_sample_weight(eligible, mode=fit_kwargs.get("sample_weight_mode"))
+        sample_weight = _compute_sample_weight(eligible, mode=_fit_kwarg_mode(fit_kwargs))
         preds = _oof_predictions(
             X,
             y,
@@ -1439,8 +1701,8 @@ def build_negative_control_audit(
             n_repeats=n_repeats,
             seed=seed,
             sample_weight=sample_weight,
-            l2=float(fit_kwargs.get("l2", 1.0)),
-            max_iter=int(fit_kwargs.get("max_iter", 100)),
+            l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
         )
         metrics = {
             "roc_auc": roc_auc_score(y, preds),
@@ -1463,9 +1725,135 @@ def build_negative_control_audit(
     audit = pd.DataFrame(rows)
     if primary_metrics is not None:
         audit["delta_roc_auc_vs_primary"] = audit["roc_auc"] - float(primary_metrics["roc_auc"])
-        audit["delta_average_precision_vs_primary"] = audit["average_precision"] - float(primary_metrics["average_precision"])
-        audit["delta_brier_vs_primary"] = audit["brier_score"] - float(primary_metrics["brier_score"])
+        audit["delta_average_precision_vs_primary"] = audit["average_precision"] - float(
+            primary_metrics["average_precision"]
+        )
+        audit["delta_brier_vs_primary"] = audit["brier_score"] - float(
+            primary_metrics["brier_score"]
+        )
     return audit
+
+
+def build_future_sentinel_audit(
+    scored: pd.DataFrame,
+    *,
+    predictions: pd.DataFrame | None = None,
+    primary_model_name: str | None = None,
+    model_names: list[str] | tuple[str, ...] | None = None,
+    sentinel_feature_name: str = "future_label_sentinel",
+) -> pd.DataFrame:
+    """Document that an obviously leaky future-only sentinel is excluded from discovery models."""
+    eligible = scored.loc[scored.get("spread_label", pd.Series(dtype=float)).notna()].copy()
+    if eligible.empty or eligible["spread_label"].astype(int).nunique() < 2:
+        return pd.DataFrame(
+            [
+                {
+                    "audit_name": sentinel_feature_name,
+                    "audit_status": "skipped_insufficient_label_variation",
+                    "sentinel_feature_name": sentinel_feature_name,
+                    "sentinel_source": "future_outcome_label",
+                }
+            ]
+        )
+    eligible["backbone_id"] = eligible["backbone_id"].astype(str)
+    y = eligible["spread_label"].astype(int).to_numpy()
+    sentinel_scores = eligible["spread_label"].astype(float).to_numpy()
+    discovery_models = [
+        str(model_name)
+        for model_name in (model_names or list(MODULE_A_FEATURE_SETS))
+        if str(get_model_track(str(model_name))) == "discovery"
+    ]
+    official_discovery_models_use_sentinel = any(
+        sentinel_feature_name in MODULE_A_FEATURE_SETS.get(model_name, [])
+        for model_name in discovery_models
+    )
+    try:
+        sentinel_track = str(get_feature_track(sentinel_feature_name))
+        discovery_contract_forbidden = sentinel_track != "discovery"
+    except (KeyError, TypeError, ValueError):
+        sentinel_track = "unregistered"
+        discovery_contract_forbidden = True
+
+    primary_roc_auc = np.nan
+    primary_average_precision = np.nan
+    if (
+        predictions is not None
+        and not predictions.empty
+        and primary_model_name is not None
+        and str(primary_model_name).strip()
+    ):
+        primary_frame = predictions.loc[
+            predictions.get("model_name", pd.Series(dtype=str))
+            .astype(str)
+            .eq(str(primary_model_name))
+        ].copy()
+        if not primary_frame.empty:
+            primary_frame["backbone_id"] = primary_frame["backbone_id"].astype(str)
+            primary_frame = primary_frame.merge(
+                eligible[["backbone_id", "spread_label"]],
+                on="backbone_id",
+                how="inner",
+                validate="1:1",
+                suffixes=("", "_eligible"),
+            )
+            if (
+                not primary_frame.empty
+                and primary_frame["spread_label_eligible"].astype(int).nunique() >= 2
+            ):
+                y_primary = primary_frame["spread_label_eligible"].astype(int).to_numpy()
+                preds_primary = primary_frame["oof_prediction"].astype(float).to_numpy()
+                primary_roc_auc = roc_auc_score(y_primary, preds_primary)
+                primary_average_precision = average_precision(y_primary, preds_primary)
+
+    sentinel_roc_auc = roc_auc_score(y, sentinel_scores)
+    sentinel_average_precision = average_precision(y, sentinel_scores)
+    sentinel_brier = brier_score(y, sentinel_scores)
+    audit_status = (
+        "pass"
+        if discovery_contract_forbidden and not official_discovery_models_use_sentinel
+        else "fail"
+    )
+    rationale = (
+        "Synthetic future-only sentinel is structurally excluded from official discovery models."
+        if audit_status == "pass"
+        else "Official discovery surface would admit an explicitly future-derived sentinel."
+    )
+    return pd.DataFrame(
+        [
+            {
+                "audit_name": sentinel_feature_name,
+                "audit_status": audit_status,
+                "audit_rationale": rationale,
+                "sentinel_feature_name": sentinel_feature_name,
+                "sentinel_source": "future_outcome_label",
+                "sentinel_track": sentinel_track,
+                "discovery_contract_forbidden": bool(discovery_contract_forbidden),
+                "official_discovery_models_checked": ",".join(discovery_models),
+                "n_discovery_models_checked": int(len(discovery_models)),
+                "official_discovery_models_use_sentinel": bool(
+                    official_discovery_models_use_sentinel
+                ),
+                "n_backbones": int(len(eligible)),
+                "n_positive": int((y == 1).sum()),
+                "sentinel_only_roc_auc": float(sentinel_roc_auc),
+                "sentinel_only_average_precision": float(sentinel_average_precision),
+                "sentinel_only_brier_score": float(sentinel_brier),
+                "primary_model_name": str(primary_model_name or ""),
+                "primary_roc_auc": float(primary_roc_auc) if pd.notna(primary_roc_auc) else np.nan,
+                "primary_average_precision": float(primary_average_precision)
+                if pd.notna(primary_average_precision)
+                else np.nan,
+                "delta_roc_auc_vs_primary": float(sentinel_roc_auc - primary_roc_auc)
+                if pd.notna(primary_roc_auc)
+                else np.nan,
+                "delta_average_precision_vs_primary": float(
+                    sentinel_average_precision - primary_average_precision
+                )
+                if pd.notna(primary_average_precision)
+                else np.nan,
+            }
+        ]
+    )
 
 
 def build_permutation_null_tables(
@@ -1506,7 +1894,9 @@ def build_permutation_null_tables(
         batch_size = min(256, n_permutations)
         while permutation_index <= n_permutations:
             current_batch = min(batch_size, n_permutations - permutation_index + 1)
-            permuted_batch = np.vstack([rng.permutation(y) for _ in range(current_batch)]).astype(int, copy=False)
+            permuted_batch = np.vstack([rng.permutation(y) for _ in range(current_batch)]).astype(
+                int, copy=False
+            )
             rank_sums = permuted_batch @ score_ranks
             auc_values = (rank_sums - positives * (positives + 1) / 2.0) / (positives * negatives)
             permuted_sorted = permuted_batch[:, order_desc]
@@ -1535,14 +1925,176 @@ def build_permutation_null_tables(
                 "null_roc_auc_mean": float(np.mean(null_aucs)),
                 "null_roc_auc_std": float(np.std(null_aucs)),
                 "null_roc_auc_q975": float(np.quantile(null_aucs, 0.975)),
-                "empirical_p_roc_auc": float((1 + sum(value >= observed_auc for value in null_aucs)) / (n_permutations + 1)),
+                "empirical_p_roc_auc": float(
+                    (1 + sum(value >= observed_auc for value in null_aucs)) / (n_permutations + 1)
+                ),
                 "observed_average_precision": observed_ap,
                 "observed_average_precision_lift": average_precision_lift(y, preds),
                 "observed_average_precision_enrichment": average_precision_enrichment(y, preds),
                 "null_average_precision_mean": float(np.mean(null_aps)),
                 "null_average_precision_std": float(np.std(null_aps)),
                 "null_average_precision_q975": float(np.quantile(null_aps, 0.975)),
-                "empirical_p_average_precision": float((1 + sum(value >= observed_ap for value in null_aps)) / (n_permutations + 1)),
+                "empirical_p_average_precision": float(
+                    (1 + sum(value >= observed_ap for value in null_aps)) / (n_permutations + 1)
+                ),
+            }
+        )
+    return pd.DataFrame(detail_rows), pd.DataFrame(summary_rows)
+
+
+def build_selection_adjusted_permutation_null(
+    scored: pd.DataFrame,
+    *,
+    model_names: list[str],
+    primary_model_name: str,
+    n_permutations: int = 200,
+    n_splits: int = 5,
+    n_repeats: int = 5,
+    seed: int = 42,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build a model-selection-adjusted null by refitting the official model surface.
+
+    For each label permutation, every candidate model in `model_names` is refit with the
+    permuted labels under the same OOF protocol. The null distribution is then defined by the
+    best ROC AUC achieved within that permutation, which accounts for post-hoc model choice
+    across the official surface.
+    """
+    selection_scope = [name for name in dict.fromkeys(model_names) if name in MODULE_A_FEATURE_SETS]
+    if primary_model_name not in selection_scope:
+        selection_scope = [*selection_scope, primary_model_name]
+        selection_scope = [name for name in selection_scope if name in MODULE_A_FEATURE_SETS]
+    if not selection_scope or primary_model_name not in set(selection_scope):
+        return pd.DataFrame(), pd.DataFrame()
+
+    eligible_mask = scored.get("spread_label", pd.Series(index=scored.index)).notna()
+    if not bool(eligible_mask.any()):
+        return pd.DataFrame(), pd.DataFrame()
+    y_true = scored.loc[eligible_mask, "spread_label"].astype(int).to_numpy(dtype=int)
+    if len(np.unique(y_true)) < 2:
+        return pd.DataFrame(), pd.DataFrame()
+
+    # Prepare the per-model design matrix once; permutations only change labels.
+    prepared_inputs: dict[str, tuple[pd.DataFrame, list[str], dict[str, object]]] = {}
+    for model_name in selection_scope:
+        columns = MODULE_A_FEATURE_SETS[model_name]
+        eligible = _ensure_feature_columns(scored, columns).loc[eligible_mask].copy()
+        eligible["spread_label"] = eligible["spread_label"].astype(int)
+        prepared_inputs[model_name] = (eligible, columns, _model_fit_kwargs(model_name))
+
+    observed_metrics: dict[str, tuple[float, float]] = {}
+    for model_name in selection_scope:
+        eligible, columns, fit_kwargs = prepared_inputs[model_name]
+        preds, y = _oof_predictions_from_eligible(
+            eligible,
+            columns=columns,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=seed,
+            fit_kwargs=fit_kwargs,
+        )
+        observed_metrics[model_name] = (
+            float(roc_auc_score(y, preds)),
+            float(average_precision(y, preds)),
+        )
+
+    rng = np.random.default_rng(seed)
+    detail_rows: list[dict[str, object]] = []
+    selected_null_aucs: list[float] = []
+    selected_null_aps: list[float] = []
+    selected_model_names: list[str] = []
+
+    for permutation_index in range(1, max(int(n_permutations), 0) + 1):
+        permuted_y = rng.permutation(y_true)
+        fold_groups = _stratified_folds(
+            permuted_y,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=int(rng.integers(0, 1_000_000_000)),
+        )
+        permutation_rows: list[dict[str, object]] = []
+        for model_name in selection_scope:
+            eligible, columns, fit_kwargs = prepared_inputs[model_name]
+            preds, _ = _oof_predictions_from_eligible(
+                eligible,
+                columns=columns,
+                n_splits=n_splits,
+                n_repeats=n_repeats,
+                seed=seed,
+                fit_kwargs=fit_kwargs,
+                y_override=permuted_y,
+                folds_per_repeat=fold_groups,
+            )
+            permutation_rows.append(
+                {
+                    "model_name": model_name,
+                    "null_roc_auc": float(roc_auc_score(permuted_y, preds)),
+                    "null_average_precision": float(average_precision(permuted_y, preds)),
+                }
+            )
+
+        permutation_frame = pd.DataFrame(permutation_rows).sort_values(
+            ["null_roc_auc", "null_average_precision", "model_name"],
+            ascending=[False, False, True],
+            kind="mergesort",
+        )
+        selected_row = permutation_frame.iloc[0]
+        selected_null_auc = float(selected_row["null_roc_auc"])
+        selected_null_ap = float(selected_row["null_average_precision"])
+        selected_model_name = str(selected_row["model_name"])
+        selected_null_aucs.append(selected_null_auc)
+        selected_null_aps.append(selected_null_ap)
+        selected_model_names.append(selected_model_name)
+        detail_rows.append(
+            {
+                "permutation_index": permutation_index,
+                "selection_scope": "official_model_surface",
+                "n_models_in_scope": int(len(selection_scope)),
+                "selected_model_name": selected_model_name,
+                "selected_null_roc_auc": selected_null_auc,
+                "selected_null_average_precision": selected_null_ap,
+            }
+        )
+
+    if not selected_null_aucs:
+        return pd.DataFrame(detail_rows), pd.DataFrame()
+
+    winner_counts = pd.Series(selected_model_names, dtype=object).value_counts()
+    modal_selected_model = str(winner_counts.index[0]) if not winner_counts.empty else ""
+    modal_selected_share = (
+        float(winner_counts.iloc[0] / max(len(selected_model_names), 1))
+        if not winner_counts.empty
+        else 0.0
+    )
+
+    summary_rows: list[dict[str, object]] = []
+    for model_name in selection_scope:
+        observed_auc, observed_ap = observed_metrics[model_name]
+        summary_rows.append(
+            {
+                "model_name": model_name,
+                "null_protocol": "selection_adjusted_official_model_refit",
+                "selection_scope": "official_model_surface",
+                "selection_reference_model": primary_model_name,
+                "n_models_in_scope": int(len(selection_scope)),
+                "n_permutations": int(n_permutations),
+                "observed_roc_auc": observed_auc,
+                "observed_average_precision": observed_ap,
+                "null_roc_auc_mean": float(np.mean(selected_null_aucs)),
+                "null_roc_auc_std": float(np.std(selected_null_aucs)),
+                "null_roc_auc_q975": float(np.quantile(selected_null_aucs, 0.975)),
+                "selection_adjusted_empirical_p_roc_auc": float(
+                    (1 + sum(value >= observed_auc for value in selected_null_aucs))
+                    / (len(selected_null_aucs) + 1)
+                ),
+                "null_average_precision_mean": float(np.mean(selected_null_aps)),
+                "null_average_precision_std": float(np.std(selected_null_aps)),
+                "null_average_precision_q975": float(np.quantile(selected_null_aps, 0.975)),
+                "selection_adjusted_empirical_p_average_precision": float(
+                    (1 + sum(value >= observed_ap for value in selected_null_aps))
+                    / (len(selected_null_aps) + 1)
+                ),
+                "modal_selected_model_name": modal_selected_model,
+                "modal_selected_model_share": modal_selected_share,
             }
         )
     return pd.DataFrame(detail_rows), pd.DataFrame(summary_rows)
@@ -1584,12 +2136,16 @@ def build_consensus_candidate_ranking(
         return pd.DataFrame()
     working["primary_candidate_score"] = working[primary_score_column].astype(float)
     working["conservative_candidate_score"] = working[conservative_score_column].astype(float)
-    working["primary_rank"] = working["primary_candidate_score"].rank(method="average", ascending=False)
-    working["conservative_rank"] = working["conservative_candidate_score"].rank(method="average", ascending=False)
-    working["bio_rank"] = working["bio_priority_index"].fillna(0.0).rank(method="average", ascending=False)
-    working["consensus_rank_mean"] = (
-        working["primary_rank"] + working["conservative_rank"]
-    ) / 2.0
+    working["primary_rank"] = working["primary_candidate_score"].rank(
+        method="average", ascending=False
+    )
+    working["conservative_rank"] = working["conservative_candidate_score"].rank(
+        method="average", ascending=False
+    )
+    working["bio_rank"] = (
+        working["bio_priority_index"].fillna(0.0).rank(method="average", ascending=False)
+    )
+    working["consensus_rank_mean"] = (working["primary_rank"] + working["conservative_rank"]) / 2.0
     working["rank_disagreement_primary_vs_conservative"] = (
         working["primary_rank"] - working["conservative_rank"]
     ).abs()
@@ -1625,13 +2181,15 @@ def build_priority_bootstrap_stability_table(
     *,
     candidate_n: int = 50,
     top_k: int = 25,
-    n_bootstrap: int = 200,
+    n_bootstrap: int = 1000,
     seed: int = 42,
-    normalization_method: str = "rank_percentile",
+    normalization_method: str = DEFAULT_NORMALIZATION_METHOD,
     score_column: str = "priority_index",
     model_name: str | None = None,
+    n_jobs: int | None = None,
 ) -> pd.DataFrame:
     """Measure how often the highest-ranked candidates stay near the top under reference resampling."""
+    n_bootstrap = max(int(n_bootstrap), 1)
     training = scored.loc[scored["member_count_train"].fillna(0).astype(int) > 0].copy()
     if model_name:
         training = training.loc[training["spread_label"].notna()].copy()
@@ -1640,7 +2198,9 @@ def build_priority_bootstrap_stability_table(
 
     score_key = "stability_score"
     if model_name:
-        base_scores = fit_full_model_predictions(training, model_name=model_name).rename(columns={"prediction": score_key})
+        base_scores = fit_full_model_predictions(training, model_name=model_name).rename(
+            columns={"prediction": score_key}
+        )
         base = training.merge(base_scores, on="backbone_id", how="left", validate="1:1")
     else:
         base = training.copy()
@@ -1649,7 +2209,7 @@ def build_priority_bootstrap_stability_table(
     candidates = base.head(candidate_n)[["backbone_id", score_key]].copy()
     candidates["base_rank"] = np.arange(1, len(candidates) + 1)
     candidate_ids = candidates["backbone_id"].astype(str).tolist()
-    stats = {
+    stats: dict[str, _BootstrapCandidateStats] = {
         backbone_id: {
             "top_hits": 0,
             "top_hits_top10": 0,
@@ -1660,8 +2220,9 @@ def build_priority_bootstrap_stability_table(
     }
 
     rng = np.random.default_rng(seed)
-    for _ in range(n_bootstrap):
-        sample_seed = int(rng.integers(0, 1_000_000_000))
+    sample_seeds = [int(rng.integers(0, 1_000_000_000)) for _ in range(n_bootstrap)]
+
+    def _rank_lookup_from_seed(sample_seed: int) -> tuple[dict[str, int], int]:
         if model_name:
             bootstrap_train = training.sample(
                 n=len(training),
@@ -1674,7 +2235,7 @@ def build_priority_bootstrap_stability_table(
                 model_name=model_name,
             ).rename(columns={"prediction": score_key})
             if rescored.empty:
-                continue
+                return {}, 0
             rescored = rescored.sort_values(score_key, ascending=False)
         else:
             reference = training.sample(n=len(training), replace=True, random_state=sample_seed)
@@ -1685,13 +2246,31 @@ def build_priority_bootstrap_stability_table(
             )
             rescored[score_key] = rescored[score_column].fillna(0.0)
             rescored = rescored.sort_values(score_key, ascending=False)
-        rank_lookup = {backbone_id: rank for rank, backbone_id in enumerate(rescored["backbone_id"].astype(str), start=1)}
+        return (
+            {
+                backbone_id: rank
+                for rank, backbone_id in enumerate(rescored["backbone_id"].astype(str), start=1)
+            },
+            int(len(rescored)),
+        )
+
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(sample_seeds), cap=8)
+    if jobs > 1:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                rank_lookups = list(executor.map(_rank_lookup_from_seed, sample_seeds))
+    else:
+        rank_lookups = [_rank_lookup_from_seed(sample_seed) for sample_seed in sample_seeds]
+
+    for rank_lookup, ranked_size in rank_lookups:
+        if ranked_size <= 0:
+            continue
         for backbone_id in candidate_ids:
-            rank = int(rank_lookup.get(backbone_id, len(rescored) + 1))
+            rank = int(rank_lookup.get(backbone_id, ranked_size + 1))
             stats[backbone_id]["ranks"].append(rank)
             stats[backbone_id]["top_hits"] += int(rank <= top_k)
-            stats[backbone_id]["top_hits_top10"] += int(rank <= min(10, len(rescored)))
-            stats[backbone_id]["top_hits_top25"] += int(rank <= min(25, len(rescored)))
+            stats[backbone_id]["top_hits_top10"] += int(rank <= min(10, ranked_size))
+            stats[backbone_id]["top_hits_top25"] += int(rank <= min(25, ranked_size))
 
     rows = []
     for row in candidates.to_dict(orient="records"):
@@ -1703,9 +2282,15 @@ def build_priority_bootstrap_stability_table(
                 "base_rank": int(row["base_rank"]),
                 "top_k": int(top_k),
                 "n_bootstrap": int(n_bootstrap),
-                "bootstrap_top_k_frequency": float(stats[str(row["backbone_id"])]["top_hits"] / n_bootstrap),
-                "bootstrap_top_10_frequency": float(stats[str(row["backbone_id"])]["top_hits_top10"] / n_bootstrap),
-                "bootstrap_top_25_frequency": float(stats[str(row["backbone_id"])]["top_hits_top25"] / n_bootstrap),
+                "bootstrap_top_k_frequency": float(
+                    stats[str(row["backbone_id"])]["top_hits"] / n_bootstrap
+                ),
+                "bootstrap_top_10_frequency": float(
+                    stats[str(row["backbone_id"])]["top_hits_top10"] / n_bootstrap
+                ),
+                "bootstrap_top_25_frequency": float(
+                    stats[str(row["backbone_id"])]["top_hits_top25"] / n_bootstrap
+                ),
                 "bootstrap_mean_rank": float(ranks.mean()),
                 "bootstrap_median_rank": float(np.median(ranks)),
                 "bootstrap_rank_std": float(ranks.std()),
@@ -1722,6 +2307,7 @@ def build_variant_rank_consistency_table(
     top_k: int = 25,
     score_column: str = "priority_index",
     model_name: str | None = None,
+    n_jobs: int | None = None,
 ) -> pd.DataFrame:
     """Summarize how often top candidates remain in the top set across robustness variants."""
     base = base_scored.loc[base_scored["member_count_train"].fillna(0).astype(int) > 0].copy()
@@ -1731,37 +2317,59 @@ def build_variant_rank_consistency_table(
         return pd.DataFrame()
     score_key = "variant_score"
     if model_name:
-        base_scores = fit_full_model_predictions(base, model_name=model_name).rename(columns={"prediction": score_key})
+        base_scores = fit_full_model_predictions(base, model_name=model_name).rename(
+            columns={"prediction": score_key}
+        )
         base = base.merge(base_scores, on="backbone_id", how="left", validate="1:1")
     else:
         base[score_key] = base[score_column].fillna(0.0)
     base = base.sort_values(score_key, ascending=False).reset_index(drop=True)
     candidates = base.head(candidate_n)[["backbone_id", score_key]].copy()
     candidates["base_rank"] = np.arange(1, len(candidates) + 1)
-    candidate_ids = candidates["backbone_id"].astype(str).tolist()
+    tasks = [
+        (name, frame)
+        for name, frame in variant_frames.items()
+        if not frame.empty
+        and "backbone_id" in frame.columns
+        and "member_count_train" in frame.columns
+    ]
 
-    valid_variants: dict[str, tuple[dict[str, int], int]] = {}
-    for name, frame in variant_frames.items():
-        if frame.empty or "backbone_id" not in frame.columns or "member_count_train" not in frame.columns:
-            continue
+    def _evaluate_variant(
+        task: tuple[str, pd.DataFrame],
+    ) -> tuple[str, tuple[dict[str, int], int] | None]:
+        name, frame = task
         working = frame.loc[frame["member_count_train"].fillna(0).astype(int) > 0].copy()
         if model_name:
             working = working.loc[working["spread_label"].notna()].copy()
         if working.empty:
-            continue
+            return name, None
         if model_name:
-            predictions = fit_full_model_predictions(working, model_name=model_name).rename(columns={"prediction": score_key})
+            predictions = fit_full_model_predictions(working, model_name=model_name).rename(
+                columns={"prediction": score_key}
+            )
             working = working.merge(predictions, on="backbone_id", how="left", validate="1:1")
         elif score_column in working.columns:
             working[score_key] = working[score_column].fillna(0.0)
         else:
-            continue
+            return name, None
         ranked = working.sort_values(score_key, ascending=False).reset_index(drop=True)
         rank_lookup = {
             backbone_id: rank
             for rank, backbone_id in enumerate(ranked["backbone_id"].astype(str), start=1)
         }
-        valid_variants[name] = (rank_lookup, int(len(ranked)))
+        return name, (rank_lookup, int(len(ranked)))
+
+    valid_variants: dict[str, tuple[dict[str, int], int]] = {}
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(tasks))
+    if jobs > 1 and tasks:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                evaluated = list(executor.map(_evaluate_variant, tasks))
+    else:
+        evaluated = [_evaluate_variant(task) for task in tasks]
+    for name, payload in evaluated:
+        if payload is not None:
+            valid_variants[name] = payload
     if not valid_variants:
         return pd.DataFrame()
 
@@ -1804,6 +2412,7 @@ def build_group_holdout_performance(
     group_columns: list[str],
     min_group_size: int = 25,
     max_groups_per_column: int = 8,
+    n_jobs: int | None = 1,
 ) -> pd.DataFrame:
     """Evaluate selected models on strict held-out groups such as source or dominant genus."""
     eligible = scored.loc[scored["spread_label"].notna()].copy()
@@ -1812,6 +2421,7 @@ def build_group_holdout_performance(
     eligible["spread_label"] = eligible["spread_label"].astype(int)
 
     rows: list[dict[str, object]] = []
+    tasks: list[tuple[dict[str, object], pd.DataFrame, pd.DataFrame, str]] = []
     for group_column in group_columns:
         if group_column not in eligible.columns:
             continue
@@ -1821,7 +2431,9 @@ def build_group_holdout_performance(
         if group_column == "dominant_source":
             selected_groups = counts.index.tolist()
         else:
-            selected_groups = counts.loc[counts >= min_group_size].head(max_groups_per_column).index.tolist()
+            selected_groups = (
+                counts.loc[counts >= min_group_size].head(max_groups_per_column).index.tolist()
+            )
         for group_value in selected_groups:
             test = working.loc[working[group_column] == group_value].copy()
             train = working.loc[working[group_column] != group_value].copy()
@@ -1834,7 +2446,11 @@ def build_group_holdout_performance(
                 "n_train_backbones": int(len(train)),
             }
             for model_name in model_names:
-                if len(test) < min_group_size or test["spread_label"].nunique() < 2 or train["spread_label"].nunique() < 2:
+                if (
+                    len(test) < min_group_size
+                    or test["spread_label"].nunique() < 2
+                    or train["spread_label"].nunique() < 2
+                ):
                     rows.append(
                         {
                             **base_row,
@@ -1846,38 +2462,111 @@ def build_group_holdout_performance(
                         }
                     )
                     continue
-                prediction_table = fit_predict_model_holdout(train, test, model_name=model_name)
-                if prediction_table.empty or prediction_table["spread_label"].nunique() < 2:
-                    rows.append(
-                        {
-                            **base_row,
-                            "model_name": model_name,
-                            "roc_auc": np.nan,
-                            "average_precision": np.nan,
-                            "brier_score": np.nan,
-                            "status": "skipped_fit_failure",
-                        }
-                    )
-                    continue
-                y = prediction_table["spread_label"].to_numpy(dtype=int)
-                preds = prediction_table["prediction"].to_numpy(dtype=float)
-                prevalence = positive_prevalence(y)
-                top_k = max(int(np.ceil(len(preds) * 0.10)), 1)
-                ranked = prediction_table.sort_values("prediction", ascending=False).head(top_k)
-                rows.append(
-                    {
-                        **base_row,
-                        "model_name": model_name,
-                        "roc_auc": roc_auc_score(y, preds),
-                        "average_precision": average_precision(y, preds),
-                        "average_precision_lift": average_precision_lift(y, preds),
-                        "brier_score": brier_score(y, preds),
-                        "positive_prevalence": prevalence,
-                        "precision_at_top_10pct": float(ranked["spread_label"].astype(float).mean()),
-                        "extreme_prevalence_caution": bool(prevalence <= 0.10 or prevalence >= 0.90),
-                        "status": "ok",
-                    }
-                )
+                tasks.append((base_row, train, test, model_name))
+
+    def _evaluate_holdout_task(
+        task: tuple[dict[str, object], pd.DataFrame, pd.DataFrame, str],
+    ) -> dict[str, object]:
+        base_row, train, test, model_name = task
+        prediction_table = fit_predict_model_holdout(train, test, model_name=model_name)
+        if prediction_table.empty or prediction_table["spread_label"].nunique() < 2:
+            return {
+                **base_row,
+                "model_name": model_name,
+                "roc_auc": np.nan,
+                "average_precision": np.nan,
+                "brier_score": np.nan,
+                "status": "skipped_fit_failure",
+            }
+        y = prediction_table["spread_label"].to_numpy(dtype=int)
+        preds = prediction_table["prediction"].to_numpy(dtype=float)
+        prevalence = positive_prevalence(y)
+        top_k = max(int(np.ceil(len(preds) * 0.10)), 1)
+        ranked = prediction_table.sort_values("prediction", ascending=False).head(top_k)
+        return {
+            **base_row,
+            "model_name": model_name,
+            "roc_auc": roc_auc_score(y, preds),
+            "average_precision": average_precision(y, preds),
+            "average_precision_lift": average_precision_lift(y, preds),
+            "brier_score": brier_score(y, preds),
+            "positive_prevalence": prevalence,
+            "precision_at_top_10pct": float(ranked["spread_label"].astype(float).mean()),
+            "extreme_prevalence_caution": bool(prevalence <= 0.10 or prevalence >= 0.90),
+            "status": "ok",
+        }
+
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(tasks))
+    if jobs > 1 and tasks:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                rows.extend(executor.map(_evaluate_holdout_task, tasks))
+    else:
+        rows.extend(_evaluate_holdout_task(task) for task in tasks)
+    return pd.DataFrame(rows)
+
+
+def build_blocked_holdout_summary(
+    group_holdout: pd.DataFrame,
+    *,
+    blocked_group_columns: list[str] | tuple[str, ...] = (
+        "dominant_source",
+        "dominant_region_train",
+    ),
+) -> pd.DataFrame:
+    """Summarize strict source and spatial blocked holdout performance by model."""
+    if group_holdout.empty:
+        return pd.DataFrame()
+    working = group_holdout.loc[
+        group_holdout.get("status", pd.Series(dtype=str)).astype(str).eq("ok")
+        & group_holdout.get("group_column", pd.Series(dtype=str))
+        .astype(str)
+        .isin([str(column) for column in blocked_group_columns])
+    ].copy()
+    if working.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, object]] = []
+    for model_name, frame in working.groupby("model_name", sort=False):
+        weights = pd.to_numeric(
+            frame.get("n_test_backbones", pd.Series(0.0, index=frame.index)), errors="coerce"
+        ).fillna(0.0)
+        aucs = pd.to_numeric(
+            frame.get("roc_auc", pd.Series(np.nan, index=frame.index)), errors="coerce"
+        )
+        valid = aucs.notna()
+        if not valid.any():
+            continue
+        valid_weights = np.clip(weights.loc[valid].to_numpy(dtype=float), 1.0, None)
+        valid_aucs = aucs.loc[valid].to_numpy(dtype=float)
+        if valid_weights.size and np.isfinite(valid_weights).any():
+            weighted_auc = float(np.average(valid_aucs, weights=valid_weights))
+        else:
+            weighted_auc = float(np.mean(valid_aucs))
+        best_idx = aucs.idxmax()
+        worst_idx = aucs.idxmin()
+        rows.append(
+            {
+                "model_name": str(model_name),
+                "blocked_holdout_group_columns": ",".join(
+                    sorted({str(value) for value in frame["group_column"].astype(str).tolist()})
+                ),
+                "blocked_holdout_roc_auc": weighted_auc,
+                "blocked_holdout_macro_roc_auc": float(aucs.mean()),
+                "blocked_holdout_n_backbones": int(weights.sum()),
+                "blocked_holdout_group_count": int(
+                    frame[["group_column", "group_value"]].drop_duplicates().shape[0]
+                ),
+                "best_blocked_holdout_group": (
+                    f"{frame.loc[best_idx, 'group_column']}:{frame.loc[best_idx, 'group_value']}"
+                ),
+                "best_blocked_holdout_group_roc_auc": float(aucs.loc[best_idx]),
+                "worst_blocked_holdout_group": (
+                    f"{frame.loc[worst_idx, 'group_column']}:{frame.loc[worst_idx, 'group_value']}"
+                ),
+                "worst_blocked_holdout_group_roc_auc": float(aucs.loc[worst_idx]),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -1896,7 +2585,7 @@ def build_logistic_implementation_audit(
         return pd.DataFrame()
 
     fit_kwargs = _model_fit_kwargs(model_name)
-    sample_weight = _compute_sample_weight(eligible, mode=fit_kwargs.get("sample_weight_mode"))
+    sample_weight = _compute_sample_weight(eligible, mode=_fit_kwarg_mode(fit_kwargs))
     custom_preds = _oof_predictions(
         X,
         y,
@@ -1904,14 +2593,15 @@ def build_logistic_implementation_audit(
         n_repeats=n_repeats,
         seed=seed,
         sample_weight=sample_weight,
-        l2=float(fit_kwargs.get("l2", 1.0)),
-        max_iter=int(fit_kwargs.get("max_iter", 100)),
+        l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
     )
 
     sklearn_preds = np.zeros(len(y), dtype=float)
     counts = np.zeros(len(y), dtype=float)
-    c_value = 1e6 if float(fit_kwargs.get("l2", 1.0)) <= 0 else 1.0 / float(fit_kwargs.get("l2", 1.0))
-    max_iter = max(int(fit_kwargs.get("max_iter", 100)), 1000)
+    l2_value = _fit_kwarg_float(fit_kwargs, "l2", 1.0)
+    c_value = 1e6 if l2_value <= 0 else 1.0 / l2_value
+    max_iter = max(_fit_kwarg_int(fit_kwargs, "max_iter", 100), 1000)
     for fold_indices in _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed):
         for test_idx in fold_indices:
             train_mask = np.ones(len(y), dtype=bool)
@@ -1922,6 +2612,7 @@ def build_logistic_implementation_audit(
             X_train_scaled, mean, std = _standardize_fit(X_train)
             X_test_scaled = _standardize_apply(X_test, mean, std)
             from sklearn.linear_model import LogisticRegression
+
             model = LogisticRegression(
                 C=c_value,
                 solver="lbfgs",
@@ -1941,11 +2632,16 @@ def build_logistic_implementation_audit(
         "custom_roc_auc": roc_auc_score(y, custom_preds),
         "sklearn_roc_auc": roc_auc_score(y, sklearn_preds),
         "custom_average_precision": average_precision(y, custom_preds),
-        "sklearn_average_precision": average_precision(y, sklearn_preds),
+        "sklearn_average_precision": average_precision_score(y, sklearn_preds),
         "custom_average_precision_lift": average_precision_lift(y, custom_preds),
-        "sklearn_average_precision_lift": average_precision_lift(y, sklearn_preds),
-        "pearson_prediction_correlation": float(pd.Series(custom_preds).corr(pd.Series(sklearn_preds), method="pearson")),
-        "spearman_prediction_correlation": float(pd.Series(custom_preds).corr(pd.Series(sklearn_preds), method="spearman")),
+        "sklearn_average_precision_lift": average_precision_score(y, sklearn_preds)
+        - positive_prevalence(y),
+        "pearson_prediction_correlation": float(
+            pd.Series(custom_preds).corr(pd.Series(sklearn_preds), method="pearson")
+        ),
+        "spearman_prediction_correlation": float(
+            pd.Series(custom_preds).corr(pd.Series(sklearn_preds), method="spearman")
+        ),
         "mean_absolute_prediction_difference": float(diff.mean()),
         "max_absolute_prediction_difference": float(diff.max()),
     }
@@ -1961,6 +2657,7 @@ def build_model_simplicity_summary(
     top_ks: tuple[int, ...] = (10, 25, 50),
 ) -> pd.DataFrame:
     """Summarize whether the simpler conservative model preserves the candidate ranking signal."""
+    model_metrics = _active_model_metrics(model_metrics)
     available = model_metrics.set_index("model_name", drop=False)
     if primary_model_name not in available.index or conservative_model_name not in available.index:
         return pd.DataFrame()
@@ -1971,7 +2668,9 @@ def build_model_simplicity_summary(
         return pd.DataFrame()
 
     primary = primary.sort_values("oof_prediction", ascending=False).reset_index(drop=True)
-    conservative = conservative.sort_values("oof_prediction", ascending=False).reset_index(drop=True)
+    conservative = conservative.sort_values("oof_prediction", ascending=False).reset_index(
+        drop=True
+    )
     primary_ids = primary["backbone_id"].astype(str).tolist()
     conservative_ids = conservative["backbone_id"].astype(str).tolist()
 
@@ -1981,10 +2680,13 @@ def build_model_simplicity_summary(
         "primary_roc_auc": float(available.loc[primary_model_name, "roc_auc"]),
         "conservative_roc_auc": float(available.loc[conservative_model_name, "roc_auc"]),
         "roc_auc_delta_primary_minus_conservative": float(
-            available.loc[primary_model_name, "roc_auc"] - available.loc[conservative_model_name, "roc_auc"]
+            available.loc[primary_model_name, "roc_auc"]
+            - available.loc[conservative_model_name, "roc_auc"]
         ),
         "primary_average_precision": float(available.loc[primary_model_name, "average_precision"]),
-        "conservative_average_precision": float(available.loc[conservative_model_name, "average_precision"]),
+        "conservative_average_precision": float(
+            available.loc[conservative_model_name, "average_precision"]
+        ),
         "primary_brier_score": float(available.loc[primary_model_name, "brier_score"]),
         "conservative_brier_score": float(available.loc[conservative_model_name, "brier_score"]),
     }
@@ -2020,10 +2722,22 @@ def build_temporal_drift_summary(records: pd.DataFrame) -> pd.DataFrame:
                 "n_backbones": int(frame["backbone_id"].nunique()),
                 "n_countries": int(country_values.loc[country_values != ""].nunique()),
                 "n_genera": int(genus_values.loc[genus_values != ""].nunique()),
-                "refseq_record_fraction": float(frame["record_origin"].eq("refseq").mean()) if "record_origin" in frame.columns else np.nan,
-                "insd_record_fraction": float(frame["record_origin"].eq("insd").mean()) if "record_origin" in frame.columns else np.nan,
-                "mobilizable_fraction": float(frame["is_mobilizable"].fillna(False).astype(bool).mean()) if "is_mobilizable" in frame.columns else np.nan,
-                "conjugative_fraction": float(frame["is_conjugative"].fillna(False).astype(bool).mean()) if "is_conjugative" in frame.columns else np.nan,
+                "refseq_record_fraction": float(frame["record_origin"].eq("refseq").mean())
+                if "record_origin" in frame.columns
+                else np.nan,
+                "insd_record_fraction": float(frame["record_origin"].eq("insd").mean())
+                if "record_origin" in frame.columns
+                else np.nan,
+                "mobilizable_fraction": float(
+                    frame["is_mobilizable"].fillna(False).astype(bool).mean()
+                )
+                if "is_mobilizable" in frame.columns
+                else np.nan,
+                "conjugative_fraction": float(
+                    frame["is_conjugative"].fillna(False).astype(bool).mean()
+                )
+                if "is_conjugative" in frame.columns
+                else np.nan,
             }
         )
     summary = pd.DataFrame(rows).sort_values("resolved_year").reset_index(drop=True)
@@ -2038,450 +2752,165 @@ def build_temporal_drift_summary(records: pd.DataFrame) -> pd.DataFrame:
         "conjugative_fraction",
     ]:
         summary[f"{column}_rolling3"] = (
-            summary[column]
-            .astype(float)
-            .rolling(window=3, min_periods=1, center=True)
-            .mean()
+            summary[column].astype(float).rolling(window=3, min_periods=1, center=True).mean()
         )
     return summary
 
 
-def build_candidate_dossier_table(
-    base_candidates: pd.DataFrame,
-    *,
-    candidate_stability: pd.DataFrame,
-    predictions: pd.DataFrame,
-    primary_model_name: str,
-    conservative_model_name: str,
-    who_detail: pd.DataFrame,
-    card_detail: pd.DataFrame,
-    mobsuite_detail: pd.DataFrame,
-    pathogen_support: pd.DataFrame,
-    amrfinder_detail: pd.DataFrame,
-) -> pd.DataFrame:
-    """Assemble a compact candidate dossier with stability, support, and prediction context."""
-    dossier = base_candidates.copy()
-    if dossier.empty:
-        return dossier
-    if "freeze_rank" not in dossier.columns:
-        dossier = dossier.sort_values("priority_index", ascending=False).reset_index(drop=True)
-        dossier["freeze_rank"] = np.arange(1, len(dossier) + 1)
-
-    if not candidate_stability.empty:
-        stability_columns = [
-            "backbone_id",
-            "base_rank",
-            "top_k",
-            "n_bootstrap",
-            "bootstrap_top_k_frequency",
-            "bootstrap_top_10_frequency",
-            "bootstrap_top_25_frequency",
-            "bootstrap_mean_rank",
-            "bootstrap_median_rank",
-            "bootstrap_rank_std",
-            "n_variants_evaluated",
-            "variant_top_k_frequency",
-            "variant_top_10_frequency",
-            "variant_top_25_frequency",
-            "variant_mean_rank",
-            "variant_median_rank",
-            "variant_rank_std",
-            "high_confidence_candidate",
-            "knownness_score",
-            "knownness_half",
-            "baseline_both_oof_prediction",
-            "primary_model_full_fit_prediction",
-            "baseline_both_full_fit_prediction",
-            "conservative_model_full_fit_prediction",
-            "novelty_margin_vs_baseline",
-        ]
-        stability_payload = candidate_stability[[column for column in stability_columns if column in candidate_stability.columns]].copy()
-        dossier = coalescing_left_merge(dossier, stability_payload, on="backbone_id")
-
-    for model_name, output_column in (
-        (primary_model_name, "primary_model_oof_prediction"),
-        (conservative_model_name, "conservative_model_oof_prediction"),
-    ):
-        if output_column in dossier.columns:
-            continue
-        if model_name in set(predictions["model_name"].astype(str)):
-            model_predictions = predictions.loc[
-                predictions["model_name"] == model_name,
-                ["backbone_id", "oof_prediction"],
-            ].rename(columns={"oof_prediction": output_column})
-            dossier = coalescing_left_merge(dossier, model_predictions, on="backbone_id")
-
-    if not who_detail.empty:
-        dossier = coalescing_left_merge(
-            dossier,
-            who_detail[["backbone_id", "who_mia_any_support", "who_mia_any_hpecia", "who_mia_mapped_fraction"]],
-            on="backbone_id",
-        )
-    if not card_detail.empty:
-        dossier = coalescing_left_merge(
-            dossier,
-            card_detail[["backbone_id", "card_any_support", "card_match_fraction"]],
-            on="backbone_id",
-        )
-    if not mobsuite_detail.empty:
-        dossier = coalescing_left_merge(
-            dossier,
-            mobsuite_detail[["backbone_id", "mobsuite_any_literature_support", "mobsuite_any_cluster_support"]],
-            on="backbone_id",
-        )
-    if not pathogen_support.empty and "pathogen_dataset" in pathogen_support.columns:
-        combined = pathogen_support.loc[
-            pathogen_support["pathogen_dataset"] == "combined",
-            ["backbone_id", "pd_any_support", "pd_matching_fraction"],
-        ]
-        dossier = coalescing_left_merge(dossier, combined, on="backbone_id")
-    if not amrfinder_detail.empty:
-        amrfinder_summary = (
-            amrfinder_detail.groupby("backbone_id", as_index=False)
-            .agg(
-                amrfinder_any_hit=("amrfinder_any_hit", "max"),
-                amrfinder_mean_gene_jaccard=("gene_jaccard", "mean"),
-                amrfinder_mean_class_jaccard=("class_jaccard", "mean"),
-            )
-        )
-        dossier = coalescing_left_merge(dossier, amrfinder_summary, on="backbone_id")
-
-    support_columns = [
-        "who_mia_any_support",
-        "card_any_support",
-        "mobsuite_any_literature_support",
-        "pd_any_support",
-    ]
-    for column in support_columns:
-        if column not in dossier.columns:
-            dossier[column] = pd.Series(pd.NA, index=dossier.index, dtype="boolean")
-        else:
-            dossier[column] = dossier[column].astype("boolean")
-    support_matrix = pd.DataFrame({column: dossier[column] for column in support_columns}, index=dossier.index)
-    dossier["support_profile_available"] = support_matrix.notna().any(axis=1)
-    dossier["external_support_modalities_count"] = support_matrix.fillna(False).sum(axis=1).astype(int)
-    primary_oof = dossier.get("primary_model_oof_prediction", pd.Series(np.nan, index=dossier.index, dtype=float)).astype(float)
-    primary_full = dossier.get("primary_model_full_fit_prediction", pd.Series(np.nan, index=dossier.index, dtype=float)).astype(float)
-    baseline_oof = dossier.get("baseline_both_oof_prediction", pd.Series(np.nan, index=dossier.index, dtype=float)).astype(float)
-    baseline_full = dossier.get("baseline_both_full_fit_prediction", pd.Series(np.nan, index=dossier.index, dtype=float)).astype(float)
-    conservative_oof = dossier.get("conservative_model_oof_prediction", pd.Series(np.nan, index=dossier.index, dtype=float)).astype(float)
-    conservative_full = dossier.get("conservative_model_full_fit_prediction", pd.Series(np.nan, index=dossier.index, dtype=float)).astype(float)
-
-    dossier["primary_model_candidate_score"] = primary_oof.fillna(primary_full)
-    dossier["baseline_both_candidate_score"] = baseline_oof.fillna(baseline_full)
-    dossier["conservative_model_candidate_score"] = conservative_oof.fillna(conservative_full)
-    dossier["candidate_prediction_source"] = np.where(
-        primary_oof.notna(),
-        "oof",
-        np.where(primary_full.notna(), "full_fit", "missing"),
-    )
-    dossier["eligible_for_oof"] = primary_oof.notna()
-    dossier["primary_minus_conservative_prediction"] = (
-        dossier["primary_model_candidate_score"].fillna(0.0)
-        - dossier["conservative_model_candidate_score"].fillna(0.0)
-    )
-    dossier["novelty_margin_vs_baseline"] = (
-        dossier["primary_model_candidate_score"].fillna(0.0)
-        - dossier["baseline_both_candidate_score"].fillna(0.0)
-    )
-
-    bootstrap = dossier.get("bootstrap_top_k_frequency", pd.Series(0.0, index=dossier.index)).fillna(0.0)
-    variant = dossier.get("variant_top_k_frequency", pd.Series(0.0, index=dossier.index)).fillna(0.0)
-    coherence = dossier.get("coherence_score", pd.Series(0.0, index=dossier.index)).fillna(0.0)
-    consensus_support = dossier.get("consensus_support_count", pd.Series(0, index=dossier.index)).fillna(0).astype(int)
-    disagreement = dossier.get(
-        "rank_disagreement_primary_vs_conservative",
-        pd.Series(np.inf, index=dossier.index, dtype=float),
-    ).fillna(np.inf)
-    stability_available = dossier.get("bootstrap_top_k_frequency", pd.Series(np.nan, index=dossier.index)).notna() | dossier.get(
-        "variant_top_k_frequency",
-        pd.Series(np.nan, index=dossier.index),
-    ).notna()
-    dossier["candidate_confidence_tier"] = np.select(
-        [
-            (coherence >= 0.60)
-            & (consensus_support >= 2)
-            & (((bootstrap >= 0.85) & (variant >= 0.75)) | ((~stability_available) & (disagreement <= 50))),
-            (coherence >= 0.50)
-            & (consensus_support >= 2)
-            & (((bootstrap >= 0.70) & (variant >= 0.60)) | (~stability_available)),
-        ],
-        ["tier_a", "tier_b"],
-        default="watchlist",
-    )
-    return annotate_candidate_explanation_fields(dossier)
-
-
-def annotate_candidate_explanation_fields(frame: pd.DataFrame) -> pd.DataFrame:
-    """Add compact mechanistic and monitoring rationales for reviewer-facing candidate tables."""
-    if frame.empty:
-        return frame.copy()
-    working = frame.copy()
-    signal_specs = [
-        ("T_raw_norm", "mobility"),
-        ("H_specialization_norm", "host_breadth"),
-        ("A_raw_norm", "amr_load"),
-        ("coherence_score", "coherence"),
-        ("H_external_host_range_support", "external_host_support"),
-        ("replicon_architecture_norm", "replicon_complexity"),
-        ("mash_novelty_norm", "graph_novelty"),
-        ("backbone_purity_score", "backbone_purity"),
-    ]
-    available_signals: list[tuple[str, pd.Series]] = []
-    for column, label in signal_specs:
-        if column in working.columns:
-            available_signals.append(
-                (
-                    label,
-                    pd.to_numeric(working[column], errors="coerce"),
-                )
-            )
-
-    primary_axes: list[str] = []
-    secondary_axes: list[str] = []
-    rationale_text: list[str] = []
-    signal_counts: list[int] = []
-    monitoring_text: list[str] = []
-
-    external_support_count = pd.to_numeric(
-        working.get("external_support_modalities_count", pd.Series(0.0, index=working.index)),
-        errors="coerce",
-    ).fillna(0.0)
-    novelty_margin = pd.to_numeric(
-        working.get("novelty_margin_vs_baseline", pd.Series(0.0, index=working.index)),
-        errors="coerce",
-    ).fillna(0.0)
-    bootstrap_top10 = pd.to_numeric(
-        working.get("bootstrap_top_10_frequency", pd.Series(0.0, index=working.index)),
-        errors="coerce",
-    ).fillna(0.0)
-    variant_top10 = pd.to_numeric(
-        working.get("variant_top_10_frequency", pd.Series(0.0, index=working.index)),
-        errors="coerce",
-    ).fillna(0.0)
-    confidence_tier = working.get("candidate_confidence_tier", pd.Series("", index=working.index)).fillna("").astype(str)
-    false_positive_risk = working.get("false_positive_risk_tier", pd.Series("", index=working.index)).fillna("").astype(str)
-    prediction_source = working.get("candidate_prediction_source", pd.Series("", index=working.index)).fillna("").astype(str)
-
-    for idx in working.index:
-        ranked_signals: list[tuple[float, str]] = []
-        for label, series in available_signals:
-            value = series.loc[idx]
-            if pd.notna(value) and float(value) >= 0.55:
-                ranked_signals.append((float(value), label))
-        ranked_signals.sort(key=lambda item: item[0], reverse=True)
-        labels = [label for _, label in ranked_signals[:3]]
-        primary_axes.append(labels[0] if labels else "mixed_signal")
-        secondary_axes.append(labels[1] if len(labels) > 1 else "")
-        rationale_text.append(",".join(labels) if labels else "limited_distinct_signal")
-        signal_counts.append(len(ranked_signals))
-
-        monitoring_flags: list[str] = []
-        if confidence_tier.loc[idx] in {"tier_a", "tier_b"}:
-            monitoring_flags.append("stable_internal_signal")
-        if external_support_count.loc[idx] >= 2:
-            monitoring_flags.append("multi_modal_support")
-        if novelty_margin.loc[idx] >= 0.10:
-            monitoring_flags.append("outperforms_counts_baseline")
-        if max(float(bootstrap_top10.loc[idx]), float(variant_top10.loc[idx])) >= 0.60:
-            monitoring_flags.append("multiverse_stable")
-        if false_positive_risk.loc[idx] == "low":
-            monitoring_flags.append("manageable_false_positive_risk")
-        if prediction_source.loc[idx] == "oof":
-            monitoring_flags.append("oof_supported")
-        monitoring_text.append(",".join(monitoring_flags[:4]) if monitoring_flags else "limited_monitoring_context")
-
-    working["primary_driver_axis"] = primary_axes
-    working["secondary_driver_axis"] = secondary_axes
-    working["mechanistic_rationale"] = rationale_text
-    working["mechanistic_signal_count"] = pd.Series(signal_counts, index=working.index, dtype=int)
-    working["monitoring_rationale"] = monitoring_text
-    return working
-
-
-def build_candidate_risk_table(dossier: pd.DataFrame) -> pd.DataFrame:
-    """Flag candidate-specific false-positive risks without changing the ranking itself."""
-    if dossier.empty:
-        return pd.DataFrame()
-    working = dossier.copy()
-    coherence = working.get("coherence_score", pd.Series(np.nan, index=working.index, dtype=float))
-    member_count_train = working.get("member_count_train", pd.Series(np.nan, index=working.index, dtype=float))
-    n_countries_train = working.get("n_countries_train", pd.Series(np.nan, index=working.index, dtype=float))
-    refseq_share_train = working.get("refseq_share_train", pd.Series(np.nan, index=working.index, dtype=float))
-    insd_share_train = working.get("insd_share_train", pd.Series(np.nan, index=working.index, dtype=float))
-
-    working["low_coherence_risk"] = coherence.fillna(0.0) < 0.50
-    working["sparse_training_support_risk"] = member_count_train.fillna(0).astype(int) <= 2
-    working["narrow_geography_risk"] = n_countries_train.fillna(0).astype(int) <= 1
-    dominant_source_share = pd.concat([refseq_share_train, insd_share_train], axis=1).fillna(0.0).max(axis=1)
-    source_info_available = refseq_share_train.notna() | insd_share_train.notna()
-    working["source_concentration_risk"] = source_info_available & dominant_source_share.ge(0.90)
-    support_available = working.get(
-        "support_profile_available",
-        pd.Series(False, index=working.index, dtype=bool),
-    ).fillna(False).astype(bool)
-    external_support_count = working.get(
-        "external_support_modalities_count",
-        pd.Series(0, index=working.index, dtype=float),
-    ).fillna(0).astype(int)
-    working["weak_external_support_risk"] = support_available & external_support_count.eq(0)
-    bootstrap_series = working.get(
-        "bootstrap_top_k_frequency",
-        pd.Series(np.nan, index=working.index, dtype=float),
-    )
-    variant_series = working.get(
-        "variant_top_k_frequency",
-        pd.Series(np.nan, index=working.index, dtype=float),
-    )
-    bootstrap_frequency = bootstrap_series.fillna(0.0)
-    variant_frequency = variant_series.fillna(0.0)
-    stability_available = bootstrap_series.notna() | variant_series.notna()
-    working["stability_risk"] = stability_available & ((bootstrap_frequency < 0.50) | (variant_frequency < 0.50))
-    working["proxy_gap_risk"] = working.get(
-        "primary_minus_conservative_prediction",
-        pd.Series(0.0, index=working.index, dtype=float),
-    ).fillna(0.0) >= 0.15
-
-    risk_columns = [
-        "low_coherence_risk",
-        "sparse_training_support_risk",
-        "narrow_geography_risk",
-        "source_concentration_risk",
-        "weak_external_support_risk",
-        "stability_risk",
-        "proxy_gap_risk",
-    ]
-    working["risk_flag_count"] = working[risk_columns].sum(axis=1).astype(int)
-    working["false_positive_risk_tier"] = np.select(
-        [
-            working["risk_flag_count"] >= 3,
-            working["risk_flag_count"] >= 1,
-        ],
-        ["high", "medium"],
-        default="low",
-    )
-    working["risk_flags"] = working[risk_columns].apply(
-        lambda row: ",".join(column for column, value in row.items() if bool(value)),
-        axis=1,
-    )
-    columns = [
-        "backbone_id",
-        "freeze_rank",
-        "candidate_confidence_tier",
-        "false_positive_risk_tier",
-        "risk_flag_count",
-        "risk_flags",
-        "coherence_score",
-        "member_count_train",
-        "n_countries_train",
-        "external_support_modalities_count",
-        "primary_minus_conservative_prediction",
-    ] + risk_columns
-    available = [column for column in columns if column in working.columns]
-    sort_columns = [column for column in ["freeze_rank", "risk_flag_count"] if column in working.columns]
-    ascending = [True, False][: len(sort_columns)]
-    result = working[available]
-    if sort_columns:
-        result = result.sort_values(sort_columns, ascending=ascending)
-    return result.reset_index(drop=True)
-
-
-def build_decision_yield_table(
+def build_temporal_rank_stability_table(
     predictions: pd.DataFrame,
     *,
-    model_names: list[str],
-    top_ks: tuple[int, ...] = (5, 10, 25, 50, 100),
+    split_year_pairs: list[tuple[int, int]] | tuple[tuple[int, int], ...] = ((2014, 2015),),
+    top_ks: tuple[int, ...] = (10, 25),
 ) -> pd.DataFrame:
-    """Summarize shortlist precision/recall tradeoffs at practical candidate-list sizes."""
-    if predictions.empty:
+    """Compare ranking stability for the same model across split-year variants."""
+    required = {"split_year", "model_name", "backbone_id", "oof_prediction"}
+    if predictions.empty or not required.issubset(predictions.columns):
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
-    for model_name in model_names:
-        frame = predictions.loc[predictions["model_name"] == model_name].copy()
-        if frame.empty:
-            continue
-        frame = frame.sort_values("oof_prediction", ascending=False).reset_index(drop=True)
-        y = frame["spread_label"].to_numpy(dtype=int)
-        prevalence = positive_prevalence(y)
-        total_positive = max(int(y.sum()), 0)
-        for top_k in top_ks:
-            subset = frame.head(min(top_k, len(frame))).copy()
-            selected_positive = int(subset["spread_label"].sum()) if not subset.empty else 0
-            selected_negative = int(len(subset) - selected_positive)
-            precision_at_k = float(selected_positive / len(subset)) if len(subset) else np.nan
-            recall_at_k = float(selected_positive / total_positive) if total_positive > 0 else np.nan
-            rows.append(
-                {
-                    "model_name": model_name,
-                    "top_k": int(top_k),
-                    "n_backbones": int(len(frame)),
-                    "n_selected": int(len(subset)),
-                    "n_positive_total": int(total_positive),
-                    "n_positive_selected": int(selected_positive),
-                    "n_negative_selected": int(selected_negative),
-                    "positive_prevalence": prevalence,
-                    "precision_at_k": precision_at_k,
-                    "recall_at_k": recall_at_k,
-                    "precision_lift_vs_prevalence": float(precision_at_k - prevalence) if np.isfinite(precision_at_k) and np.isfinite(prevalence) else np.nan,
-                    "mean_prediction_at_k": float(subset["oof_prediction"].mean()) if len(subset) else np.nan,
-                    "min_prediction_at_k": float(subset["oof_prediction"].min()) if len(subset) else np.nan,
-                }
+    working = predictions.copy()
+    working["split_year"] = pd.to_numeric(working["split_year"], errors="coerce")
+    working["oof_prediction"] = pd.to_numeric(working["oof_prediction"], errors="coerce")
+    working = working.loc[working["split_year"].notna() & working["oof_prediction"].notna()].copy()
+    if working.empty:
+        return pd.DataFrame()
+    working["split_year"] = working["split_year"].astype(int)
+    for split_year_a, split_year_b in split_year_pairs:
+        pair = working.loc[
+            working["split_year"].isin([int(split_year_a), int(split_year_b)])
+        ].copy()
+        for model_name, frame in pair.groupby("model_name", sort=False):
+            left = frame.loc[
+                frame["split_year"] == int(split_year_a), ["backbone_id", "oof_prediction"]
+            ]
+            right = frame.loc[
+                frame["split_year"] == int(split_year_b), ["backbone_id", "oof_prediction"]
+            ]
+            if left.empty or right.empty:
+                continue
+            merged = left.merge(
+                right,
+                on="backbone_id",
+                how="inner",
+                suffixes=("_a", "_b"),
             )
+            if len(merged) < 5:
+                rows.append(
+                    {
+                        "model_name": str(model_name),
+                        "split_year_a": int(split_year_a),
+                        "split_year_b": int(split_year_b),
+                        "n_common_backbones": int(len(merged)),
+                        "kendall_tau": np.nan,
+                        "status": "skipped_insufficient_overlap",
+                    }
+                )
+                continue
+            rank_a = merged["oof_prediction_a"].rank(method="average", ascending=False)
+            rank_b = merged["oof_prediction_b"].rank(method="average", ascending=False)
+            row: dict[str, object] = {
+                "model_name": str(model_name),
+                "split_year_a": int(split_year_a),
+                "split_year_b": int(split_year_b),
+                "n_common_backbones": int(len(merged)),
+                "kendall_tau": float(rank_a.corr(rank_b, method="kendall")),
+                "mean_abs_rank_shift": float(np.mean(np.abs(rank_a - rank_b))),
+                "status": "ok",
+            }
+            left_ranked = (
+                left.sort_values("oof_prediction", ascending=False)["backbone_id"]
+                .astype(str)
+                .tolist()
+            )
+            right_ranked = (
+                right.sort_values("oof_prediction", ascending=False)["backbone_id"]
+                .astype(str)
+                .tolist()
+            )
+            for top_k in top_ks:
+                left_top = set(left_ranked[:top_k])
+                right_top = set(right_ranked[:top_k])
+                overlap = len(left_top & right_top)
+                union = len(left_top | right_top)
+                row[f"top_{top_k}_overlap_count"] = int(overlap)
+                row[f"top_{top_k}_overlap_fraction"] = float(overlap / max(int(top_k), 1))
+                row[f"top_{top_k}_jaccard"] = float(overlap / union) if union else 0.0
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
-def build_threshold_flip_table(
-    scored: pd.DataFrame,
-    *,
-    candidate_ids: list[str] | None = None,
-    thresholds: tuple[int, ...] = (1, 2, 3, 4),
-    default_threshold: int = 3,
-) -> pd.DataFrame:
-    """Show how candidate status changes under alternate new-country thresholds."""
-    if scored.empty:
+def build_sleeper_threat_table(model_metrics: pd.DataFrame) -> pd.DataFrame:
+    """Summarize whether models over-index on low-knownness positives."""
+    required = {"model_name", "average_precision", "novelty_adjusted_average_precision"}
+    if model_metrics.empty or not required.issubset(model_metrics.columns):
         return pd.DataFrame()
-    if default_threshold not in thresholds:
-        raise ValueError("default_threshold must be one of the audited thresholds")
-
-    def _coerce_int(value: object, *, default: int = 0) -> int:
-        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-        return int(numeric) if pd.notna(numeric) else int(default)
-
-    working = scored.copy()
-    if candidate_ids is not None:
-        candidate_id_set = {str(value) for value in candidate_ids}
-        working = working.loc[working["backbone_id"].astype(str).isin(candidate_id_set)].copy()
-    if working.empty:
-        return pd.DataFrame()
-    rows: list[dict[str, object]] = []
-    for row in working.to_dict(orient="records"):
-        train_countries = _coerce_int(row.get("n_countries_train", 0))
-        n_new = _coerce_int(row.get("n_new_countries", 0))
-        status_by_threshold: dict[int, object] = {}
-        for threshold in thresholds:
-            status_by_threshold[threshold] = int(n_new >= threshold) if 1 <= train_countries <= 3 else np.nan
-        default_status = status_by_threshold[default_threshold]
-        finite_statuses = [value for value in status_by_threshold.values() if pd.notna(value)]
-        flip_count = int(sum(value != default_status for value in finite_statuses)) if finite_statuses else 0
-        result = {
-            "backbone_id": str(row["backbone_id"]),
-            "member_count_train": _coerce_int(row.get("member_count_train", 0)),
-            "n_countries_train": train_countries,
-            "n_new_countries": n_new,
-            "priority_index": float(row.get("priority_index", np.nan)),
-            "spread_label_default": default_status,
-            "default_threshold": int(default_threshold),
-            "threshold_flip_count": int(flip_count),
-            "eligible_for_threshold_audit": bool(1 <= train_countries <= 3),
+    working = model_metrics.copy()
+    ap = pd.to_numeric(working["average_precision"], errors="coerce")
+    naap = pd.to_numeric(working["novelty_adjusted_average_precision"], errors="coerce")
+    result = pd.DataFrame(
+        {
+            "model_name": working["model_name"].astype(str),
+            "average_precision": ap.astype(float),
+            "novelty_adjusted_average_precision": naap.astype(float),
+            "naap_minus_ap": (naap - ap).astype(float),
+            "naap_to_ap_ratio": np.where(ap > 0.0, (naap / ap), np.nan),
+            "sleeper_threat_advantage": np.where(
+                naap > ap,
+                "favors_low_knownness_positives",
+                "rides_knownness_bias",
+            ),
         }
-        for threshold, value in status_by_threshold.items():
-            result[f"label_ge_{threshold}"] = value
-        rows.append(result)
-    frame = pd.DataFrame(rows)
-    sort_columns = [column for column in ["threshold_flip_count", "priority_index"] if column in frame.columns]
-    if sort_columns:
-        frame = frame.sort_values(sort_columns, ascending=[False, False][: len(sort_columns)])
-    return frame.reset_index(drop=True)
+    )
+    return result.sort_values(
+        ["naap_minus_ap", "novelty_adjusted_average_precision"],
+        ascending=[False, False],
+    ).reset_index(drop=True)
+
+
+def build_magic_number_sensitivity_table(
+    sensitivity_results: pd.DataFrame,
+    *,
+    baseline_variant: str = "default",
+    tolerance_fraction: float = 0.05,
+) -> pd.DataFrame:
+    """Normalize parameter-perturbation experiments into an audit-ready sensitivity table."""
+    required = {"variant", "roc_auc"}
+    if sensitivity_results.empty or not required.issubset(sensitivity_results.columns):
+        return pd.DataFrame()
+    working = sensitivity_results.copy()
+    working["variant"] = working["variant"].astype(str)
+    working["roc_auc"] = pd.to_numeric(working["roc_auc"], errors="coerce")
+    if "parameter_name" not in working.columns:
+        working["parameter_name"] = "global"
+    if "parameter_value" not in working.columns:
+        working["parameter_value"] = working["variant"]
+    baseline_row = working.loc[working["variant"] == str(baseline_variant)]
+    if baseline_row.empty:
+        baseline_auc = (
+            float(working["roc_auc"].dropna().max()) if working["roc_auc"].notna().any() else np.nan
+        )
+        baseline_variant = (
+            str(working.loc[working["roc_auc"].idxmax(), "variant"])
+            if working["roc_auc"].notna().any()
+            else str(baseline_variant)
+        )
+    else:
+        baseline_auc = float(baseline_row.iloc[0]["roc_auc"])
+    working["baseline_variant"] = str(baseline_variant)
+    working["baseline_roc_auc"] = float(baseline_auc)
+    working["delta_roc_auc"] = working["roc_auc"].astype(float) - float(baseline_auc)
+    working["abs_relative_auc_delta"] = np.where(
+        np.isfinite(float(baseline_auc)) and float(baseline_auc) > 0.0,
+        working["delta_roc_auc"].abs() / float(baseline_auc),
+        np.nan,
+    )
+    working["passes_auc_tolerance"] = working["abs_relative_auc_delta"].le(
+        float(tolerance_fraction)
+    )
+    return working.sort_values(
+        ["parameter_name", "passes_auc_tolerance", "abs_relative_auc_delta", "variant"],
+        ascending=[True, False, True, True],
+    ).reset_index(drop=True)
 
 
 def build_candidate_universe_table(
@@ -2510,7 +2939,9 @@ def build_candidate_universe_table(
             candidate_sets.append(frame["backbone_id"].astype(str))
     if not candidate_sets:
         return pd.DataFrame()
-    candidate_ids = pd.Index(pd.concat(candidate_sets, ignore_index=True).drop_duplicates().tolist(), dtype=object)
+    candidate_ids = pd.Index(
+        pd.concat(candidate_sets, ignore_index=True).drop_duplicates().tolist(), dtype=object
+    )
     base = pd.DataFrame({"backbone_id": candidate_ids.astype(str)})
 
     scored_columns = [
@@ -2524,120 +2955,199 @@ def build_candidate_universe_table(
         "evidence_support_index",
         "coherence_score",
     ]
-    scored_payload = scored[[column for column in scored_columns if column in scored.columns]].copy() if not scored.empty else pd.DataFrame()
+    scored_payload = (
+        scored[[column for column in scored_columns if column in scored.columns]].copy()
+        if not scored.empty
+        else pd.DataFrame()
+    )
     if not scored_payload.empty:
         base = coalescing_left_merge(base, scored_payload, on="backbone_id")
 
     if not consensus_candidates.empty:
-        consensus_payload = consensus_candidates[[
-            column for column in [
-                "backbone_id",
-                "consensus_rank",
-                "consensus_candidate_score",
-                "consensus_support_count",
-                "primary_rank",
-                "conservative_rank",
-                "rank_disagreement_primary_vs_conservative",
-            ] if column in consensus_candidates.columns
-        ]].copy()
+        consensus_payload = consensus_candidates[
+            [
+                column
+                for column in [
+                    "backbone_id",
+                    "consensus_rank",
+                    "consensus_candidate_score",
+                    "consensus_support_count",
+                    "primary_rank",
+                    "conservative_rank",
+                    "rank_disagreement_primary_vs_conservative",
+                ]
+                if column in consensus_candidates.columns
+            ]
+        ].copy()
         consensus_payload["in_consensus_top50"] = True
         base = coalescing_left_merge(base, consensus_payload, on="backbone_id")
     if not candidate_dossiers.empty:
-        dossier_payload = candidate_dossiers[[
-            column for column in [
-                "backbone_id",
-                "freeze_rank",
-                "candidate_confidence_tier",
-                "recommended_monitoring_tier",
-                "primary_model_candidate_score",
-                "baseline_both_candidate_score",
-                "conservative_model_candidate_score",
-                "novelty_margin_vs_baseline",
-                "knownness_score",
-                "knownness_half",
-                "external_support_modalities_count",
-                "module_f_enriched_signature_count",
-            ] if column in candidate_dossiers.columns
-        ]].copy()
+        dossier_payload = candidate_dossiers[
+            [
+                column
+                for column in [
+                    "backbone_id",
+                    "freeze_rank",
+                    "candidate_confidence_tier",
+                    "recommended_monitoring_tier",
+                    "primary_model_candidate_score",
+                    "baseline_both_candidate_score",
+                    "conservative_model_candidate_score",
+                    "novelty_margin_vs_baseline",
+                    "knownness_score",
+                    "knownness_half",
+                    "external_support_modalities_count",
+                    "module_f_enriched_signature_count",
+                    "operational_risk_score",
+                    "risk_uncertainty",
+                    "uncertainty_review_tier",
+                    "risk_decision_tier",
+                    "risk_abstain_flag",
+                ]
+                if column in candidate_dossiers.columns
+            ]
+        ].copy()
         dossier_payload["in_candidate_dossier_top25"] = True
         base = coalescing_left_merge(base, dossier_payload, on="backbone_id")
     if not candidate_portfolio.empty:
-        portfolio_payload = candidate_portfolio[[
-            column for column in [
-                "backbone_id",
-                "portfolio_track",
-                "track_rank",
-                "candidate_confidence_tier",
-                "recommended_monitoring_tier",
-            ] if column in candidate_portfolio.columns
-        ]].copy()
+        portfolio_payload = candidate_portfolio[
+            [
+                column
+                for column in [
+                    "backbone_id",
+                    "portfolio_track",
+                    "track_rank",
+                    "candidate_confidence_tier",
+                    "recommended_monitoring_tier",
+                    "operational_risk_score",
+                    "risk_uncertainty",
+                    "uncertainty_review_tier",
+                    "risk_decision_tier",
+                    "risk_abstain_flag",
+                ]
+                if column in candidate_portfolio.columns
+            ]
+        ].copy()
         portfolio_payload["in_candidate_portfolio"] = True
         base = coalescing_left_merge(base, portfolio_payload, on="backbone_id")
     if not novelty_watchlist.empty:
-        novelty_payload = novelty_watchlist[[
-            column for column in [
-                "backbone_id",
-                "novelty_margin_vs_baseline",
-                "knownness_score",
-                "knownness_half",
-                "primary_model_candidate_score",
-            ] if column in novelty_watchlist.columns
-        ]].copy()
+        novelty_payload = novelty_watchlist[
+            [
+                column
+                for column in [
+                    "backbone_id",
+                    "novelty_margin_vs_baseline",
+                    "knownness_score",
+                    "knownness_half",
+                    "primary_model_candidate_score",
+                    "operational_risk_score",
+                    "risk_uncertainty",
+                    "uncertainty_review_tier",
+                    "risk_decision_tier",
+                    "risk_abstain_flag",
+                ]
+                if column in novelty_watchlist.columns
+            ]
+        ].copy()
         novelty_payload["in_novelty_watchlist"] = True
         base = coalescing_left_merge(base, novelty_payload, on="backbone_id")
     if not prospective_freeze.empty:
-        freeze_payload = prospective_freeze[[
-            column for column in [
-                "backbone_id",
-                "freeze_rank",
-                "freeze_candidate_score",
-            ] if column in prospective_freeze.columns
-        ]].copy()
+        freeze_payload = prospective_freeze[
+            [
+                column
+                for column in [
+                    "backbone_id",
+                    "freeze_rank",
+                    "freeze_candidate_score",
+                ]
+                if column in prospective_freeze.columns
+            ]
+        ].copy()
         freeze_payload["in_prospective_freeze"] = True
         base = coalescing_left_merge(base, freeze_payload, on="backbone_id")
     if not high_confidence_candidates.empty:
-        high_conf_payload = high_confidence_candidates[[
-            column for column in ["backbone_id", "candidate_confidence_tier", "false_positive_risk_tier"] if column in high_confidence_candidates.columns
-        ]].copy()
+        high_conf_payload = high_confidence_candidates[
+            [
+                column
+                for column in [
+                    "backbone_id",
+                    "candidate_confidence_tier",
+                    "false_positive_risk_tier",
+                ]
+                if column in high_confidence_candidates.columns
+            ]
+        ].copy()
         high_conf_payload["in_higher_confidence_shortlist"] = True
         base = coalescing_left_merge(base, high_conf_payload, on="backbone_id")
     if not candidate_risk.empty:
-        risk_payload = candidate_risk[[
-            column for column in [
-                "backbone_id",
-                "false_positive_risk_tier",
-                "risk_flag_count",
-                "risk_flags",
-            ] if column in candidate_risk.columns
-        ]].copy()
+        risk_payload = candidate_risk[
+            [
+                column
+                for column in [
+                    "backbone_id",
+                    "false_positive_risk_tier",
+                    "risk_flag_count",
+                    "risk_flags",
+                ]
+                if column in candidate_risk.columns
+            ]
+        ].copy()
         base = coalescing_left_merge(base, risk_payload, on="backbone_id")
 
-    for flag_column in (
+    base = base.copy()
+
+    flag_columns = (
         "in_consensus_top50",
         "in_candidate_dossier_top25",
         "in_candidate_portfolio",
         "in_novelty_watchlist",
         "in_prospective_freeze",
         "in_higher_confidence_shortlist",
-    ):
-        if flag_column not in base.columns:
-            base[flag_column] = False
-        base[flag_column] = base[flag_column].fillna(False).astype(bool)
-
-    base["evidence_tier"] = base.get("candidate_confidence_tier", pd.Series("unknown", index=base.index)).fillna("unknown")
-    base["action_tier"] = base.get("recommended_monitoring_tier", pd.Series("unassigned", index=base.index)).fillna("unassigned")
-    base["main_outcome_status"] = np.select(
-        [
-            base.get("spread_label", pd.Series(np.nan, index=base.index)).isna(),
-            base.get("spread_label", pd.Series(0.0, index=base.index)).fillna(0.0).astype(float) >= 1.0,
-        ],
-        ["not_evaluable", "positive"],
-        default="negative",
+    )
+    flag_updates = {
+        flag_column: (
+            base[flag_column].fillna(False).astype(bool)
+            if flag_column in base.columns
+            else pd.Series(False, index=base.index)
+        )
+        for flag_column in flag_columns
+    }
+    base_updates = pd.DataFrame(
+        {
+            **flag_updates,
+            "evidence_tier": base.get(
+                "candidate_confidence_tier", pd.Series("unknown", index=base.index)
+            ).fillna("unknown"),
+            "action_tier": base.get(
+                "recommended_monitoring_tier", pd.Series("unassigned", index=base.index)
+            ).fillna("unassigned"),
+            "main_outcome_status": np.select(
+                [
+                    base.get("spread_label", pd.Series(np.nan, index=base.index)).isna(),
+                    base.get("spread_label", pd.Series(0.0, index=base.index))
+                    .fillna(0.0)
+                    .astype(float)
+                    >= 1.0,
+                ],
+                ["not_evaluable", "positive"],
+                default="negative",
+            ),
+        },
+        index=base.index,
+    )
+    base = pd.concat(
+        [base.drop(columns=list(base_updates.columns), errors="ignore"), base_updates], axis=1
     )
     base["candidate_universe_origin"] = np.select(
         [
-            base["in_candidate_portfolio"] & base.get("portfolio_track", pd.Series("", index=base.index)).fillna("").eq("established_high_risk"),
-            base["in_candidate_portfolio"] & base.get("portfolio_track", pd.Series("", index=base.index)).fillna("").eq("novel_signal"),
+            base["in_candidate_portfolio"]
+            & base.get("portfolio_track", pd.Series("", index=base.index))
+            .fillna("")
+            .eq("established_high_risk"),
+            base["in_candidate_portfolio"]
+            & base.get("portfolio_track", pd.Series("", index=base.index))
+            .fillna("")
+            .eq("novel_signal"),
             base["in_higher_confidence_shortlist"],
             base["in_consensus_top50"],
             base["in_novelty_watchlist"],
@@ -2672,19 +3182,57 @@ def build_primary_model_selection_summary(
     *,
     primary_model_name: str,
     conservative_model_name: str,
+    governance_model_name: str | None = None,
     predictions: pd.DataFrame | None = None,
     family_summary: pd.DataFrame | None = None,
     simplicity_summary: pd.DataFrame | None = None,
+    model_selection_scorecard: pd.DataFrame | None = None,
     top_ks: tuple[int, ...] = (10, 25, 50),
 ) -> pd.DataFrame:
     """Make the publication choice of the primary model explicit for reviewers."""
-    if model_metrics.empty or primary_model_name not in set(model_metrics["model_name"].astype(str)):
+    model_metrics = _active_model_metrics(model_metrics)
+    if model_metrics.empty or primary_model_name not in set(
+        model_metrics["model_name"].astype(str)
+    ):
         return pd.DataFrame()
     available = model_metrics.set_index("model_name", drop=False)
     primary = available.loc[primary_model_name]
     strongest = model_metrics.sort_values(["roc_auc", "average_precision"], ascending=False).iloc[0]
     strongest_model_name = str(strongest["model_name"])
-    conservative = available.loc[conservative_model_name] if conservative_model_name in available.index else None
+    conservative = (
+        available.loc[conservative_model_name]
+        if conservative_model_name in available.index
+        else None
+    )
+    governance_scorecard = pd.Series(dtype=object)
+    if model_selection_scorecard is not None and not model_selection_scorecard.empty:
+        if governance_model_name is not None and str(governance_model_name).strip():
+            governance_scorecard = model_selection_scorecard.loc[
+                model_selection_scorecard.get("model_name", pd.Series(dtype=str))
+                .astype(str)
+                .eq(str(governance_model_name))
+            ].head(1)
+            if not governance_scorecard.empty:
+                governance_scorecard = governance_scorecard.iloc[0]
+        if governance_scorecard.empty:
+            governance_scorecard = _select_governance_scorecard_row(model_selection_scorecard)
+    inferred_governance_name = str(governance_scorecard.get("model_name", "")).strip()
+    if governance_model_name is None or not str(governance_model_name).strip():
+        governance_model_name = inferred_governance_name
+    governance = (
+        available.loc[governance_model_name] if governance_model_name in available.index else None
+    )
+    governance_strict_acceptance = bool(
+        governance_scorecard.get("strict_knownness_acceptance_flag", False)
+    )
+    governance_scientific_acceptance_status = str(
+        governance_scorecard.get("scientific_acceptance_status", "")
+    ).strip()
+    governance_scientific_acceptance = (
+        bool(governance_scorecard.get("scientific_acceptance_flag", False))
+        if governance_scientific_acceptance_status in {"pass", "fail"}
+        else governance_strict_acceptance
+    )
 
     if (
         family_summary is None
@@ -2695,25 +3243,106 @@ def build_primary_model_selection_summary(
         or strongest_model_name not in set(family_summary["model_name"].astype(str))
     ):
         family_summary = build_model_family_summary(model_metrics)
+    model_selection_scorecard = (
+        model_selection_scorecard if model_selection_scorecard is not None else pd.DataFrame()
+    )
 
     row: dict[str, object] = {
         "published_primary_model": primary_model_name,
+        "published_primary_track": "discovery",
         "published_primary_roc_auc": float(primary["roc_auc"]),
         "published_primary_average_precision": float(primary["average_precision"]),
         "strongest_metric_model": strongest_model_name,
         "strongest_metric_model_roc_auc": float(strongest["roc_auc"]),
         "strongest_metric_model_average_precision": float(strongest["average_precision"]),
         "primary_minus_strongest_roc_auc": float(primary["roc_auc"] - strongest["roc_auc"]),
-        "primary_minus_strongest_average_precision": float(primary["average_precision"] - strongest["average_precision"]),
+        "primary_minus_strongest_average_precision": float(
+            primary["average_precision"] - strongest["average_precision"]
+        ),
         "conservative_model_name": conservative_model_name,
-        "conservative_roc_auc": float(conservative["roc_auc"]) if conservative is not None else np.nan,
-        "conservative_average_precision": float(conservative["average_precision"]) if conservative is not None else np.nan,
+        "conservative_model_track": "control",
+        "conservative_roc_auc": float(conservative["roc_auc"])
+        if conservative is not None
+        else np.nan,
+        "conservative_average_precision": float(conservative["average_precision"])
+        if conservative is not None
+        else np.nan,
+        "governance_primary_model": governance_model_name if governance is not None else "",
+        "governance_primary_track": (
+            "governance_headline" if governance_scientific_acceptance else "governance_watch_only"
+        )
+        if governance is not None
+        else "",
+        "governance_primary_roc_auc": float(governance["roc_auc"])
+        if governance is not None
+        else np.nan,
+        "governance_primary_average_precision": float(governance["average_precision"])
+        if governance is not None
+        else np.nan,
+        "governance_primary_selection_rank": int(governance_scorecard["selection_rank"])
+        if not governance_scorecard.empty
+        and pd.notna(governance_scorecard.get("selection_rank", np.nan))
+        else np.nan,
+        "governance_primary_strict_knownness_acceptance_flag": bool(
+            governance_scorecard.get("strict_knownness_acceptance_flag", False)
+        )
+        if not governance_scorecard.empty
+        else np.nan,
+        "governance_primary_scientific_acceptance_flag": bool(
+            governance_scorecard.get("scientific_acceptance_flag", False)
+        )
+        if not governance_scorecard.empty
+        and governance_scientific_acceptance_status in {"pass", "fail"}
+        else np.nan,
+        "governance_primary_scientific_acceptance_status": governance_scientific_acceptance_status
+        if governance_scientific_acceptance_status
+        else "not_scored",
+        "governance_primary_knownness_matched_gap": float(
+            governance_scorecard.get("knownness_matched_gap", np.nan)
+        )
+        if not governance_scorecard.empty
+        else np.nan,
+        "governance_primary_source_holdout_gap": float(
+            governance_scorecard.get("source_holdout_gap", np.nan)
+        )
+        if not governance_scorecard.empty
+        else np.nan,
+        "governance_primary_guardrail_loss": float(
+            governance_scorecard.get("guardrail_loss", np.nan)
+        )
+        if not governance_scorecard.empty
+        else np.nan,
+        "governance_primary_governance_priority_score": float(
+            governance_scorecard.get("governance_priority_score", np.nan)
+        )
+        if not governance_scorecard.empty
+        else np.nan,
+        "governance_primary_leakage_review_required": bool(
+            governance_scorecard.get("leakage_review_required", False)
+        )
+        if not governance_scorecard.empty
+        else False,
+        "governance_primary_benchmark_status": (
+            "governance_headline"
+            if governance_scientific_acceptance
+            else "governance_watch_only"
+            if not governance_scorecard.empty
+            else "not_scored"
+        ),
         "selection_rationale": (
-            "current primary is also the strongest current single-model benchmark, so the headline and strongest audited metric model now coincide"
+            "discovery track keeps the headline benchmark explicit while the governance track is selected separately by matched-knownness/source-holdout loss; the report does not conflate discrimination with deployment safety"
             if primary_model_name == strongest_model_name
-            else "current primary retained as the headline benchmark despite a marginally stronger audited alternative; the difference is small enough that the report keeps both views explicit rather than silently collapsing them"
+            else "current primary retained as the headline benchmark despite a marginally stronger audited alternative; the governance track is still selected separately by matched-knownness/source-holdout loss so discrimination and stability remain distinct decisions"
         ),
     }
+
+    def _scorecard_for(model_name: str) -> pd.Series:
+        if model_selection_scorecard.empty or "model_name" not in model_selection_scorecard.columns:
+            return pd.Series(dtype=object)
+        match = model_selection_scorecard.loc[
+            model_selection_scorecard["model_name"].astype(str) == str(model_name)
+        ].head(1)
+        return match.iloc[0] if not match.empty else pd.Series(dtype=object)
 
     def _sorted_predictions(model_name: str) -> pd.DataFrame:
         if predictions is None or predictions.empty:
@@ -2736,8 +3365,12 @@ def build_primary_model_selection_summary(
             overlap = len(primary_top & comparison_top)
             union = len(primary_top | comparison_top)
             row[f"primary_vs_{prefix}_top_{top_k}_overlap_count"] = int(overlap)
-            row[f"primary_vs_{prefix}_top_{top_k}_overlap_fraction"] = float(overlap / top_k) if top_k else 0.0
-            row[f"primary_vs_{prefix}_top_{top_k}_jaccard"] = float(overlap / union) if union else 0.0
+            row[f"primary_vs_{prefix}_top_{top_k}_overlap_fraction"] = (
+                float(overlap / top_k) if top_k else 0.0
+            )
+            row[f"primary_vs_{prefix}_top_{top_k}_jaccard"] = (
+                float(overlap / union) if union else 0.0
+            )
 
     def _add_top10_yield(prefix: str, model_name: str) -> None:
         frame = _sorted_predictions(model_name)
@@ -2746,8 +3379,12 @@ def build_primary_model_selection_summary(
         subset = frame.head(min(10, len(frame))).copy()
         total_positive = int(frame["spread_label"].sum())
         selected_positive = int(subset["spread_label"].sum()) if not subset.empty else 0
-        row[f"{prefix}_top_10_precision"] = float(selected_positive / len(subset)) if len(subset) else np.nan
-        row[f"{prefix}_top_10_recall"] = float(selected_positive / total_positive) if total_positive > 0 else np.nan
+        row[f"{prefix}_top_10_precision"] = (
+            float(selected_positive / len(subset)) if len(subset) else np.nan
+        )
+        row[f"{prefix}_top_10_recall"] = (
+            float(selected_positive / total_positive) if total_positive > 0 else np.nan
+        )
 
     _add_topk_overlap("strongest", strongest_model_name)
     _add_topk_overlap("conservative", conservative_model_name)
@@ -2775,17 +3412,133 @@ def build_primary_model_selection_summary(
             "so the audit keeps both views explicit"
         )
 
+    primary_scorecard = _scorecard_for(primary_model_name)
+    strongest_scorecard = _scorecard_for(strongest_model_name)
+    if not primary_scorecard.empty:
+        if pd.notna(primary_scorecard.get("selection_rank", np.nan)):
+            row["published_primary_selection_rank"] = int(primary_scorecard["selection_rank"])
+        row["published_primary_strict_knownness_acceptance_flag"] = bool(
+            primary_scorecard.get("strict_knownness_acceptance_flag", False)
+        )
+        row["published_primary_scientific_acceptance_flag"] = bool(
+            primary_scorecard.get("scientific_acceptance_flag", False)
+        )
+        row["published_primary_scientific_acceptance_status"] = str(
+            primary_scorecard.get("scientific_acceptance_status", "not_scored")
+        )
+        row["published_primary_knownness_matched_gap"] = float(
+            primary_scorecard.get("knownness_matched_gap", np.nan)
+        )
+        row["published_primary_source_holdout_gap"] = float(
+            primary_scorecard.get("source_holdout_gap", np.nan)
+        )
+        row["published_primary_leakage_review_required"] = bool(
+            primary_scorecard.get("leakage_review_required", False)
+        )
+    if not strongest_scorecard.empty:
+        if pd.notna(strongest_scorecard.get("selection_rank", np.nan)):
+            row["strongest_metric_model_selection_rank"] = int(
+                strongest_scorecard["selection_rank"]
+            )
+        row["strongest_metric_model_strict_knownness_acceptance_flag"] = bool(
+            strongest_scorecard.get("strict_knownness_acceptance_flag", False)
+        )
+        row["strongest_metric_model_scientific_acceptance_flag"] = bool(
+            strongest_scorecard.get("scientific_acceptance_flag", False)
+        )
+        row["strongest_metric_model_scientific_acceptance_status"] = str(
+            strongest_scorecard.get("scientific_acceptance_status", "not_scored")
+        )
+        row["strongest_metric_model_knownness_matched_gap"] = float(
+            strongest_scorecard.get("knownness_matched_gap", np.nan)
+        )
+        row["strongest_metric_model_source_holdout_gap"] = float(
+            strongest_scorecard.get("source_holdout_gap", np.nan)
+        )
+        row["strongest_metric_model_leakage_review_required"] = bool(
+            strongest_scorecard.get("leakage_review_required", False)
+        )
+    if (
+        strongest_model_name != primary_model_name
+        and not primary_scorecard.empty
+        and not strongest_scorecard.empty
+    ):
+        primary_guardrail = bool(primary_scorecard.get("strict_knownness_acceptance_flag", False))
+        primary_scientific_status = str(
+            primary_scorecard.get("scientific_acceptance_status", "")
+        ).strip()
+        primary_guardrail = (
+            bool(primary_scorecard.get("scientific_acceptance_flag", False))
+            if primary_scientific_status in {"pass", "fail"}
+            else primary_guardrail
+        )
+        strongest_guardrail = bool(
+            strongest_scorecard.get("strict_knownness_acceptance_flag", False)
+        )
+        strongest_scientific_status = str(
+            strongest_scorecard.get("scientific_acceptance_status", "")
+        ).strip()
+        strongest_guardrail = (
+            bool(strongest_scorecard.get("scientific_acceptance_flag", False))
+            if strongest_scientific_status in {"pass", "fail"}
+            else strongest_guardrail
+        )
+        if primary_guardrail and not strongest_guardrail:
+            row["selection_rationale"] = (
+                "current primary retained as the headline benchmark because it passes strict matched-knownness and source-holdout guardrails and clears the frozen scientific acceptance gate while the strongest audited alternative does not; the discovery and governance tracks are kept explicit rather than collapsed into one headline claim"
+            )
+        elif not primary_guardrail:
+            row["selection_rationale"] = (
+                f"{row['selection_rationale']}; however, the published primary does not clear the frozen scientific acceptance gate and should be treated as a conditional discovery benchmark rather than a deployment-safe governance claim"
+            )
+
+    if governance_model_name and governance is not None:
+        governance_guardrail = (
+            governance_scientific_acceptance if not governance_scorecard.empty else False
+        )
+        if governance_guardrail:
+            row["governance_selection_rationale"] = (
+                f"governance benchmark `{governance_model_name}` clears the frozen scientific acceptance gate and is therefore the current governance headline"
+            )
+        else:
+            row["governance_selection_rationale"] = (
+                f"governance benchmark `{governance_model_name}` is selected as the best available guardrail-aware candidate, but frozen scientific acceptance still fails and it must remain a watch-only governance track"
+            )
+    else:
+        row["governance_selection_rationale"] = (
+            "no separate governance benchmark could be resolved from the available scorecard, so the report should treat governance as unresolved rather than silently reusing the discovery track"
+        )
+
     if family_summary is not None and not family_summary.empty:
         family_index = family_summary.set_index("model_name", drop=False)
         if primary_model_name in family_index.index:
-            row["published_primary_evidence_role"] = str(family_index.loc[primary_model_name, "evidence_role"])
-            row["published_primary_evidence_summary"] = str(family_index.loc[primary_model_name, "evidence_summary"])
+            row["published_primary_evidence_role"] = str(
+                family_index.loc[primary_model_name, "evidence_role"]
+            )
+            row["published_primary_evidence_summary"] = str(
+                family_index.loc[primary_model_name, "evidence_summary"]
+            )
         if strongest_model_name in family_index.index:
-            row["strongest_metric_model_evidence_role"] = str(family_index.loc[strongest_model_name, "evidence_role"])
-            row["strongest_metric_model_evidence_summary"] = str(family_index.loc[strongest_model_name, "evidence_summary"])
+            row["strongest_metric_model_evidence_role"] = str(
+                family_index.loc[strongest_model_name, "evidence_role"]
+            )
+            row["strongest_metric_model_evidence_summary"] = str(
+                family_index.loc[strongest_model_name, "evidence_summary"]
+            )
         if conservative_model_name in family_index.index:
-            row["conservative_model_evidence_role"] = str(family_index.loc[conservative_model_name, "evidence_role"])
-            row["conservative_model_evidence_summary"] = str(family_index.loc[conservative_model_name, "evidence_summary"])
+            row["conservative_model_evidence_role"] = str(
+                family_index.loc[conservative_model_name, "evidence_role"]
+            )
+            row["conservative_model_evidence_summary"] = str(
+                family_index.loc[conservative_model_name, "evidence_summary"]
+            )
+        if governance_model_name and governance_model_name in family_index.index:
+            row["governance_primary_evidence_role"] = str(
+                family_index.loc[governance_model_name, "evidence_role"]
+            )
+            row["governance_primary_evidence_summary"] = str(
+                family_index.loc[governance_model_name, "evidence_summary"]
+            )
 
     if simplicity_summary is not None and not simplicity_summary.empty:
         summary_row = simplicity_summary.iloc[0]
@@ -2794,11 +3547,17 @@ def build_primary_model_selection_summary(
             legacy_fraction = f"top_{top_k}_overlap_fraction"
             legacy_jaccard = f"top_{top_k}_jaccard"
             if legacy_count in summary_row.index:
-                row[f"primary_vs_conservative_top_{top_k}_overlap_count"] = int(summary_row[legacy_count])
+                row[f"primary_vs_conservative_top_{top_k}_overlap_count"] = int(
+                    summary_row[legacy_count]
+                )
             if legacy_fraction in summary_row.index:
-                row[f"primary_vs_conservative_top_{top_k}_overlap_fraction"] = float(summary_row[legacy_fraction])
+                row[f"primary_vs_conservative_top_{top_k}_overlap_fraction"] = float(
+                    summary_row[legacy_fraction]
+                )
             if legacy_jaccard in summary_row.index:
-                row[f"primary_vs_conservative_top_{top_k}_jaccard"] = float(summary_row[legacy_jaccard])
+                row[f"primary_vs_conservative_top_{top_k}_jaccard"] = float(
+                    summary_row[legacy_jaccard]
+                )
 
     return pd.DataFrame([row])
 
@@ -2809,33 +3568,97 @@ def build_benchmark_protocol_table(
     *,
     adaptive_gated_metrics: pd.DataFrame | None = None,
     gate_consistency_audit: pd.DataFrame | None = None,
+    model_selection_scorecard: pd.DataFrame | None = None,
+    governance_model_name: str | None = None,
 ) -> pd.DataFrame:
     """Summarize which model is official, supporting, audit-only, or control."""
     if model_metrics.empty or model_selection_summary.empty:
         return pd.DataFrame()
-    adaptive_gated_metrics = adaptive_gated_metrics if adaptive_gated_metrics is not None else pd.DataFrame()
-    gate_consistency_audit = gate_consistency_audit if gate_consistency_audit is not None else pd.DataFrame()
+    adaptive_gated_metrics = (
+        adaptive_gated_metrics if adaptive_gated_metrics is not None else pd.DataFrame()
+    )
+    gate_consistency_audit = (
+        gate_consistency_audit if gate_consistency_audit is not None else pd.DataFrame()
+    )
+    model_selection_scorecard = (
+        model_selection_scorecard if model_selection_scorecard is not None else pd.DataFrame()
+    )
 
     metrics_index = model_metrics.set_index("model_name", drop=False)
     selection_row = model_selection_summary.iloc[0]
     primary_model_name = str(selection_row.get("published_primary_model", ""))
     conservative_model_name = str(selection_row.get("conservative_model_name", ""))
     strongest_model_name = str(selection_row.get("strongest_metric_model", ""))
+    governance_model_name = str(
+        governance_model_name
+        or selection_row.get("governance_primary_model", "")
+        or _select_governance_scorecard_row(model_selection_scorecard).get("model_name", "")
+    ).strip()
 
     rows: list[dict[str, object]] = []
 
-    def _append_single(model_name: str, *, role: str, status: str, rationale: str) -> None:
+    def _scorecard_for(model_name: str) -> pd.Series:
+        if model_selection_scorecard.empty or "model_name" not in model_selection_scorecard.columns:
+            return pd.Series(dtype=object)
+        match = model_selection_scorecard.loc[
+            model_selection_scorecard["model_name"].astype(str) == str(model_name)
+        ].head(1)
+        return match.iloc[0] if not match.empty else pd.Series(dtype=object)
+
+    def _append_single(
+        model_name: str, *, role: str, status: str, track: str, rationale: str
+    ) -> None:
         if model_name not in metrics_index.index:
             return
         metric_row = metrics_index.loc[model_name]
+        scorecard_row = _scorecard_for(model_name)
+        strict_flag = (
+            bool(scorecard_row.get("strict_knownness_acceptance_flag", False))
+            if not scorecard_row.empty
+            and pd.notna(scorecard_row.get("strict_knownness_acceptance_flag", np.nan))
+            else np.nan
+        )
         rows.append(
             {
                 "model_name": model_name,
                 "benchmark_role": role,
                 "benchmark_status": status,
+                "benchmark_track": track,
                 "model_family": "single_model",
                 "roc_auc": float(metric_row["roc_auc"]),
                 "average_precision": float(metric_row["average_precision"]),
+                "selection_rank": float(scorecard_row.get("selection_rank", np.nan))
+                if not scorecard_row.empty
+                else np.nan,
+                "strict_knownness_acceptance_flag": strict_flag,
+                "scientific_acceptance_flag": bool(
+                    scorecard_row.get("scientific_acceptance_flag", False)
+                )
+                if not scorecard_row.empty
+                and str(scorecard_row.get("scientific_acceptance_status", "")).strip()
+                in {"pass", "fail"}
+                else np.nan,
+                "scientific_acceptance_status": str(
+                    scorecard_row.get("scientific_acceptance_status", "not_scored")
+                )
+                if not scorecard_row.empty
+                else "not_scored",
+                "knownness_matched_gap": float(scorecard_row.get("knownness_matched_gap", np.nan))
+                if not scorecard_row.empty
+                else np.nan,
+                "source_holdout_gap": float(scorecard_row.get("source_holdout_gap", np.nan))
+                if not scorecard_row.empty
+                else np.nan,
+                "leakage_review_required": bool(scorecard_row.get("leakage_review_required", False))
+                if not scorecard_row.empty
+                else False,
+                "benchmark_guardrail_status": (
+                    "passes_strict_acceptance"
+                    if strict_flag is True
+                    else "fails_strict_acceptance"
+                    if strict_flag is False
+                    else "not_scored"
+                ),
                 "gate_consistency_tier": np.nan,
                 "specialist_weight_lower_half": np.nan,
                 "selection_rationale": rationale,
@@ -2846,12 +3669,37 @@ def build_benchmark_protocol_table(
         primary_model_name,
         role="primary_benchmark",
         status="headline",
+        track="discovery",
         rationale="Current official single-model benchmark used for the main headline claims.",
     )
+    if governance_model_name:
+        governance_scorecard = _scorecard_for(governance_model_name)
+        governance_status = (
+            "governance_headline"
+            if bool(governance_scorecard.get("strict_knownness_acceptance_flag", False))
+            else "governance_watch"
+            if not governance_scorecard.empty
+            else "not_scored"
+        )
+        governance_rationale = (
+            "Separate governance track chosen to minimize matched-knownness and source-holdout loss rather than to maximize discrimination."
+            if not governance_scorecard.empty
+            else "Separate governance track could not be resolved from the available scorecard."
+        )
+        if governance_model_name == primary_model_name:
+            governance_rationale = "Discovery and governance currently coincide on the same model, but the report keeps the two policy tracks separate so the strict guardrail status remains visible."
+        _append_single(
+            governance_model_name,
+            role="governance_benchmark",
+            status=governance_status,
+            track="governance",
+            rationale=governance_rationale,
+        )
     _append_single(
         conservative_model_name,
         role="conservative_benchmark",
         status="headline_supporting",
+        track="control",
         rationale="Supportive conservative benchmark kept for interpretability and proxy-light comparison.",
     )
     if strongest_model_name and strongest_model_name != primary_model_name:
@@ -2859,17 +3707,27 @@ def build_benchmark_protocol_table(
             strongest_model_name,
             role="strongest_single_model",
             status="audit_only",
+            track="audit",
             rationale="Highest-metric single model retained as an audited alternative rather than the headline benchmark.",
         )
     for control_model_name, role, rationale in (
-        ("baseline_both", "counts_baseline", "Counts-only baseline used to measure incremental value beyond simple popularity signals."),
-        ("source_only", "source_control", "Weak source-only control used to show that source composition alone does not explain the signal."),
+        (
+            "baseline_both",
+            "counts_baseline",
+            "Counts-only baseline used to measure incremental value beyond simple popularity signals.",
+        ),
+        (
+            "source_only",
+            "source_control",
+            "Weak source-only control used to show that source composition alone does not explain the signal.",
+        ),
     ):
         if control_model_name in metrics_index.index:
             _append_single(
                 control_model_name,
                 role=role,
                 status="control",
+                track="control",
                 rationale=rationale,
             )
 
@@ -2881,14 +3739,21 @@ def build_benchmark_protocol_table(
             preferred_name = None
             if not gate_consistency_audit.empty:
                 stable_names = gate_consistency_audit.loc[
-                    gate_consistency_audit.get("gate_consistency_tier", pd.Series(dtype=str)).astype(str) == "stable",
+                    gate_consistency_audit.get(
+                        "gate_consistency_tier", pd.Series(dtype=str)
+                    ).astype(str)
+                    == "stable",
                     "model_name",
                 ].astype(str)
-                preferred = gated.loc[gated["model_name"].astype(str).isin(set(stable_names))].sort_values(
-                    ["roc_auc", "average_precision"],
-                    ascending=False,
-                    kind="mergesort",
-                ).head(1)
+                preferred = (
+                    gated.loc[gated["model_name"].astype(str).isin(set(stable_names))]
+                    .sort_values(
+                        ["roc_auc", "average_precision"],
+                        ascending=False,
+                        kind="mergesort",
+                    )
+                    .head(1)
+                )
                 if not preferred.empty:
                     preferred_name = str(preferred.iloc[0]["model_name"])
                     gate_row = gate_consistency_audit.loc[
@@ -2899,11 +3764,22 @@ def build_benchmark_protocol_table(
                             "model_name": preferred_name,
                             "benchmark_role": "preferred_adaptive_audit",
                             "benchmark_status": "audit_preferred",
+                            "benchmark_track": "audit",
                             "model_family": "adaptive_routing",
                             "roc_auc": float(preferred.iloc[0]["roc_auc"]),
                             "average_precision": float(preferred.iloc[0]["average_precision"]),
-                            "gate_consistency_tier": str(gate_row.iloc[0]["gate_consistency_tier"]) if not gate_row.empty else np.nan,
-                            "specialist_weight_lower_half": float(preferred.iloc[0].get("specialist_weight_lower_half", np.nan)),
+                            "selection_rank": np.nan,
+                            "strict_knownness_acceptance_flag": np.nan,
+                            "knownness_matched_gap": np.nan,
+                            "source_holdout_gap": np.nan,
+                            "leakage_review_required": False,
+                            "benchmark_guardrail_status": "adaptive_not_scored",
+                            "gate_consistency_tier": str(gate_row.iloc[0]["gate_consistency_tier"])
+                            if not gate_row.empty
+                            else np.nan,
+                            "specialist_weight_lower_half": float(
+                                preferred.iloc[0].get("specialist_weight_lower_half", np.nan)
+                            ),
                             "selection_rationale": "Preferred adaptive audit because it preserves gate stability while improving low-knownness performance.",
                         }
                     )
@@ -2915,19 +3791,41 @@ def build_benchmark_protocol_table(
             if not strongest_adaptive.empty:
                 strongest_adaptive_name = str(strongest_adaptive.iloc[0]["model_name"])
                 if strongest_adaptive_name != preferred_name:
-                    gate_row = gate_consistency_audit.loc[
-                        gate_consistency_audit.get("model_name", pd.Series(dtype=str)).astype(str) == strongest_adaptive_name
-                    ].head(1) if not gate_consistency_audit.empty else pd.DataFrame()
+                    gate_row = (
+                        gate_consistency_audit.loc[
+                            gate_consistency_audit.get("model_name", pd.Series(dtype=str)).astype(
+                                str
+                            )
+                            == strongest_adaptive_name
+                        ].head(1)
+                        if not gate_consistency_audit.empty
+                        else pd.DataFrame()
+                    )
                     rows.append(
                         {
                             "model_name": strongest_adaptive_name,
                             "benchmark_role": "strongest_adaptive_upper_bound",
                             "benchmark_status": "audit_upper_bound",
+                            "benchmark_track": "audit",
                             "model_family": "adaptive_routing",
                             "roc_auc": float(strongest_adaptive.iloc[0]["roc_auc"]),
-                            "average_precision": float(strongest_adaptive.iloc[0]["average_precision"]),
-                            "gate_consistency_tier": str(gate_row.iloc[0]["gate_consistency_tier"]) if not gate_row.empty else np.nan,
-                            "specialist_weight_lower_half": float(strongest_adaptive.iloc[0].get("specialist_weight_lower_half", np.nan)),
+                            "average_precision": float(
+                                strongest_adaptive.iloc[0]["average_precision"]
+                            ),
+                            "selection_rank": np.nan,
+                            "strict_knownness_acceptance_flag": np.nan,
+                            "knownness_matched_gap": np.nan,
+                            "source_holdout_gap": np.nan,
+                            "leakage_review_required": False,
+                            "benchmark_guardrail_status": "adaptive_not_scored",
+                            "gate_consistency_tier": str(gate_row.iloc[0]["gate_consistency_tier"])
+                            if not gate_row.empty
+                            else np.nan,
+                            "specialist_weight_lower_half": float(
+                                strongest_adaptive.iloc[0].get(
+                                    "specialist_weight_lower_half", np.nan
+                                )
+                            ),
                             "selection_rationale": "Highest-metric adaptive routing result kept as an upper-bound audit, not as the headline benchmark.",
                         }
                     )
@@ -2943,12 +3841,18 @@ def build_benchmark_protocol_table(
         "audit_only": 4,
         "control": 5,
     }
-    protocol["_status_order"] = protocol["benchmark_status"].map(status_order).fillna(99).astype(int)
-    protocol = protocol.sort_values(
-        ["_status_order", "roc_auc", "average_precision"],
-        ascending=[True, False, False],
-        kind="mergesort",
-    ).drop(columns="_status_order").reset_index(drop=True)
+    protocol["_status_order"] = (
+        protocol["benchmark_status"].map(status_order).fillna(99).astype(int)
+    )
+    protocol = (
+        protocol.sort_values(
+            ["_status_order", "roc_auc", "average_precision"],
+            ascending=[True, False, False],
+            kind="mergesort",
+        )
+        .drop(columns="_status_order")
+        .reset_index(drop=True)
+    )
     return protocol
 
 
@@ -2964,12 +3868,17 @@ def build_model_selection_scorecard(
     """Assemble a multi-objective model selection table beyond overall ROC AUC."""
     if model_metrics.empty or predictions.empty or scored.empty:
         return pd.DataFrame()
-    knownness_matched_validation = knownness_matched_validation if knownness_matched_validation is not None else pd.DataFrame()
+    model_metrics = _active_model_metrics(model_metrics)
+    knownness_matched_validation = (
+        knownness_matched_validation if knownness_matched_validation is not None else pd.DataFrame()
+    )
     group_holdout = group_holdout if group_holdout is not None else pd.DataFrame()
     available_metrics = model_metrics.set_index("model_name", drop=False)
     requested_models = [str(name) for name in (model_names or available_metrics.index.tolist())]
     if "spread_label" in scored.columns:
-        eligible_scored = scored.loc[pd.to_numeric(scored["spread_label"], errors="coerce").notna()].copy()
+        eligible_scored = scored.loc[
+            pd.to_numeric(scored["spread_label"], errors="coerce").notna()
+        ].copy()
     else:
         eligible_scored = scored.copy()
     annotated = annotate_knownness_metadata(
@@ -3008,10 +3917,23 @@ def build_model_selection_scorecard(
         valid["spread_label"] = valid["spread_label"].astype(int)
         row = {
             "model_name": model_name,
+            "model_track": _safe_model_track(model_name),
             "roc_auc": float(available_metrics.loc[model_name, "roc_auc"]),
             "average_precision": float(available_metrics.loc[model_name, "average_precision"]),
-            "prediction_vs_knownness_spearman": _safe_spearman(valid["oof_prediction"], valid["knownness_score"]),
+            "prediction_vs_knownness_spearman": _safe_spearman(
+                valid["oof_prediction"], valid["knownness_score"]
+            ),
         }
+        for extra_metric in (
+            "ece",
+            "expected_calibration_error",
+            "max_calibration_error",
+            "weighted_classification_cost",
+            "spatial_holdout_roc_auc",
+            "selection_adjusted_empirical_p_roc_auc",
+        ):
+            if extra_metric in available_metrics.columns:
+                row[extra_metric] = available_metrics.loc[model_name, extra_metric]
         for cohort_name, mask in (
             ("lower_half_knownness", valid["knownness_half"].astype(str).eq("lower_half")),
             ("lowest_knownness_quartile", valid["knownness_quartile"].astype(str).eq("q1_lowest")),
@@ -3019,16 +3941,30 @@ def build_model_selection_scorecard(
             cohort = valid.loc[mask].copy()
             row[f"{cohort_name}_n_backbones"] = int(len(cohort))
             if not cohort.empty and cohort["spread_label"].nunique() >= 2:
-                row[f"{cohort_name}_roc_auc"] = roc_auc_score(cohort["spread_label"], cohort["oof_prediction"])
+                row[f"{cohort_name}_roc_auc"] = roc_auc_score(
+                    cohort["spread_label"], cohort["oof_prediction"]
+                )
             else:
                 row[f"{cohort_name}_roc_auc"] = np.nan
         matched_row = knownness_matched_validation.loc[
-            (knownness_matched_validation.get("matched_stratum", pd.Series(dtype=str)).astype(str) == "__weighted_overall__")
-            & (knownness_matched_validation.get("model_name", pd.Series(dtype=str)).astype(str) == model_name)
+            (
+                knownness_matched_validation.get("matched_stratum", pd.Series(dtype=str)).astype(
+                    str
+                )
+                == "__weighted_overall__"
+            )
+            & (
+                knownness_matched_validation.get("model_name", pd.Series(dtype=str)).astype(str)
+                == model_name
+            )
         ]
         if not matched_row.empty:
-            if "weighted_mean_roc_auc" in matched_row.columns and pd.notna(matched_row.iloc[0]["weighted_mean_roc_auc"]):
-                row["matched_knownness_weighted_roc_auc"] = float(matched_row.iloc[0]["weighted_mean_roc_auc"])
+            if "weighted_mean_roc_auc" in matched_row.columns and pd.notna(
+                matched_row.iloc[0]["weighted_mean_roc_auc"]
+            ):
+                row["matched_knownness_weighted_roc_auc"] = float(
+                    matched_row.iloc[0]["weighted_mean_roc_auc"]
+                )
             elif "roc_auc" in matched_row.columns and pd.notna(matched_row.iloc[0]["roc_auc"]):
                 row["matched_knownness_weighted_roc_auc"] = float(matched_row.iloc[0]["roc_auc"])
             else:
@@ -3036,7 +3972,10 @@ def build_model_selection_scorecard(
         else:
             row["matched_knownness_weighted_roc_auc"] = np.nan
         source_rows = group_holdout.loc[
-            (group_holdout.get("group_column", pd.Series(dtype=str)).astype(str) == "dominant_source")
+            (
+                group_holdout.get("group_column", pd.Series(dtype=str)).astype(str)
+                == "dominant_source"
+            )
             & (group_holdout.get("model_name", pd.Series(dtype=str)).astype(str) == model_name)
             & (group_holdout.get("status", pd.Series(dtype=str)).astype(str) == "ok")
         ].copy()
@@ -3065,11 +4004,13 @@ def build_model_selection_scorecard(
         "matched_knownness_weighted_roc_auc": False,
         "source_holdout_macro_roc_auc": False,
         "prediction_vs_knownness_spearman": True,
+        "weighted_classification_cost": True,
     }
     component_columns: list[str] = []
-    n_models = max(len(scorecard), 1)
     for column, ascending in scoring_directions.items():
-        values = pd.to_numeric(scorecard[column], errors="coerce")
+        values = pd.to_numeric(
+            scorecard.get(column, pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+        )
         valid = values.notna()
         component_column = f"{column}_component_score"
         scorecard[component_column] = np.nan
@@ -3083,16 +4024,15 @@ def build_model_selection_scorecard(
         component_columns.append(component_column)
 
     available_component_columns = [
-        column for column in component_columns
-        if scorecard[column].notna().any()
+        column for column in component_columns if scorecard[column].notna().any()
     ]
     if available_component_columns:
         scorecard["selection_composite_score"] = (
-            scorecard[available_component_columns]
-            .fillna(0.0)
-            .mean(axis=1)
+            scorecard[available_component_columns].fillna(0.0).mean(axis=1)
         )
-        scorecard["selection_metric_count"] = scorecard[available_component_columns].notna().sum(axis=1).astype(int)
+        scorecard["selection_metric_count"] = (
+            scorecard[available_component_columns].notna().sum(axis=1).astype(int)
+        )
         scorecard["selection_missing_metric_count"] = (
             len(available_component_columns) - scorecard["selection_metric_count"]
         ).astype(int)
@@ -3100,10 +4040,261 @@ def build_model_selection_scorecard(
         scorecard["selection_composite_score"] = np.nan
         scorecard["selection_metric_count"] = 0
         scorecard["selection_missing_metric_count"] = 0
+    scorecard["leakage_review_required"] = (
+        pd.to_numeric(
+            scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+        )
+        .fillna(0.0)
+        .ge(0.90)
+    )
+    scorecard["leakage_review_reason"] = np.where(
+        scorecard["leakage_review_required"],
+        "roc_auc_ge_0p90_on_current_feature_universe",
+        "",
+    )
+    matched_gap = pd.to_numeric(
+        scorecard.get(
+            "matched_knownness_weighted_roc_auc", pd.Series(np.nan, index=scorecard.index)
+        ),
+        errors="coerce",
+    ) - pd.to_numeric(
+        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+    )
+    source_gap = pd.to_numeric(
+        scorecard.get("source_holdout_weighted_roc_auc", pd.Series(np.nan, index=scorecard.index)),
+        errors="coerce",
+    ) - pd.to_numeric(
+        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+    )
+    scorecard["knownness_matched_gap"] = matched_gap
+    scorecard["source_holdout_gap"] = source_gap
+    knownness_gap_loss = matched_gap.abs().fillna(1.0)
+    source_gap_loss = source_gap.abs().fillna(1.0)
+    scorecard["guardrail_loss"] = knownness_gap_loss + source_gap_loss
+    scorecard["governance_priority_score"] = (
+        pd.to_numeric(
+            scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+        ).fillna(0.0)
+        - scorecard["guardrail_loss"].fillna(1.0)
+        - 0.25 * scorecard["leakage_review_required"].astype(float)
+    )
+    scorecard["strict_knownness_acceptance_flag"] = (
+        scorecard["matched_knownness_weighted_roc_auc"].notna()
+        & scorecard["source_holdout_weighted_roc_auc"].notna()
+        & scorecard["matched_knownness_weighted_roc_auc"].ge(scorecard["roc_auc"] - 0.005)
+        & scorecard["source_holdout_weighted_roc_auc"].ge(scorecard["roc_auc"] - 0.005)
+    )
+
+    ece_series = pd.to_numeric(
+        scorecard.get(
+            "ece",
+            scorecard.get("expected_calibration_error", pd.Series(np.nan, index=scorecard.index)),
+        ),
+        errors="coerce",
+    )
+    spatial_holdout_auc = pd.to_numeric(
+        scorecard.get("spatial_holdout_roc_auc", pd.Series(np.nan, index=scorecard.index)),
+        errors="coerce",
+    )
+    selection_adjusted_p = pd.to_numeric(
+        scorecard.get(
+            "selection_adjusted_empirical_p_roc_auc", pd.Series(np.nan, index=scorecard.index)
+        ),
+        errors="coerce",
+    )
+    scorecard["spatial_holdout_gap"] = spatial_holdout_auc - pd.to_numeric(
+        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+    )
+    scorecard["matched_knownness_gate_pass"] = scorecard[
+        "matched_knownness_weighted_roc_auc"
+    ].notna() & matched_gap.ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["matched_knownness_gap_min"])
+    scorecard["source_holdout_gate_pass"] = scorecard[
+        "source_holdout_weighted_roc_auc"
+    ].notna() & source_gap.ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["source_holdout_gap_min"])
+    scorecard["spatial_holdout_gate_pass"] = spatial_holdout_auc.notna() & scorecard[
+        "spatial_holdout_gap"
+    ].ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["spatial_holdout_gap_min"])
+    scorecard["calibration_gate_pass"] = ece_series.notna() & ece_series.le(
+        FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"]
+    )
+    scorecard["selection_adjusted_gate_pass"] = selection_adjusted_p.notna() & (
+        selection_adjusted_p.le(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["selection_adjusted_p_max"])
+    )
+    scorecard["leakage_review_gate_pass"] = ~scorecard["leakage_review_required"].fillna(
+        False
+    ).astype(bool)
+    required_gate_inputs = {
+        "matched_knownness_weighted_roc_auc": scorecard[
+            "matched_knownness_weighted_roc_auc"
+        ].notna(),
+        "source_holdout_weighted_roc_auc": scorecard["source_holdout_weighted_roc_auc"].notna(),
+        "spatial_holdout_roc_auc": spatial_holdout_auc.notna(),
+        "ece": ece_series.notna(),
+        "selection_adjusted_empirical_p_roc_auc": selection_adjusted_p.notna(),
+    }
+    scorecard["scientific_acceptance_scored"] = pd.DataFrame(required_gate_inputs).all(axis=1)
+    scorecard["scientific_acceptance_flag"] = (
+        scorecard["scientific_acceptance_scored"]
+        & scorecard["matched_knownness_gate_pass"]
+        & scorecard["source_holdout_gate_pass"]
+        & scorecard["spatial_holdout_gate_pass"]
+        & scorecard["calibration_gate_pass"]
+        & scorecard["selection_adjusted_gate_pass"]
+        & scorecard["leakage_review_gate_pass"]
+    )
+
+    def _scientific_acceptance_reason(row: pd.Series) -> str:
+        missing_tokens: list[str] = []
+        for column_name in required_gate_inputs:
+            value = row.get(column_name, np.nan)
+            if column_name == "ece":
+                value = row.get("ece", row.get("expected_calibration_error", np.nan))
+            if pd.isna(value):
+                missing_tokens.append(column_name)
+        if missing_tokens:
+            return "missing:" + ",".join(sorted(missing_tokens))
+        failed_tokens = [
+            label
+            for label, column_name in [
+                ("matched_knownness", "matched_knownness_gate_pass"),
+                ("source_holdout", "source_holdout_gate_pass"),
+                ("spatial_holdout", "spatial_holdout_gate_pass"),
+                ("calibration", "calibration_gate_pass"),
+                ("selection_adjusted_null", "selection_adjusted_gate_pass"),
+                ("leakage_review", "leakage_review_gate_pass"),
+            ]
+            if not bool(row.get(column_name, False))
+        ]
+        if failed_tokens:
+            return "fail:" + ",".join(failed_tokens)
+        return "pass"
+
+    scorecard["scientific_acceptance_status"] = np.where(
+        scorecard["scientific_acceptance_scored"],
+        np.where(scorecard["scientific_acceptance_flag"], "pass", "fail"),
+        "not_scored",
+    )
+    scorecard["scientific_acceptance_failed_criteria"] = scorecard.apply(
+        _scientific_acceptance_reason, axis=1
+    )
     scorecard = scorecard.sort_values(
         ["selection_composite_score", "roc_auc", "average_precision"],
         ascending=[False, False, False],
         kind="mergesort",
     ).reset_index(drop=True)
     scorecard["selection_rank"] = np.arange(1, len(scorecard) + 1)
+    scorecard["track_rank"] = (
+        scorecard.groupby(scorecard["model_track"].astype(str), sort=False).cumcount() + 1
+    ).astype(int)
+
+    def _assign_track_specific_rank(
+        column_name: str,
+        mask: pd.Series,
+        sort_columns: list[str],
+        ascending: list[bool],
+    ) -> None:
+        scorecard[column_name] = pd.Series(pd.NA, index=scorecard.index, dtype="Int64")
+        if not mask.any():
+            return
+        ranked_index = (
+            scorecard.loc[mask]
+            .sort_values(
+                sort_columns,
+                ascending=ascending,
+                kind="mergesort",
+            )
+            .index
+        )
+        scorecard.loc[ranked_index, column_name] = pd.Series(
+            np.arange(1, len(ranked_index) + 1),
+            index=ranked_index,
+            dtype="Int64",
+        )
+
+    track_values = scorecard["model_track"].astype(str)
+    _assign_track_specific_rank(
+        "discovery_track_rank",
+        track_values.eq("discovery"),
+        ["selection_composite_score", "roc_auc", "average_precision"],
+        [False, False, False],
+    )
+    _assign_track_specific_rank(
+        "governance_track_rank",
+        track_values.eq("governance"),
+        ["governance_priority_score", "guardrail_loss", "roc_auc", "average_precision"],
+        [False, True, False, False],
+    )
+    _assign_track_specific_rank(
+        "baseline_track_rank",
+        track_values.eq("baseline"),
+        ["selection_composite_score", "roc_auc", "average_precision"],
+        [False, False, False],
+    )
+    scorecard["governance_rank"] = (
+        scorecard["governance_priority_score"].rank(method="dense", ascending=False).astype("Int64")
+    )
     return scorecard
+
+
+def build_frozen_scientific_acceptance_audit(
+    model_selection_scorecard: pd.DataFrame,
+    *,
+    model_names: list[str] | tuple[str, ...] | None = None,
+) -> pd.DataFrame:
+    """Summarize the frozen acceptance gate for official benchmark surfaces."""
+    if model_selection_scorecard.empty:
+        return pd.DataFrame()
+    working = model_selection_scorecard.copy()
+    if "model_track" not in working.columns:
+        working["model_track"] = working["model_name"].map(_safe_model_track)
+    if model_names is None:
+        working = working.loc[
+            working["model_track"].astype(str).isin({"baseline", "discovery", "governance"})
+        ].copy()
+    else:
+        working = working.loc[
+            working["model_name"].astype(str).isin({str(name) for name in model_names})
+        ].copy()
+    if working.empty:
+        return pd.DataFrame()
+    for column, value in FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS.items():
+        working[column] = float(value)
+    ordered_columns = [
+        "model_name",
+        "model_track",
+        "selection_rank",
+        "roc_auc",
+        "average_precision",
+        "matched_knownness_weighted_roc_auc",
+        "knownness_matched_gap",
+        "source_holdout_weighted_roc_auc",
+        "source_holdout_gap",
+        "spatial_holdout_roc_auc",
+        "spatial_holdout_gap",
+        "ece",
+        "selection_adjusted_empirical_p_roc_auc",
+        "matched_knownness_gate_pass",
+        "source_holdout_gate_pass",
+        "spatial_holdout_gate_pass",
+        "calibration_gate_pass",
+        "selection_adjusted_gate_pass",
+        "leakage_review_gate_pass",
+        "scientific_acceptance_scored",
+        "scientific_acceptance_flag",
+        "scientific_acceptance_status",
+        "scientific_acceptance_failed_criteria",
+        "matched_knownness_gap_min",
+        "source_holdout_gap_min",
+        "spatial_holdout_gap_min",
+        "ece_max",
+        "selection_adjusted_p_max",
+    ]
+    for column in ordered_columns:
+        if column not in working.columns:
+            working[column] = np.nan
+    working = working[ordered_columns].sort_values(
+        ["model_track", "selection_rank", "roc_auc", "average_precision"],
+        ascending=[True, True, False, False],
+        kind="mergesort",
+    )
+    return working.reset_index(drop=True)

@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
 import math
+import re
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from plasmid_priority.config import find_project_root
-from plasmid_priority.utils.math import geometric_mean as _geometric_mean
+from plasmid_priority.config import PipelineSettings, build_context, find_project_root
+
+
+@lru_cache(maxsize=1)
+def _pipeline_settings() -> PipelineSettings:
+    return build_context(find_project_root(Path(__file__).resolve())).pipeline_settings
 
 
 def _support_factor(n: int, pseudocount: float = 3.0) -> float:
@@ -24,6 +29,35 @@ def _split_values(cell: object) -> set[str]:
     if not text:
         return set()
     return {part.strip() for part in text.split(",") if part.strip()}
+
+
+def _normalize_amr_class_token(token: object) -> str:
+    text = str(token or "").strip().upper()
+    return re.sub(r"\s+", " ", text)
+
+
+def _is_public_health_amr_class(token: str) -> bool:
+    upper = _normalize_amr_class_token(token)
+    return bool(upper) and not any(term in upper for term in NON_PUBLIC_HEALTH_AMR_TERMS)
+
+
+def _is_last_resort_amr_class(token: str) -> bool:
+    upper = _normalize_amr_class_token(token)
+    return bool(upper) and any(term in upper for term in LAST_RESORT_AMR_TERMS)
+
+
+def _gene_family(token: object) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "", str(token or "")).lower()
+    if not cleaned:
+        return ""
+    match = re.match(r"([a-z]+)", cleaned)
+    if not match:
+        return cleaned.upper()
+    prefix = match.group(1)
+    if prefix == "bla":
+        rest = re.sub(r"[^A-Za-z]+", "", cleaned[3:])
+        return f"bla{rest[:6]}".upper() if rest else "BLA"
+    return prefix[:8].upper()
 
 
 def _clean_text_series(series: pd.Series) -> pd.Series:
@@ -88,6 +122,35 @@ FOOD_CONTEXT_TERMS = (
     "produce",
 )
 
+NON_PUBLIC_HEALTH_AMR_TERMS = (
+    "MERCURY",
+    "TELLURIUM",
+    "CADMIUM",
+    "ARSENIC",
+    "COPPER",
+    "SILVER",
+    "NICKEL",
+    "COBALT",
+    "ZINC",
+    "LEAD",
+    "BISMUTH",
+    "CHROMATE",
+    "QUATERNARY AMMONIUM",
+    "DISINFECTING AGENTS",
+    "ANTISEPTICS",
+)
+LAST_RESORT_AMR_TERMS = (
+    "CARBAPENEM",
+    "POLYMYXIN",
+    "COLISTIN",
+    "GLYCYLCYCLINE",
+    "TIGECYCLINE",
+    "OXAZOLIDINONE",
+    "LINEZOLID",
+    "GLYCOPEPTIDE",
+    "VANCOMYCIN",
+)
+
 HOST_TAXONOMY_LEVELS: tuple[tuple[str, str], ...] = (
     ("TAXONOMY_phylum_id", "TAXONOMY_phylum"),
     ("TAXONOMY_class_id", "TAXONOMY_class"),
@@ -96,6 +159,8 @@ HOST_TAXONOMY_LEVELS: tuple[tuple[str, str], ...] = (
     ("TAXONOMY_genus_id", "genus"),
     ("TAXONOMY_species_id", "species"),
 )
+
+_MAX_HOST_SIGNATURES_FOR_PAIRWISE_DISTANCE = 50
 
 _PAIRWISE_HOST_DISTANCE_BY_SHARED_LEVEL = {
     5: 0.0,
@@ -114,11 +179,19 @@ def _series_or_default(frame: pd.DataFrame, column: str, default: object = "") -
     return pd.Series(default, index=frame.index)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=256)
 def _taxonomy_rank_lookup() -> pd.DataFrame:
-    taxonomy_path = find_project_root(Path(__file__).resolve()) / "data" / "raw" / "plsdb_meta_tables" / "taxonomy.csv"
+    taxonomy_path = (
+        find_project_root(Path(__file__).resolve())
+        / "data"
+        / "raw"
+        / "plsdb_meta_tables"
+        / "taxonomy.csv"
+    )
     if not taxonomy_path.exists():
-        return pd.DataFrame(columns=["taxonomy_uid", *[column for column, _ in HOST_TAXONOMY_LEVELS]]).set_index("taxonomy_uid")
+        return pd.DataFrame(
+            columns=["taxonomy_uid", *[column for column, _ in HOST_TAXONOMY_LEVELS]]
+        ).set_index("taxonomy_uid")
     lookup = pd.read_csv(
         taxonomy_path,
         usecols=["TAXONOMY_UID", *[column for column, _ in HOST_TAXONOMY_LEVELS]],
@@ -144,7 +217,9 @@ def _normalized_taxon_identifier(values: pd.Series, fallback: pd.Series) -> pd.S
 
 def _host_taxonomy_signature_series(records: pd.DataFrame) -> pd.Series:
     taxonomy_lookup = _taxonomy_rank_lookup()
-    taxonomy_uid = pd.to_numeric(_series_or_default(records, "taxonomy_uid", np.nan), errors="coerce").astype("Int64")
+    taxonomy_uid = pd.to_numeric(
+        _series_or_default(records, "taxonomy_uid", np.nan), errors="coerce"
+    ).astype("Int64")
     signatures: list[pd.Series] = []
     for id_column, fallback_column in HOST_TAXONOMY_LEVELS:
         direct_values = _series_or_default(records, id_column, np.nan)
@@ -175,22 +250,42 @@ def _pairwise_host_taxonomy_distance(left: tuple[str, ...], right: tuple[str, ..
     return float(_PAIRWISE_HOST_DISTANCE_BY_SHARED_LEVEL[-1])
 
 
+def _subsample_signatures_for_pairwise_distance(
+    signatures: list[tuple[str, ...]],
+    *,
+    max_signatures: int = _MAX_HOST_SIGNATURES_FOR_PAIRWISE_DISTANCE,
+) -> list[tuple[str, ...]]:
+    if len(signatures) <= max_signatures:
+        return signatures
+    indices = np.linspace(0, len(signatures) - 1, num=max_signatures, dtype=int)
+    return [signatures[int(index)] for index in indices]
+
+
 def _mean_pairwise_host_taxonomy_distance(signatures: list[tuple[str, ...]]) -> float:
-    unique_signatures = [signature for signature in dict.fromkeys(signatures) if _host_signature_is_nonempty(signature)]
+    unique_signatures = [
+        signature
+        for signature in dict.fromkeys(signatures)
+        if _host_signature_is_nonempty(signature)
+    ]
     if len(unique_signatures) < 2:
         return 0.0
-    distances: list[float] = []
-    for left_index in range(len(unique_signatures) - 1):
-        for right_index in range(left_index + 1, len(unique_signatures)):
-            distances.append(
-                _pairwise_host_taxonomy_distance(
-                    unique_signatures[left_index],
-                    unique_signatures[right_index],
-                )
-            )
-    if not distances:
+    unique_signatures = _subsample_signatures_for_pairwise_distance(unique_signatures)
+    signature_array = np.asarray(unique_signatures, dtype=object)
+    nonempty = signature_array != ""
+    shared_level = np.full((len(unique_signatures), len(unique_signatures)), -1, dtype=int)
+    for level_index in range(signature_array.shape[1]):
+        matches = (
+            (signature_array[:, None, level_index] == signature_array[None, :, level_index])
+            & nonempty[:, None, level_index]
+            & nonempty[None, :, level_index]
+        )
+        shared_level = np.where(matches, level_index, shared_level)
+    distance_lookup = np.asarray([1.0, 0.90, 0.80, 0.60, 0.40, 0.20, 0.0], dtype=float)
+    distances = distance_lookup[shared_level + 1]
+    upper = distances[np.triu_indices(len(unique_signatures), k=1)]
+    if upper.size == 0:
         return 0.0
-    return float(np.mean(distances))
+    return float(np.mean(upper))
 
 
 def _normalized_shannon_evenness(values: list[object]) -> float:
@@ -293,22 +388,33 @@ def _vectorized_context_labels(frame: pd.DataFrame) -> pd.Series:
     ecosystem = _clean_text_series(_series_or_default(frame, "ECOSYSTEM_tags"))
     disease = _clean_text_series(_series_or_default(frame, "DISEASE_tags"))
     pathogenicity = _clean_text_series(_series_or_default(frame, "BIOSAMPLE_pathogenicity"))
-    combined = package.str.cat(title, sep=" | ").str.cat(ecosystem, sep=" | ").str.cat(disease, sep=" | ").str.cat(pathogenicity, sep=" | ")
+    combined = (
+        package.str.cat(title, sep=" | ")
+        .str.cat(ecosystem, sep=" | ")
+        .str.cat(disease, sep=" | ")
+        .str.cat(pathogenicity, sep=" | ")
+    )
     combined_lower = combined.str.lower()
     empty_mask = combined.str.strip().eq("")
     labels = pd.Series("other", index=frame.index, dtype=object)
     labels.loc[empty_mask] = "unknown"
     remaining = ~empty_mask
-    clinical_mask = remaining & (pathogenicity.ne("") | _lowered_series_contains_any(combined_lower, CLINICAL_CONTEXT_TERMS))
+    clinical_mask = remaining & (
+        pathogenicity.ne("") | _lowered_series_contains_any(combined_lower, CLINICAL_CONTEXT_TERMS)
+    )
     labels.loc[clinical_mask] = "clinical"
     remaining = remaining & ~clinical_mask
     food_mask = remaining & _lowered_series_contains_any(combined_lower, FOOD_CONTEXT_TERMS)
     labels.loc[food_mask] = "food"
     remaining = remaining & ~food_mask
-    environmental_mask = remaining & _lowered_series_contains_any(combined_lower, ENVIRONMENTAL_CONTEXT_TERMS)
+    environmental_mask = remaining & _lowered_series_contains_any(
+        combined_lower, ENVIRONMENTAL_CONTEXT_TERMS
+    )
     labels.loc[environmental_mask] = "environmental"
     remaining = remaining & ~environmental_mask
-    host_associated_mask = remaining & _lowered_series_contains_any(combined_lower, HOST_ASSOCIATED_CONTEXT_TERMS)
+    host_associated_mask = remaining & _lowered_series_contains_any(
+        combined_lower, HOST_ASSOCIATED_CONTEXT_TERMS
+    )
     labels.loc[host_associated_mask] = "host_associated"
     return labels
 
@@ -322,7 +428,9 @@ def _global_max_normalized_richness(unique_counts: pd.Series) -> pd.Series:
     return (np.log1p(unique) / denominator).clip(lower=0.0, upper=1.0)
 
 
-def _menhinick_normalized_richness(unique_counts: pd.Series, observation_counts: pd.Series) -> pd.Series:
+def _menhinick_normalized_richness(
+    unique_counts: pd.Series, observation_counts: pd.Series
+) -> pd.Series:
     unique = unique_counts.astype(float).fillna(0.0).clip(lower=0.0)
     observations = observation_counts.astype(float).fillna(0.0).clip(lower=0.0)
     denominator = np.sqrt(observations.clip(lower=1.0))
@@ -338,68 +446,160 @@ def _menhinick_normalized_richness(unique_counts: pd.Series, observation_counts:
     return pd.Series(np.clip(menhinick / max_value, 0.0, 1.0), index=unique.index, dtype=float)
 
 
-def build_training_canonical_table(records: pd.DataFrame, amr_consensus: pd.DataFrame, *, split_year: int = 2015) -> pd.DataFrame:
+def _training_period_records(
+    records: pd.DataFrame,
+    *,
+    split_year: int,
+    label: str,
+) -> pd.DataFrame:
+    working = records.copy()
+    years = pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
+    training = working.loc[years <= split_year].copy()
+    if not training.empty:
+        max_year = int(
+            pd.to_numeric(training["resolved_year"], errors="coerce").fillna(0).astype(int).max()
+        )
+        if max_year > int(split_year):
+            raise ValueError(
+                f"{label} contains training rows newer than split_year={int(split_year)}; "
+                f"observed max training year={max_year}."
+            )
+    return training
+
+
+def build_training_canonical_table(
+    records: pd.DataFrame,
+    amr_consensus: pd.DataFrame,
+    *,
+    split_year: int | None = None,
+) -> pd.DataFrame:
     """Collapse training-period records to canonical representatives for T/A aggregation."""
-    training = records.loc[records["resolved_year"].fillna(0).astype(int) <= split_year].copy()
+    if split_year is None:
+        split_year = _pipeline_settings().split_year
+    training = _training_period_records(
+        records,
+        split_year=int(split_year),
+        label="build_training_canonical_table",
+    )
     merged = training.merge(amr_consensus, on="sequence_accession", how="left", validate="m:1")
 
-    merged["amr_gene_count"] = merged["amr_gene_count"].fillna(0).astype(int)
-    merged["amr_class_count"] = merged["amr_class_count"].fillna(0).astype(int)
-    merged["amr_hit_count"] = merged["amr_hit_count"].fillna(0).astype(int)
-    merged["amr_drug_classes"] = merged["amr_drug_classes"].fillna("")
-
+    numeric_defaults = {
+        "amr_gene_count": 0,
+        "amr_class_count": 0,
+        "amr_hit_count": 0,
+    }
+    for column, default in numeric_defaults.items():
+        if column not in merged.columns:
+            merged[column] = default
+        merged[column] = pd.to_numeric(merged[column], errors="coerce").fillna(default).astype(int)
+    if "amr_gene_symbols" not in merged.columns:
+        merged["amr_gene_symbols"] = ""
+    else:
+        merged["amr_gene_symbols"] = merged["amr_gene_symbols"].fillna("").astype(str)
+    if "amr_drug_classes" not in merged.columns:
+        merged["amr_drug_classes"] = ""
+    else:
+        merged["amr_drug_classes"] = merged["amr_drug_classes"].fillna("").astype(str)
     grouped = merged.groupby(["backbone_id", "canonical_id"], sort=False)
-    rows: list[dict[str, object]] = []
-    for (backbone_id, canonical_id), frame in grouped:
-        class_union = sorted({drug_class for cell in frame["amr_drug_classes"] for drug_class in _split_values(cell)})
-        rows.append(
-            {
-                "backbone_id": backbone_id,
-                "canonical_id": canonical_id,
-                "has_relaxase": bool(frame["has_relaxase"].any()),
-                "has_mpf": bool(frame["has_mpf"].any()),
-                "has_orit": bool(frame["has_orit"].any()),
-                "is_mobilizable": bool(frame["is_mobilizable"].any()),
-                "amr_gene_count": int(frame["amr_gene_count"].max()),
-                "amr_class_count": int(frame["amr_class_count"].max()),
-                "amr_hit_count": int(frame["amr_hit_count"].max()),
-                "amr_drug_classes": ",".join(class_union),
-            }
+    aggregated = grouped.agg(
+        has_relaxase=("has_relaxase", "any"),
+        has_mpf=("has_mpf", "any"),
+        has_orit=("has_orit", "any"),
+        is_mobilizable=("is_mobilizable", "any"),
+        amr_gene_count=("amr_gene_count", "max"),
+        amr_class_count=("amr_class_count", "max"),
+        amr_hit_count=("amr_hit_count", "max"),
+    ).reset_index()
+
+    class_tokens = (
+        merged[["backbone_id", "canonical_id", "amr_drug_classes"]]
+        .assign(amr_drug_class=lambda frame: frame["amr_drug_classes"].astype(str).str.split(","))
+        .explode("amr_drug_class")
+    )
+    class_tokens["amr_drug_class"] = (
+        class_tokens["amr_drug_class"].fillna("").astype(str).str.strip()
+    )
+    class_tokens = class_tokens.loc[class_tokens["amr_drug_class"].ne("")]
+    gene_tokens = (
+        merged[["backbone_id", "canonical_id", "amr_gene_symbols"]]
+        .assign(amr_gene_symbol=lambda frame: frame["amr_gene_symbols"].astype(str).str.split(","))
+        .explode("amr_gene_symbol")
+    )
+    gene_tokens["amr_gene_symbol"] = (
+        gene_tokens["amr_gene_symbol"].fillna("").astype(str).str.strip()
+    )
+    gene_tokens = gene_tokens.loc[gene_tokens["amr_gene_symbol"].ne("")]
+
+    if not class_tokens.empty:
+        class_union = (
+            class_tokens.groupby(["backbone_id", "canonical_id"], sort=False)["amr_drug_class"]
+            .unique()
+            .map(lambda values: ",".join(sorted(values)))
+            .rename("amr_drug_classes")
+            .reset_index()
         )
-    return pd.DataFrame(rows)
+        aggregated = aggregated.merge(class_union, on=["backbone_id", "canonical_id"], how="left")
+    if not gene_tokens.empty:
+        gene_union = (
+            gene_tokens.groupby(["backbone_id", "canonical_id"], sort=False)["amr_gene_symbol"]
+            .unique()
+            .map(lambda values: ",".join(sorted(values)))
+            .rename("amr_gene_symbols")
+            .reset_index()
+        )
+        aggregated = aggregated.merge(gene_union, on=["backbone_id", "canonical_id"], how="left")
+    if "amr_gene_symbols" not in aggregated.columns:
+        aggregated["amr_gene_symbols"] = ""
+    if "amr_drug_classes" not in aggregated.columns:
+        aggregated["amr_drug_classes"] = ""
+    return aggregated.fillna({"amr_drug_classes": "", "amr_gene_symbols": ""})
 
 
 def compute_feature_t(training_canonical: pd.DataFrame) -> pd.DataFrame:
     """Compute the mobility component at backbone level."""
-    grouped = training_canonical.groupby("backbone_id", sort=False)
-    rows: list[dict[str, object]] = []
-    for backbone_id, frame in grouped:
-        n = len(frame)
-        relaxase_support = float(frame["has_relaxase"].mean())
-        mpf_support = float(frame["has_mpf"].mean())
-        orit_support = float(frame["has_orit"].mean())
-        mobilizable_support = float(frame["is_mobilizable"].mean())
-        t_raw = (1.0 * relaxase_support + 1.0 * mpf_support + 0.75 * orit_support + 0.50 * mobilizable_support) / 3.25
-        support_shrinkage = _support_factor(n)
-        rows.append(
-            {
-                "backbone_id": backbone_id,
-                "member_count_train": n,
-                "relaxase_support": relaxase_support,
-                "mpf_support": mpf_support,
-                "orit_support": orit_support,
-                "mobilizable_support": mobilizable_support,
-                "support_shrinkage": support_shrinkage,
-                "T_raw": t_raw,
-                "T_eff": t_raw * support_shrinkage,
-            }
+    summary = (
+        training_canonical.groupby("backbone_id", sort=False)
+        .agg(
+            member_count_train=("canonical_id", "size"),
+            relaxase_support=("has_relaxase", "mean"),
+            mpf_support=("has_mpf", "mean"),
+            orit_support=("has_orit", "mean"),
+            mobilizable_support=("is_mobilizable", "mean"),
         )
-    return pd.DataFrame(rows)
+        .reset_index()
+    )
+    summary["support_shrinkage"] = summary["member_count_train"].map(
+        lambda value: _support_factor(int(value))
+    )
+    summary["T_raw"] = (
+        (1.0 * summary["relaxase_support"])
+        + (1.0 * summary["mpf_support"])
+        + (0.75 * summary["orit_support"])
+        + (0.50 * summary["mobilizable_support"])
+    ) / 3.25
+    summary["T_eff"] = summary["T_raw"] * summary["support_shrinkage"]
+    return summary
 
 
-def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.DataFrame:
+def compute_feature_h(
+    records: pd.DataFrame,
+    *,
+    split_year: int | None = None,
+    host_evenness_bias_power: float | None = None,
+) -> pd.DataFrame:
     """Compute observed host diversity from training-period observations."""
-    training = records.loc[records["resolved_year"].fillna(0).astype(int) <= split_year].copy()
+    pipeline_settings = _pipeline_settings()
+    if split_year is None:
+        split_year = pipeline_settings.split_year
+    if host_evenness_bias_power is None:
+        host_evenness_bias_power = pipeline_settings.host_evenness_bias_power
+    phylo_breadth_weight = float(pipeline_settings.host_phylo_breadth_weight)
+    phylo_dispersion_weight = float(pipeline_settings.host_phylo_dispersion_weight)
+    training = _training_period_records(
+        records,
+        split_year=int(split_year),
+        label="compute_feature_h",
+    )
     output_columns = [
         "backbone_id",
         "host_observation_count",
@@ -442,8 +642,18 @@ def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.Da
         }
     )
 
-    host_observation_count = genus_frame.groupby("backbone_id", sort=False).size().reindex(backbone_order, fill_value=0).astype(int)
-    genus_unique_count = genus_frame.groupby("backbone_id", sort=False)["value"].nunique().reindex(backbone_order, fill_value=0).astype(int)
+    host_observation_count = (
+        genus_frame.groupby("backbone_id", sort=False)
+        .size()
+        .reindex(backbone_order, fill_value=0)
+        .astype(int)
+    )
+    genus_unique_count = (
+        genus_frame.groupby("backbone_id", sort=False)["value"]
+        .nunique()
+        .reindex(backbone_order, fill_value=0)
+        .astype(int)
+    )
     genus_evenness = (
         genus_frame.groupby("backbone_id", sort=False)["value"]
         .agg(lambda values: _normalized_shannon_evenness(list(values)))
@@ -470,14 +680,23 @@ def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.Da
                 "value": rank_values.loc[rank_nonempty].to_numpy(),
             }
         )
-        unique_counts = rank_frame.groupby("backbone_id", sort=False)["value"].nunique().reindex(backbone_order, fill_value=0).astype(int)
+        unique_counts = (
+            rank_frame.groupby("backbone_id", sort=False)["value"]
+            .nunique()
+            .reindex(backbone_order, fill_value=0)
+            .astype(int)
+        )
         rank_unique_counts[output_name] = unique_counts
         component = _global_max_normalized_richness(unique_counts)
         component = component.where(unique_counts > 0)
         breadth_components[rank] = component
 
-    breadth_frame = pd.DataFrame(breadth_components, index=backbone_order)
-    breadth_array = breadth_frame.to_numpy(dtype=float)
+    breadth_array = np.column_stack(
+        [
+            component.reindex(backbone_order, fill_value=np.nan).to_numpy(dtype=float)
+            for component in breadth_components.values()
+        ]
+    )
     positive_mask = np.isfinite(breadth_array) & (breadth_array > 0.0)
     log_values = np.full_like(breadth_array, np.nan, dtype=float)
     log_values[positive_mask] = np.log(breadth_array[positive_mask])
@@ -490,14 +709,18 @@ def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.Da
         where=positive_count > 0,
     )
     phylo_breadth = np.exp(breadth_logs)
-    phylo_breadth = pd.Series(np.where(positive_count > 0, phylo_breadth, 0.0), index=backbone_order, dtype=float)
+    phylo_breadth = pd.Series(
+        np.where(positive_count > 0, phylo_breadth, 0.0), index=backbone_order, dtype=float
+    )
 
     host_signatures = _host_taxonomy_signature_series(training)
     signature_nonempty = host_signatures.map(_host_signature_is_nonempty)
     if bool(signature_nonempty.any()):
         signature_frame = pd.DataFrame(
             {
-                "backbone_id": training.loc[signature_nonempty, "backbone_id"].astype(str).to_numpy(),
+                "backbone_id": training.loc[signature_nonempty, "backbone_id"]
+                .astype(str)
+                .to_numpy(),
                 "signature": host_signatures.loc[signature_nonempty].to_list(),
             }
         )
@@ -525,8 +748,8 @@ def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.Da
         phylo_pairwise_dispersion = pd.Series(0.0, index=backbone_order, dtype=float)
     phylo_breadth_augmented = pd.Series(
         np.clip(
-            (0.65 * phylo_breadth.to_numpy(dtype=float))
-            + (0.35 * phylo_pairwise_dispersion.to_numpy(dtype=float)),
+            (phylo_breadth_weight * phylo_breadth.to_numpy(dtype=float))
+            + (phylo_dispersion_weight * phylo_pairwise_dispersion.to_numpy(dtype=float)),
             0.0,
             1.0,
         ),
@@ -539,42 +762,66 @@ def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.Da
     country_series = _clean_text_series(_series_or_default(training, "country"))
     country_counts = country_series[country_series.ne("")].value_counts()
     if not country_counts.empty:
-        # Normalize to a weight where the median country has weight 1.0, and massive countries have weight < 1.0
+        # Normalize so the median country has weight 1.0 and massively over-sequenced
+        # countries receive smaller weights.
         median_count = country_counts.median()
         country_weights = np.clip(np.sqrt(median_count / country_counts), 0.1, 2.0)
-        
+
         # Apply weights to the training records
         record_weights = country_series.map(country_weights).fillna(1.0)
-        
+
         # Weighted observation count per backbone
-        weighted_obs = pd.Series(record_weights.to_numpy(), index=training["backbone_id"]).groupby(level=0, sort=False).sum()
+        weighted_obs = (
+            pd.Series(record_weights.to_numpy(), index=training["backbone_id"])
+            .groupby(level=0, sort=False)
+            .sum()
+        )
         host_support = weighted_obs.reindex(backbone_order, fill_value=0.0).astype(float)
         host_support = host_support / (host_support + 5.0)
     else:
-        host_support = host_observation_count.astype(float) / (host_observation_count.astype(float) + 5.0)
+        host_support = host_observation_count.astype(float) / (
+            host_observation_count.astype(float) + 5.0
+        )
 
-    # Mitigate sampling bias (e.g. from highly sequenced E. coli) using Shannon Evenness.
-    # We apply a square root to evenness to penalize heavily biased samples without completely zeroing them.
+    # Mitigate sampling bias (e.g. from highly sequenced E. coli) using Shannon evenness.
+    # The default exponent remains 0.5, but the pipeline now accepts a configurable power
+    # so sensitivity sweeps can replace the legacy square-root heuristic.
     evenness_array = genus_evenness.to_numpy(dtype=float)
-    bias_correction = np.clip(np.sqrt(evenness_array), 0.1, 1.0)
+    bias_correction = np.clip(
+        np.power(np.clip(evenness_array, 0.0, 1.0), float(host_evenness_bias_power)),
+        0.1,
+        1.0,
+    )
 
     # Keep the directly observed richness term for diagnostics, but align the
     # main H definition with the project plan: corrected genus richness combined
     # with higher-rank phylogenetic breadth via geometric mean, adjusted for sampling bias.
-    h_raw = np.sqrt(
-        genus_norm.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
-        * phylo_breadth.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
-    ) * bias_correction
+    h_raw = (
+        np.sqrt(
+            genus_norm.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
+            * phylo_breadth.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
+        )
+        * bias_correction
+    )
     h_raw = pd.Series(np.clip(h_raw, 0.0, 1.0), index=backbone_order, dtype=float)
-    
-    h_phylogenetic_raw = np.sqrt(
-        genus_norm.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
-        * phylo_breadth_augmented.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
-    ) * bias_correction
-    h_phylogenetic_raw = pd.Series(np.clip(h_phylogenetic_raw, 0.0, 1.0), index=backbone_order, dtype=float)
 
-    predicted_rank_values = _rank_score_series(_series_or_default(training, "predicted_host_range_overall_rank"))
-    reported_rank_values = _rank_score_series(_series_or_default(training, "reported_host_range_lit_rank"))
+    h_phylogenetic_raw = (
+        np.sqrt(
+            genus_norm.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
+            * phylo_breadth_augmented.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
+        )
+        * bias_correction
+    )
+    h_phylogenetic_raw = pd.Series(
+        np.clip(h_phylogenetic_raw, 0.0, 1.0), index=backbone_order, dtype=float
+    )
+
+    predicted_rank_values = _rank_score_series(
+        _series_or_default(training, "predicted_host_range_overall_rank")
+    )
+    reported_rank_values = _rank_score_series(
+        _series_or_default(training, "reported_host_range_lit_rank")
+    )
     predicted_support_mask = predicted_rank_values > 0.0
     reported_support_mask = reported_rank_values > 0.0
     predicted_score = (
@@ -601,15 +848,32 @@ def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.Da
         .reindex(backbone_order, fill_value=0.0)
         .astype(float)
     )
-    external_score = pd.concat(
-        [
-            predicted_score.rename("predicted"),
-            reported_score.rename("reported"),
-        ],
-        axis=1,
-    ).replace(0.0, np.nan).mean(axis=1).fillna(0.0)
-    external_support = np.maximum(predicted_support.to_numpy(dtype=float), reported_support.to_numpy(dtype=float))
+    external_score = (
+        pd.concat(
+            [
+                predicted_score.rename("predicted"),
+                reported_score.rename("reported"),
+            ],
+            axis=1,
+        )
+        .replace(0.0, np.nan)
+        .mean(axis=1)
+        .fillna(0.0)
+    )
+    external_support = np.maximum(
+        predicted_support.to_numpy(dtype=float), reported_support.to_numpy(dtype=float)
+    )
     external_score_array = external_score.to_numpy(dtype=float)
+    support_composite = pd.Series(
+        np.clip(
+            (0.5 * host_support.to_numpy(dtype=float))
+            + (0.5 * external_support.astype(float)),
+            0.0,
+            1.0,
+        ),
+        index=backbone_order,
+        dtype=float,
+    )
     h_augmented_raw_array = np.where(
         external_score_array > 0.0,
         np.sqrt(
@@ -618,7 +882,9 @@ def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.Da
         ),
         h_raw.to_numpy(dtype=float),
     )
-    h_augmented_raw = pd.Series(np.clip(h_augmented_raw_array, 0.0, 1.0), index=backbone_order, dtype=float)
+    h_augmented_raw = pd.Series(
+        np.clip(h_augmented_raw_array, 0.0, 1.0), index=backbone_order, dtype=float
+    )
     h_phylogenetic_augmented_raw_array = np.where(
         external_score_array > 0.0,
         np.sqrt(
@@ -654,14 +920,21 @@ def compute_feature_h(records: pd.DataFrame, *, split_year: int = 2015) -> pd.Da
             "reported_host_range_score": reported_score.to_numpy(dtype=float),
             "H_external_host_range_score": external_score.to_numpy(dtype=float),
             "H_external_host_range_support": external_support.astype(float),
+            "H_obs": h_phylogenetic_raw.to_numpy(dtype=float),
+            "H_obs_basic": h_raw.to_numpy(dtype=float),
+            "H_support": support_composite.to_numpy(dtype=float),
             "H_raw": h_raw.to_numpy(dtype=float),
             "H_phylogenetic_raw": h_phylogenetic_raw.to_numpy(dtype=float),
             "H_augmented_raw": h_augmented_raw.to_numpy(dtype=float),
             "H_phylogenetic_augmented_raw": h_phylogenetic_augmented_raw.to_numpy(dtype=float),
-            "H_eff": (h_raw * host_support).to_numpy(dtype=float),
-            "H_phylogenetic_eff": (h_phylogenetic_raw * host_support).to_numpy(dtype=float),
-            "H_augmented_eff": (h_augmented_raw * host_support).to_numpy(dtype=float),
-            "H_phylogenetic_augmented_eff": (h_phylogenetic_augmented_raw * host_support).to_numpy(dtype=float),
+            "H_eff": (h_phylogenetic_raw * support_composite).to_numpy(dtype=float),
+            "H_phylogenetic_eff": (
+                h_phylogenetic_raw * support_composite
+            ).to_numpy(dtype=float),
+            "H_augmented_eff": (h_augmented_raw * support_composite).to_numpy(dtype=float),
+            "H_phylogenetic_augmented_eff": (
+                h_phylogenetic_augmented_raw * support_composite
+            ).to_numpy(dtype=float),
         }
     )
     return result
@@ -703,7 +976,7 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
     It is NOT a traditional inter-rater reliability metric despite the name.
     """
     from plasmid_priority.schemas.who_mia import WHO_MIA_CLASS_MAP
-    
+
     who_weights = {
         "HPCIA": 3.0,
         "CIA": 2.0,
@@ -711,48 +984,188 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
         "IA": 1.0,
     }
 
-    grouped = training_canonical.groupby("backbone_id", sort=False)
-    rows: list[dict[str, object]] = []
-    for backbone_id, frame in grouped:
-        n = len(frame)
-        class_sets = [_split_values(value) for value in frame["amr_drug_classes"]]
-        
-        threat_scores = []
-        for cset in class_sets:
-            score = 0.0
-            for c in cset:
-                mapping = WHO_MIA_CLASS_MAP.get(c)
-                if mapping:
-                    score += who_weights.get(mapping["who_mia_category"], 1.0)
-                else:
-                    score += 1.0
-            threat_scores.append(score)
-        
-        mean_threat_score = sum(threat_scores) / max(1, len(threat_scores))
+    base = training_canonical.copy().reset_index(drop=True)
+    base["row_id"] = np.arange(len(base))
+    base["amr_gene_symbols"] = (
+        base.get("amr_gene_symbols", pd.Series("", index=base.index)).fillna("")
+    )
+    grouped = base.groupby("backbone_id", sort=False)
+    summary = grouped.agg(
+        mean_amr_class_count=("amr_class_count", "mean"),
+        mean_amr_gene_count=("amr_gene_count", "mean"),
+        canonical_member_count_train=("canonical_id", "size"),
+        amr_positive_members=("amr_hit_count", lambda values: int((values > 0).sum())),
+    ).reset_index()
+    summary["amr_support_factor"] = summary["amr_positive_members"].map(
+        lambda value: _support_factor(int(value))
+    )
 
-        consistency = _mean_prevalence_from_sets(class_sets)
-        recurrence = _mean_recurrent_prevalence_from_sets(class_sets)
-        amr_support = _support_factor(int((frame["amr_hit_count"] > 0).sum()))
-        rows.append(
+    row_amr = base[["row_id", "backbone_id", "amr_drug_classes", "amr_gene_symbols"]].copy()
+    row_amr["public_health_classes"] = row_amr["amr_drug_classes"].map(
+        lambda value: sorted(
             {
-                "backbone_id": backbone_id,
-                "mean_amr_class_count": float(frame["amr_class_count"].mean()),
-                "mean_amr_gene_count": float(frame["amr_gene_count"].mean()),
-                "mean_amr_clinical_threat_score": float(mean_threat_score),
-                "A_consistency": consistency,
-                "A_recurrence": recurrence,
-                "amr_support_factor": amr_support,
-                "canonical_member_count_train": n,
+                token
+                for token in (_normalize_amr_class_token(item) for item in _split_values(value))
+                if _is_public_health_amr_class(token)
             }
         )
-    return pd.DataFrame(rows)
+    )
+    row_amr["last_resort_class_count"] = row_amr["public_health_classes"].map(
+        lambda values: int(sum(_is_last_resort_amr_class(token) for token in values))
+    )
+    row_amr["public_health_class_count"] = row_amr["public_health_classes"].map(len).astype(int)
+    row_amr["amr_gene_families"] = row_amr["amr_gene_symbols"].map(
+        lambda value: sorted(
+            {
+                family
+                for family in (_gene_family(item) for item in _split_values(value))
+                if family
+            }
+        )
+    )
+    row_amr["gene_family_count"] = row_amr["amr_gene_families"].map(len).astype(int)
+    row_amr["mdr_proxy_flag"] = row_amr["public_health_class_count"].ge(3).astype(float)
+    row_amr["xdr_proxy_flag"] = (
+        row_amr["public_health_class_count"].ge(6)
+        | (
+            row_amr["public_health_class_count"].ge(4)
+            & row_amr["last_resort_class_count"].ge(1)
+        )
+    ).astype(float)
+    row_amr["last_resort_convergence_score"] = np.clip(
+        row_amr["last_resort_class_count"].astype(float) / 2.0,
+        0.0,
+        1.0,
+    )
+    row_amr["amr_mechanism_diversity_proxy"] = np.clip(
+        row_amr["gene_family_count"].astype(float) / 4.0,
+        0.0,
+        1.0,
+    )
+    escalation_summary = grouped.agg(
+        mdr_proxy_fraction=(
+            "row_id",
+            lambda values: float(row_amr.loc[list(values), "mdr_proxy_flag"].mean()),
+        ),
+        xdr_proxy_fraction=(
+            "row_id",
+            lambda values: float(row_amr.loc[list(values), "xdr_proxy_flag"].mean()),
+        ),
+        mean_last_resort_convergence_score=(
+            "row_id",
+            lambda values: float(row_amr.loc[list(values), "last_resort_convergence_score"].mean()),
+        ),
+        mean_amr_mechanism_diversity_proxy=(
+            "row_id",
+            lambda values: float(row_amr.loc[list(values), "amr_mechanism_diversity_proxy"].mean()),
+        ),
+    ).reset_index()
+    summary = summary.merge(escalation_summary, on="backbone_id", how="left")
+    for column in (
+        "mdr_proxy_fraction",
+        "xdr_proxy_fraction",
+        "mean_last_resort_convergence_score",
+        "mean_amr_mechanism_diversity_proxy",
+    ):
+        summary[column] = summary[column].fillna(0.0).astype(float)
+
+    class_tokens = (
+        base[["row_id", "backbone_id", "amr_drug_classes"]]
+        .assign(
+            amr_class=lambda frame: frame["amr_drug_classes"].fillna("").astype(str).str.split(",")
+        )
+        .explode("amr_class")
+    )
+    class_tokens["amr_class"] = class_tokens["amr_class"].map(_normalize_amr_class_token)
+    class_tokens = class_tokens.loc[
+        class_tokens["amr_class"].ne("")
+        & class_tokens["amr_class"].map(_is_public_health_amr_class)
+    ]
+    if class_tokens.empty:
+        summary["mean_amr_clinical_threat_score"] = 0.0
+        summary["A_consistency"] = 0.0
+        summary["A_recurrence"] = 0.0
+        return summary[
+            [
+                "backbone_id",
+                "mean_amr_class_count",
+                "mean_amr_gene_count",
+                "mdr_proxy_fraction",
+                "xdr_proxy_fraction",
+                "mean_last_resort_convergence_score",
+                "mean_amr_mechanism_diversity_proxy",
+                "mean_amr_clinical_threat_score",
+                "A_consistency",
+                "A_recurrence",
+                "amr_support_factor",
+                "canonical_member_count_train",
+            ]
+        ]
+
+    class_tokens["threat_weight"] = class_tokens["amr_class"].map(
+        lambda value: who_weights.get(
+            str(WHO_MIA_CLASS_MAP.get(value, {}).get("who_mia_category", "")), 1.0
+        )
+    )
+    row_threat = (
+        class_tokens.groupby(["backbone_id", "row_id"], sort=False)["threat_weight"]
+        .sum()
+        .groupby(level=0, sort=False)
+        .mean()
+        .rename("mean_amr_clinical_threat_score")
+    )
+
+    class_counts = (
+        class_tokens.groupby(["backbone_id", "amr_class"], sort=False)
+        .size()
+        .rename("count")
+        .reset_index()
+    )
+    total_members = summary.set_index("backbone_id")["canonical_member_count_train"].astype(float)
+    class_counts["prevalence"] = class_counts["count"] / class_counts["backbone_id"].map(
+        total_members
+    )
+    consistency = (
+        class_counts.groupby("backbone_id", sort=False)["prevalence"].mean().rename("A_consistency")
+    )
+    recurrence = (
+        class_counts.loc[class_counts["count"] >= 2]
+        .groupby("backbone_id", sort=False)["prevalence"]
+        .mean()
+        .rename("A_recurrence")
+    )
+
+    summary = summary.merge(row_threat, on="backbone_id", how="left")
+    summary = summary.merge(consistency, on="backbone_id", how="left")
+    summary = summary.merge(recurrence, on="backbone_id", how="left")
+    summary["mean_amr_clinical_threat_score"] = (
+        summary["mean_amr_clinical_threat_score"].fillna(0.0).astype(float)
+    )
+    summary["A_consistency"] = summary["A_consistency"].fillna(0.0).astype(float)
+    summary["A_recurrence"] = summary["A_recurrence"].fillna(0.0).astype(float)
+    return summary[
+        [
+            "backbone_id",
+            "mean_amr_class_count",
+            "mean_amr_gene_count",
+            "mdr_proxy_fraction",
+            "xdr_proxy_fraction",
+            "mean_last_resort_convergence_score",
+            "mean_amr_mechanism_diversity_proxy",
+            "mean_amr_clinical_threat_score",
+            "A_consistency",
+            "A_recurrence",
+            "amr_support_factor",
+            "canonical_member_count_train",
+        ]
+    ]
 
 
 def build_backbone_table(
     records: pd.DataFrame,
     coherence: pd.DataFrame,
     *,
-    split_year: int = 2015,
+    split_year: int | None = None,
     test_year_end: int = 2023,
     new_country_threshold: int | None = None,
 ) -> pd.DataFrame:
@@ -760,14 +1173,20 @@ def build_backbone_table(
     if records.empty:
         return pd.DataFrame()
 
+    pipeline_settings = _pipeline_settings()
+    if split_year is None:
+        split_year = pipeline_settings.split_year
     if new_country_threshold is None:
-        from plasmid_priority.config import DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD
-        new_country_threshold = DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD
+        new_country_threshold = pipeline_settings.min_new_countries_for_spread
 
     working = records.copy()
     working["backbone_id"] = working["backbone_id"].astype(str)
     years = pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
-    training = working.loc[years <= split_year].copy()
+    training = _training_period_records(
+        working,
+        split_year=int(split_year),
+        label="build_backbone_table",
+    )
     testing = working.loc[(years > split_year) & (years <= test_year_end)].copy()
 
     backbone_order = working["backbone_id"].drop_duplicates()
@@ -777,29 +1196,51 @@ def build_backbone_table(
     member_count_train = training.groupby("backbone_id", sort=False)["canonical_id"].nunique()
 
     training_pairs = training.assign(country_clean=_clean_text_series(training["country"]))
-    training_pairs = training_pairs.loc[training_pairs["country_clean"].ne(""), ["backbone_id", "country_clean"]].drop_duplicates()
+    training_pairs = training_pairs.loc[
+        training_pairs["country_clean"].ne(""), ["backbone_id", "country_clean"]
+    ].drop_duplicates()
     testing_pairs = testing.assign(country_clean=_clean_text_series(testing["country"]))
-    testing_pairs = testing_pairs.loc[testing_pairs["country_clean"].ne(""), ["backbone_id", "country_clean"]].drop_duplicates()
+    testing_pairs = testing_pairs.loc[
+        testing_pairs["country_clean"].ne(""), ["backbone_id", "country_clean"]
+    ].drop_duplicates()
 
     n_countries_train = training_pairs.groupby("backbone_id", sort=False).size()
     n_countries_test = testing_pairs.groupby("backbone_id", sort=False).size()
     if training_pairs.empty or testing_pairs.empty:
         n_new_countries = pd.Series(dtype=int)
     else:
-        new_pairs = testing_pairs.merge(training_pairs, on=["backbone_id", "country_clean"], how="left", indicator=True)
+        new_pairs = testing_pairs.merge(
+            training_pairs, on=["backbone_id", "country_clean"], how="left", indicator=True
+        )
         new_pairs = new_pairs.loc[new_pairs["_merge"] == "left_only"]
         n_new_countries = new_pairs.groupby("backbone_id", sort=False).size()
 
-    refseq_share_train = training.assign(_is_refseq=training["record_origin"].eq("refseq").astype(float)).groupby("backbone_id", sort=False)["_is_refseq"].mean()
-    insd_share_train = training.assign(_is_insd=training["record_origin"].eq("insd").astype(float)).groupby("backbone_id", sort=False)["_is_insd"].mean()
+    refseq_share_train = (
+        training.assign(_is_refseq=training["record_origin"].eq("refseq").astype(float))
+        .groupby("backbone_id", sort=False)["_is_refseq"]
+        .mean()
+    )
+    insd_share_train = (
+        training.assign(_is_insd=training["record_origin"].eq("insd").astype(float))
+        .groupby("backbone_id", sort=False)["_is_insd"]
+        .mean()
+    )
 
     purity_table = pd.DataFrame({"backbone_id": backbone_order.astype(str).to_list()})
     if not training.empty:
         training_backbone_ids = training["backbone_id"].astype(str)
-        genus_purity = _grouped_dominant_share(training_backbone_ids, _series_or_default(training, "genus"))
-        family_purity = _grouped_dominant_share(training_backbone_ids, _series_or_default(training, "TAXONOMY_family"))
-        mobility_purity = _grouped_dominant_share(training_backbone_ids, _series_or_default(training, "predicted_mobility"))
-        replicon_purity = _grouped_dominant_share(training_backbone_ids, _series_or_default(training, "primary_replicon"))
+        genus_purity = _grouped_dominant_share(
+            training_backbone_ids, _series_or_default(training, "genus")
+        )
+        family_purity = _grouped_dominant_share(
+            training_backbone_ids, _series_or_default(training, "TAXONOMY_family")
+        )
+        mobility_purity = _grouped_dominant_share(
+            training_backbone_ids, _series_or_default(training, "predicted_mobility")
+        )
+        replicon_purity = _grouped_dominant_share(
+            training_backbone_ids, _series_or_default(training, "primary_replicon")
+        )
 
         pmlst_scheme_series = _clean_text_series(_series_or_default(training, "PMLST_scheme"))
         pmlst_st_series = _clean_text_series(_series_or_default(training, "PMLST_sequence_type"))
@@ -826,14 +1267,20 @@ def build_backbone_table(
         positive_mask = positive_component_count > 0
         if bool(positive_mask.any()):
             pmlst_internal_coherence.loc[positive_mask] = (
-                pmlst_components.loc[positive_mask].sum(axis=1) / positive_component_count.loc[positive_mask]
+                pmlst_components.loc[positive_mask].sum(axis=1)
+                / positive_component_count.loc[positive_mask]
             ).astype(float)
         pmlst_coherence_score = (
-            pmlst_presence_fraction.reindex(pmlst_internal_coherence.index, fill_value=0.0) * pmlst_internal_coherence
+            pmlst_presence_fraction.reindex(pmlst_internal_coherence.index, fill_value=0.0)
+            * pmlst_internal_coherence
         ).astype(float)
 
-        pmid_counts = _series_or_default(training, "associated_pmid(s)").map(_pmid_count).astype(int)
-        mean_pmid_count = pmid_counts.groupby(training_backbone_ids, sort=False).mean().astype(float)
+        pmid_counts = (
+            _series_or_default(training, "associated_pmid(s)").map(_pmid_count).astype(int)
+        )
+        mean_pmid_count = (
+            pmid_counts.groupby(training_backbone_ids, sort=False).mean().astype(float)
+        )
         max_pmid_count = pmid_counts.groupby(training_backbone_ids, sort=False).max().astype(int)
 
         context_labels = _vectorized_context_labels(training)
@@ -850,10 +1297,34 @@ def build_backbone_table(
             else pd.Series(dtype=float)
         )
         context_diversity = (context_unique.astype(float) / 4.0).clip(lower=0.0, upper=1.0)
-        clinical_fraction = context_table["context_label"].eq("clinical").groupby(context_table["backbone_id"], sort=False).mean().astype(float)
-        environmental_fraction = context_table["context_label"].eq("environmental").groupby(context_table["backbone_id"], sort=False).mean().astype(float)
-        host_associated_fraction = context_table["context_label"].eq("host_associated").groupby(context_table["backbone_id"], sort=False).mean().astype(float)
-        food_fraction = context_table["context_label"].eq("food").groupby(context_table["backbone_id"], sort=False).mean().astype(float)
+        clinical_fraction = (
+            context_table["context_label"]
+            .eq("clinical")
+            .groupby(context_table["backbone_id"], sort=False)
+            .mean()
+            .astype(float)
+        )
+        environmental_fraction = (
+            context_table["context_label"]
+            .eq("environmental")
+            .groupby(context_table["backbone_id"], sort=False)
+            .mean()
+            .astype(float)
+        )
+        host_associated_fraction = (
+            context_table["context_label"]
+            .eq("host_associated")
+            .groupby(context_table["backbone_id"], sort=False)
+            .mean()
+            .astype(float)
+        )
+        food_fraction = (
+            context_table["context_label"]
+            .eq("food")
+            .groupby(context_table["backbone_id"], sort=False)
+            .mean()
+            .astype(float)
+        )
         pathogenic_fraction = (
             _clean_text_series(_series_or_default(training, "BIOSAMPLE_pathogenicity"))
             .ne("")
@@ -862,9 +1333,88 @@ def build_backbone_table(
             .astype(float)
         )
 
-        n_replicon_types = pd.to_numeric(_series_or_default(training, "n_replicon_types", 0.0), errors="coerce").fillna(0.0)
-        mean_n_replicon_types = n_replicon_types.groupby(training_backbone_ids, sort=False).mean().astype(float)
-        multi_replicon_fraction = (n_replicon_types > 1.0).groupby(training_backbone_ids, sort=False).mean().astype(float)
+        n_replicon_types = pd.to_numeric(
+            _series_or_default(training, "n_replicon_types", 0.0), errors="coerce"
+        ).fillna(0.0)
+        mean_n_replicon_types = (
+            n_replicon_types.groupby(training_backbone_ids, sort=False).mean().astype(float)
+        )
+        multi_replicon_fraction = (
+            (n_replicon_types > 1.0).groupby(training_backbone_ids, sort=False).mean().astype(float)
+        )
+        plasmidfinder_hit_count = pd.to_numeric(
+            _series_or_default(training, "plasmidfinder_hit_count", 0.0),
+            errors="coerce",
+        ).fillna(0.0)
+        plasmidfinder_type_count = pd.to_numeric(
+            _series_or_default(training, "plasmidfinder_type_count", 0.0),
+            errors="coerce",
+        ).fillna(0.0)
+        plasmidfinder_presence_fraction = (
+            (plasmidfinder_hit_count > 0.0)
+            .groupby(training_backbone_ids, sort=False)
+            .mean()
+            .astype(float)
+        )
+        plasmidfinder_mean_type_count = (
+            plasmidfinder_type_count.groupby(training_backbone_ids, sort=False).mean().astype(float)
+        )
+        plasmidfinder_multi_type_fraction = (
+            (plasmidfinder_type_count > 1.0)
+            .groupby(training_backbone_ids, sort=False)
+            .mean()
+            .astype(float)
+        )
+        plasmidfinder_identity = (
+            pd.to_numeric(
+                _series_or_default(training, "plasmidfinder_max_identity", 0.0), errors="coerce"
+            )
+            .fillna(0.0)
+            .clip(lower=0.0, upper=100.0)
+            / 100.0
+        )
+        plasmidfinder_coverage = (
+            pd.to_numeric(
+                _series_or_default(training, "plasmidfinder_mean_coverage", 0.0), errors="coerce"
+            )
+            .fillna(0.0)
+            .clip(lower=0.0, upper=100.0)
+            / 100.0
+        )
+        plasmidfinder_mean_identity = (
+            plasmidfinder_identity.groupby(training_backbone_ids, sort=False).mean().astype(float)
+        )
+        plasmidfinder_mean_coverage = (
+            plasmidfinder_coverage.groupby(training_backbone_ids, sort=False).mean().astype(float)
+        )
+        plasmidfinder_dominant_type = _clean_text_series(
+            _series_or_default(training, "plasmidfinder_dominant_type")
+        )
+        plasmidfinder_dominant_type_purity = _grouped_dominant_share(
+            training_backbone_ids, plasmidfinder_dominant_type
+        )
+        plasmidfinder_support_score = (
+            plasmidfinder_presence_fraction.reindex(
+                plasmidfinder_dominant_type_purity.index, fill_value=0.0
+            )
+            * (
+                0.45 * plasmidfinder_dominant_type_purity
+                + 0.35
+                * plasmidfinder_mean_identity.reindex(
+                    plasmidfinder_dominant_type_purity.index, fill_value=0.0
+                )
+                + 0.20
+                * plasmidfinder_mean_coverage.reindex(
+                    plasmidfinder_dominant_type_purity.index, fill_value=0.0
+                )
+            )
+        ).clip(lower=0.0, upper=1.0)
+        plasmidfinder_complexity_score = np.clip(
+            0.70 * (plasmidfinder_mean_type_count / 3.0).clip(lower=0.0, upper=1.0)
+            + 0.30 * plasmidfinder_multi_type_fraction,
+            0.0,
+            1.0,
+        ).astype(float)
         assignment_primary_fraction = (
             _clean_text_series(_series_or_default(training, "backbone_assignment_rule"))
             .eq("primary_cluster_id")
@@ -873,42 +1423,127 @@ def build_backbone_table(
             .astype(float)
         )
         mash_neighbor_distance_train_mean = (
-            pd.to_numeric(_series_or_default(training, "mash_neighbor_distance", 0.0), errors="coerce")
+            pd.to_numeric(
+                _series_or_default(training, "mash_neighbor_distance", 0.0), errors="coerce"
+            )
             .fillna(0.0)
             .groupby(training_backbone_ids, sort=False)
             .mean()
             .astype(float)
         )
 
-        purity_table["genus_purity_train"] = purity_table["backbone_id"].map(genus_purity).fillna(0.0).astype(float)
-        purity_table["family_purity_train"] = purity_table["backbone_id"].map(family_purity).fillna(0.0).astype(float)
-        purity_table["mobility_purity_train"] = purity_table["backbone_id"].map(mobility_purity).fillna(0.0).astype(float)
-        purity_table["replicon_purity_train"] = purity_table["backbone_id"].map(replicon_purity).fillna(0.0).astype(float)
+        purity_table["genus_purity_train"] = (
+            purity_table["backbone_id"].map(genus_purity).fillna(0.0).astype(float)
+        )
+        purity_table["family_purity_train"] = (
+            purity_table["backbone_id"].map(family_purity).fillna(0.0).astype(float)
+        )
+        purity_table["mobility_purity_train"] = (
+            purity_table["backbone_id"].map(mobility_purity).fillna(0.0).astype(float)
+        )
+        purity_table["replicon_purity_train"] = (
+            purity_table["backbone_id"].map(replicon_purity).fillna(0.0).astype(float)
+        )
         purity_table["backbone_purity_score"] = purity_table[
-            ["genus_purity_train", "family_purity_train", "mobility_purity_train", "replicon_purity_train"]
+            [
+                "genus_purity_train",
+                "family_purity_train",
+                "mobility_purity_train",
+                "replicon_purity_train",
+            ]
         ].mean(axis=1)
-        purity_table["mean_n_replicon_types_train"] = purity_table["backbone_id"].map(mean_n_replicon_types).fillna(0.0).astype(float)
-        purity_table["multi_replicon_fraction_train"] = purity_table["backbone_id"].map(multi_replicon_fraction).fillna(0.0).astype(float)
+        purity_table["mean_n_replicon_types_train"] = (
+            purity_table["backbone_id"].map(mean_n_replicon_types).fillna(0.0).astype(float)
+        )
+        purity_table["multi_replicon_fraction_train"] = (
+            purity_table["backbone_id"].map(multi_replicon_fraction).fillna(0.0).astype(float)
+        )
         purity_table["primary_replicon_diversity_train"] = np.where(
             purity_table["replicon_purity_train"] > 0.0,
             1.0 - purity_table["replicon_purity_train"],
             0.0,
         )
-        purity_table["assignment_primary_fraction"] = purity_table["backbone_id"].map(assignment_primary_fraction).fillna(0.0).astype(float)
-        purity_table["assignment_confidence_score"] = 0.5 + (0.5 * purity_table["assignment_primary_fraction"])
-        purity_table["pmlst_presence_fraction_train"] = purity_table["backbone_id"].map(pmlst_presence_fraction).fillna(0.0).astype(float)
-        purity_table["pmlst_scheme_purity_train"] = purity_table["backbone_id"].map(pmlst_scheme_purity).fillna(0.0).astype(float)
-        purity_table["pmlst_st_purity_train"] = purity_table["backbone_id"].map(pmlst_st_purity).fillna(0.0).astype(float)
-        purity_table["pmlst_allele_purity_train"] = purity_table["backbone_id"].map(pmlst_allele_purity).fillna(0.0).astype(float)
-        purity_table["pmlst_coherence_score"] = purity_table["backbone_id"].map(pmlst_coherence_score).fillna(0.0).astype(float)
-        purity_table["mean_pmid_count_train"] = purity_table["backbone_id"].map(mean_pmid_count).fillna(0.0).astype(float)
-        purity_table["max_pmid_count_train"] = purity_table["backbone_id"].map(max_pmid_count).fillna(0).astype(int)
-        purity_table["clinical_context_fraction_train"] = purity_table["backbone_id"].map(clinical_fraction).fillna(0.0).astype(float)
-        purity_table["environmental_context_fraction_train"] = purity_table["backbone_id"].map(environmental_fraction).fillna(0.0).astype(float)
-        purity_table["host_associated_context_fraction_train"] = purity_table["backbone_id"].map(host_associated_fraction).fillna(0.0).astype(float)
-        purity_table["food_context_fraction_train"] = purity_table["backbone_id"].map(food_fraction).fillna(0.0).astype(float)
-        purity_table["pathogenic_context_fraction_train"] = purity_table["backbone_id"].map(pathogenic_fraction).fillna(0.0).astype(float)
-        purity_table["ecology_context_diversity_train"] = purity_table["backbone_id"].map(context_diversity).fillna(0.0).astype(float)
+        purity_table["plasmidfinder_presence_fraction_train"] = (
+            purity_table["backbone_id"]
+            .map(plasmidfinder_presence_fraction)
+            .fillna(0.0)
+            .astype(float)
+        )
+        purity_table["plasmidfinder_mean_type_count_train"] = (
+            purity_table["backbone_id"].map(plasmidfinder_mean_type_count).fillna(0.0).astype(float)
+        )
+        purity_table["plasmidfinder_multi_type_fraction_train"] = (
+            purity_table["backbone_id"]
+            .map(plasmidfinder_multi_type_fraction)
+            .fillna(0.0)
+            .astype(float)
+        )
+        purity_table["plasmidfinder_mean_max_identity_train"] = (
+            purity_table["backbone_id"].map(plasmidfinder_mean_identity).fillna(0.0).astype(float)
+        )
+        purity_table["plasmidfinder_mean_coverage_train"] = (
+            purity_table["backbone_id"].map(plasmidfinder_mean_coverage).fillna(0.0).astype(float)
+        )
+        purity_table["plasmidfinder_dominant_type_purity_train"] = (
+            purity_table["backbone_id"]
+            .map(plasmidfinder_dominant_type_purity)
+            .fillna(0.0)
+            .astype(float)
+        )
+        purity_table["plasmidfinder_support_score"] = (
+            purity_table["backbone_id"].map(plasmidfinder_support_score).fillna(0.0).astype(float)
+        )
+        purity_table["plasmidfinder_complexity_score"] = (
+            purity_table["backbone_id"]
+            .map(plasmidfinder_complexity_score)
+            .fillna(0.0)
+            .astype(float)
+        )
+        purity_table["assignment_primary_fraction"] = (
+            purity_table["backbone_id"].map(assignment_primary_fraction).fillna(0.0).astype(float)
+        )
+        purity_table["assignment_confidence_score"] = 0.5 + (
+            0.5 * purity_table["assignment_primary_fraction"]
+        )
+        purity_table["pmlst_presence_fraction_train"] = (
+            purity_table["backbone_id"].map(pmlst_presence_fraction).fillna(0.0).astype(float)
+        )
+        purity_table["pmlst_scheme_purity_train"] = (
+            purity_table["backbone_id"].map(pmlst_scheme_purity).fillna(0.0).astype(float)
+        )
+        purity_table["pmlst_st_purity_train"] = (
+            purity_table["backbone_id"].map(pmlst_st_purity).fillna(0.0).astype(float)
+        )
+        purity_table["pmlst_allele_purity_train"] = (
+            purity_table["backbone_id"].map(pmlst_allele_purity).fillna(0.0).astype(float)
+        )
+        purity_table["pmlst_coherence_score"] = (
+            purity_table["backbone_id"].map(pmlst_coherence_score).fillna(0.0).astype(float)
+        )
+        purity_table["mean_pmid_count_train"] = (
+            purity_table["backbone_id"].map(mean_pmid_count).fillna(0.0).astype(float)
+        )
+        purity_table["max_pmid_count_train"] = (
+            purity_table["backbone_id"].map(max_pmid_count).fillna(0).astype(int)
+        )
+        purity_table["clinical_context_fraction_train"] = (
+            purity_table["backbone_id"].map(clinical_fraction).fillna(0.0).astype(float)
+        )
+        purity_table["environmental_context_fraction_train"] = (
+            purity_table["backbone_id"].map(environmental_fraction).fillna(0.0).astype(float)
+        )
+        purity_table["host_associated_context_fraction_train"] = (
+            purity_table["backbone_id"].map(host_associated_fraction).fillna(0.0).astype(float)
+        )
+        purity_table["food_context_fraction_train"] = (
+            purity_table["backbone_id"].map(food_fraction).fillna(0.0).astype(float)
+        )
+        purity_table["pathogenic_context_fraction_train"] = (
+            purity_table["backbone_id"].map(pathogenic_fraction).fillna(0.0).astype(float)
+        )
+        purity_table["ecology_context_diversity_train"] = (
+            purity_table["backbone_id"].map(context_diversity).fillna(0.0).astype(float)
+        )
         purity_table["ecology_context_score"] = np.clip(
             0.35 * purity_table["ecology_context_diversity_train"]
             + 0.25 * purity_table["clinical_context_fraction_train"]
@@ -919,32 +1554,94 @@ def build_backbone_table(
             0.0,
             1.0,
         ).astype(float)
-        purity_table["mash_neighbor_distance_train_mean"] = purity_table["backbone_id"].map(mash_neighbor_distance_train_mean).fillna(0.0).astype(float)
+        purity_table["mash_neighbor_distance_train_mean"] = (
+            purity_table["backbone_id"]
+            .map(mash_neighbor_distance_train_mean)
+            .fillna(0.0)
+            .astype(float)
+        )
 
-    backbone_table["member_count_train"] = backbone_table["backbone_id"].map(member_count_train).fillna(0).astype(int)
-    backbone_table["member_count_total"] = backbone_table["backbone_id"].map(member_count_total).fillna(0).astype(int)
-    backbone_table["n_countries_train"] = backbone_table["backbone_id"].map(n_countries_train).fillna(0).astype(int)
-    backbone_table["n_countries_test"] = backbone_table["backbone_id"].map(n_countries_test).fillna(0).astype(int)
-    backbone_table["n_new_countries"] = backbone_table["backbone_id"].map(n_new_countries).fillna(0).astype(int)
-    backbone_table["refseq_share_train"] = backbone_table["backbone_id"].map(refseq_share_train).fillna(0.0).astype(float)
-    backbone_table["insd_share_train"] = backbone_table["backbone_id"].map(insd_share_train).fillna(0.0).astype(float)
+    backbone_table["member_count_train"] = (
+        backbone_table["backbone_id"].map(member_count_train).fillna(0).astype(int)
+    )
+    backbone_table["member_count_total"] = (
+        backbone_table["backbone_id"].map(member_count_total).fillna(0).astype(int)
+    )
+    backbone_table["n_countries_train"] = (
+        backbone_table["backbone_id"].map(n_countries_train).fillna(0).astype(int)
+    )
+    backbone_table["n_countries_test"] = (
+        backbone_table["backbone_id"].map(n_countries_test).fillna(0).astype(int)
+    )
+    backbone_table["n_new_countries"] = (
+        backbone_table["backbone_id"].map(n_new_countries).fillna(0).astype(int)
+    )
+    backbone_table["refseq_share_train"] = (
+        backbone_table["backbone_id"].map(refseq_share_train).fillna(0.0).astype(float)
+    )
+    backbone_table["insd_share_train"] = (
+        backbone_table["backbone_id"].map(insd_share_train).fillna(0.0).astype(float)
+    )
     backbone_table["split_year"] = int(split_year)
     backbone_table["test_year_end"] = int(test_year_end)
+    backbone_table["backbone_assignment_mode"] = "all_records"
+    if "backbone_assignment_mode" in working.columns:
+        assignment_mode_by_backbone = (
+            _clean_text_series(_series_or_default(working, "backbone_assignment_mode"))
+            .groupby(working["backbone_id"].astype(str), sort=False)
+            .agg(lambda values: next((value for value in values if value), "all_records"))
+        )
+        backbone_table["backbone_assignment_mode"] = (
+            backbone_table["backbone_id"].map(assignment_mode_by_backbone).fillna("all_records")
+        )
+    backbone_table["max_resolved_year_train"] = (
+        backbone_table["backbone_id"]
+        .map(training.groupby("backbone_id", sort=False)["resolved_year"].max())
+        .fillna(pd.NA)
+    )
+    backbone_table["min_resolved_year_test"] = (
+        backbone_table["backbone_id"]
+        .map(testing.groupby("backbone_id", sort=False)["resolved_year"].min())
+        .fillna(pd.NA)
+    )
 
     spread_label = pd.Series(np.nan, index=backbone_table.index, dtype=float)
     eligible = backbone_table["n_countries_train"].between(1, 3, inclusive="both")
-    spread_label.loc[eligible] = backbone_table.loc[eligible, "n_new_countries"].ge(new_country_threshold).astype(int)
+    spread_label.loc[eligible] = (
+        backbone_table.loc[eligible, "n_new_countries"].ge(new_country_threshold).astype(int)
+    )
     backbone_table["spread_label"] = spread_label
     backbone_table["visibility_expansion_label"] = spread_label
 
     if "backbone_seen_in_training" in working.columns:
-        testing_seen = testing.assign(_seen=testing["backbone_seen_in_training"].fillna(False).astype(bool).astype(float)).groupby("backbone_id", sort=False)["_seen"].agg(["sum", "mean"])
-        backbone_table["n_test_records_seen_in_training"] = backbone_table["backbone_id"].map(testing_seen["sum"]).fillna(0).astype(int)
-        backbone_table["test_seen_in_training_fraction"] = backbone_table["backbone_id"].map(testing_seen["mean"]).fillna(0.0).astype(float)
+        testing_seen = (
+            testing.assign(
+                _seen=testing["backbone_seen_in_training"].fillna(False).astype(bool).astype(float)
+            )
+            .groupby("backbone_id", sort=False)["_seen"]
+            .agg(["sum", "mean"])
+        )
+        backbone_table["n_test_records_seen_in_training"] = (
+            backbone_table["backbone_id"].map(testing_seen["sum"]).fillna(0).astype(int)
+        )
+        backbone_table["test_seen_in_training_fraction"] = (
+            backbone_table["backbone_id"].map(testing_seen["mean"]).fillna(0.0).astype(float)
+        )
+    else:
+        backbone_table["n_test_records_seen_in_training"] = 0
+        backbone_table["test_seen_in_training_fraction"] = np.nan
+    backbone_table["training_only_future_unseen_backbone_flag"] = (
+        backbone_table["backbone_assignment_mode"].astype(str).eq("training_only")
+        & backbone_table["member_count_train"].fillna(0).astype(int).eq(0)
+    )
 
     if not purity_table.empty:
-        backbone_table = backbone_table.merge(purity_table, on="backbone_id", how="left", validate="1:1")
+        backbone_table = backbone_table.merge(
+            purity_table, on="backbone_id", how="left", validate="1:1"
+        )
 
     if not coherence.empty:
-        backbone_table = backbone_table.merge(coherence, on="backbone_id", how="left", validate="1:1")
+        backbone_table = backbone_table.merge(
+            coherence, on="backbone_id", how="left", validate="1:1"
+        )
     return backbone_table

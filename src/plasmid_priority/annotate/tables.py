@@ -6,7 +6,9 @@ import pandas as pd
 
 
 def _sorted_unique(values: pd.Series) -> str:
-    cleaned = sorted({str(value).strip() for value in values if pd.notna(value) and str(value).strip()})
+    cleaned = sorted(
+        {str(value).strip() for value in values if pd.notna(value) and str(value).strip()}
+    )
     return ",".join(cleaned)
 
 
@@ -41,10 +43,16 @@ def build_mobility_table(harmonized: pd.DataFrame) -> pd.DataFrame:
 def build_amr_hits_table(amr_path: str) -> pd.DataFrame:
     """Load and lightly normalize accession-level AMR hit rows."""
     amr = pd.read_csv(amr_path, sep="\t")
-    amr["gene_symbol"] = amr["gene_symbol"].fillna(amr["gene_symbol2"]).fillna("").astype(str).str.strip()
+    amr["gene_symbol"] = (
+        amr["gene_symbol"].fillna(amr["gene_symbol2"]).fillna("").astype(str).str.strip()
+    )
     amr["drug_class"] = amr["drug_class"].fillna("").astype(str).str.strip().str.upper()
     amr["confidence_level"] = (
-        amr["predicted_phenotype_confidence_level"].fillna("unspecified").astype(str).str.strip().str.lower()
+        amr["predicted_phenotype_confidence_level"]
+        .fillna("unspecified")
+        .astype(str)
+        .str.strip()
+        .str.lower()
     )
     return amr[
         [
@@ -79,8 +87,11 @@ def build_amr_consensus(amr_hits: pd.DataFrame) -> pd.DataFrame:
         amr_drug_classes=("drug_class", _sorted_unique),
         amr_hit_count=("gene_symbol", "size"),
     ).reset_index()
-    consensus["amr_gene_count"] = consensus["amr_gene_symbols"].map(lambda value: 0 if not value else len(value.split(",")))
-    consensus["amr_class_count"] = consensus["amr_drug_classes"].map(lambda value: 0 if not value else len(value.split(",")))
+    consensus["amr_gene_count"] = consensus["amr_gene_symbols"].map(
+        lambda value: 0 if not value else len(value.split(","))
+    )
+    consensus["amr_class_count"] = consensus["amr_drug_classes"].map(
+        lambda value: 0 if not value else len(value.split(","))
+    )
     consensus["amr_any"] = consensus["amr_hit_count"] > 0
     return consensus
-

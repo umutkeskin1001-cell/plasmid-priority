@@ -1,22 +1,5 @@
-model_name	feature_name	coefficient	abs_coefficient	direction	n_backbones
-support_synergy_priority	metadata_support_depth_norm	5.938768185111241	5.938768185111241	positive	989
-support_synergy_priority	ecology_context_diversity_norm	-2.3937705327483108	2.3937705327483108	negative	989
-support_synergy_priority	amr_support_norm	-1.2631274905656478	1.2631274905656478	negative	989
-support_synergy_priority	H_external_host_range_support	-0.753289431080394	0.753289431080394	negative	989
-support_synergy_priority	external_t_synergy_norm	0.5640923138263185	0.5640923138263185	positive	989
-support_synergy_priority	A_eff_norm	-0.5016879388135094	0.5016879388135094	negative	989
-support_synergy_priority	clinical_A_synergy_norm	-0.4582585340041464	0.4582585340041464	negative	989
-support_synergy_priority	backbone_purity_norm	-0.4188931709243723	0.4188931709243723	negative	989
-support_synergy_priority	mash_neighbor_distance_train_norm	0.305939118718844	0.305939118718844	positive	989
-support_synergy_priority	clinical_context_fraction_norm	0.2781281695274976	0.2781281695274976	positive	989
-support_synergy_priority	H_specialization_norm	0.2637004595252341	0.2637004595252341	positive	989
-support_synergy_priority	T_eff_norm	0.2212689793753262	0.2212689793753262	positive	989
-support_synergy_priority	coherence_score	0.168914874732243	0.168914874732243	positive	989
-support_synergy_priority	A_recurrence_norm	-0.1062190691244073	0.1062190691244073	negative	989
-support_synergy_priority	replicon_architecture_norm	0.0936116163412907	0.0936116163412907	positive	989
-support_synergy_priority	pmlst_coherence_norm	0.08276593614616	0.08276593614616	positive	989
-support_synergy_priority	T_A_synergy_norm	-0.057901431284761	0.057901431284761	negative	989
-support_synergy_priority	pmlst_presence_fraction_train	0.0254607709723353	0.0254607709723353	positive	989
-support_synergy_priority	H_external_host_range_norm	0.0132550575057809	0.0132550575057809	positive	989
-support_synergy_priority	H_A_synergy_norm	-0.000272551222189	0.000272551222189	negative	989
-support_synergy_priority	assignment_confidence_norm	0.0	0.0	positive	989
+model_name	feature_name	coefficient	standard_error	coefficient_ci_lower	coefficient_ci_upper	abs_coefficient	direction	n_backbones
+bio_clean_priority	orit_support	1.8168159799227093	0.27878007574040925	1.2704170718641588	2.36321488798126	1.8168159799227093	positive	989
+bio_clean_priority	H_obs_specialization_norm	0.942562657671686	0.19093823117369266	0.5683306012994653	1.3167947140439067	0.942562657671686	positive	989
+bio_clean_priority	T_raw_norm	0.5737450803659514	0.10906562821557442	0.35998037711219	0.7875097836197128	0.5737450803659514	positive	989
+bio_clean_priority	A_raw_norm	0.13691073383310565	0.03505440112932565	0.06820537012000717	0.20561609754620414	0.13691073383310565	positive	989

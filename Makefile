@@ -1,6 +1,6 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary analysis-refresh core-refresh support-refresh release-bundle experiments-registry analysis-refresh-sequential test smoke pipeline pipeline-sequential clean-generated
+.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary analysis-refresh core-refresh support-refresh release-bundle experiments-registry analysis-refresh-sequential test smoke pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci
 
 check-inputs:
 	$(PYTHON) scripts/01_check_inputs.py
@@ -55,8 +55,30 @@ analysis-refresh-sequential:
 test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
 
+lint:
+	$(PYTHON) -m ruff check src/ scripts/ tests/
+
+lint-fix:
+	$(PYTHON) -m ruff check src/ scripts/ tests/ --fix
+
+typecheck:
+	$(PYTHON) -m mypy src/plasmid_priority/
+
+check: lint test
+	@echo "Tüm kontroller geçti."
+
+verify-pipeline:
+	$(PYTHON) scripts/01_check_inputs.py
+	$(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
+	@echo "Pipeline doğrulama tamamlandı."
+
 smoke:
 	$(PYTHON) scripts/26_run_tests_or_smoke.py
+
+quality: check typecheck smoke
+	@echo "Kalite kapilari gecti."
+
+ci: quality
 
 pipeline:
 	$(PYTHON) scripts/run_workflow.py pipeline

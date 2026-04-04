@@ -203,9 +203,10 @@ def dominant_macro_region_table(
     counts = (
         training.groupby(["backbone_id", output_column], as_index=False)
         .size()
-        .sort_values(["backbone_id", "size", output_column], ascending=[True, False, True], kind="mergesort")
-        .drop_duplicates("backbone_id", keep="first")
-        [["backbone_id", output_column]]
+        .sort_values(
+            ["backbone_id", "size", output_column], ascending=[True, False, True], kind="mergesort"
+        )
+        .drop_duplicates("backbone_id", keep="first")[["backbone_id", output_column]]
         .reset_index(drop=True)
     )
     return counts
@@ -233,7 +234,8 @@ def build_country_quality_summary(
 
     rows = []
     for period_name, frame in [("all_rows", working)] + [
-        (str(period), subset.copy()) for period, subset in working.groupby("period", dropna=True, sort=False)
+        (str(period), subset.copy())
+        for period, subset in working.groupby("period", dropna=True, sort=False)
     ]:
         n_rows = int(len(frame))
         with_country = frame["country_clean"].ne("")

@@ -3,19 +3,18 @@ from __future__ import annotations
 import io
 import tarfile
 import tempfile
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import pandas as pd
 
-
 from plasmid_priority.reporting import (
-    build_priority_backbone_support_frame,
-    build_who_mia_support,
-    build_who_mia_reference_catalog,
     build_card_support,
     build_mobsuite_support,
     build_pathogen_strata_group_summary,
+    build_priority_backbone_support_frame,
+    build_who_mia_reference_catalog,
+    build_who_mia_support,
 )
 
 
@@ -23,23 +22,80 @@ class ExternalSupportTests(unittest.TestCase):
     def test_build_priority_backbone_support_frame_can_follow_primary_model_scores(self) -> None:
         scored = pd.DataFrame(
             [
-                {"backbone_id": "bb_high", "member_count_train": 4, "spread_label": 1, "priority_index": 0.1, "primary_model_oof_prediction": 0.95},
-                {"backbone_id": "bb_low", "member_count_train": 4, "spread_label": 0, "priority_index": 0.9, "primary_model_oof_prediction": 0.05},
-                {"backbone_id": "bb_unevaluable", "member_count_train": 4, "spread_label": pd.NA, "priority_index": 0.99, "primary_model_oof_prediction": pd.NA},
+                {
+                    "backbone_id": "bb_high",
+                    "member_count_train": 4,
+                    "spread_label": 1,
+                    "priority_index": 0.1,
+                    "primary_model_oof_prediction": 0.95,
+                },
+                {
+                    "backbone_id": "bb_low",
+                    "member_count_train": 4,
+                    "spread_label": 0,
+                    "priority_index": 0.9,
+                    "primary_model_oof_prediction": 0.05,
+                },
+                {
+                    "backbone_id": "bb_unevaluable",
+                    "member_count_train": 4,
+                    "spread_label": pd.NA,
+                    "priority_index": 0.99,
+                    "primary_model_oof_prediction": pd.NA,
+                },
             ]
         )
         backbones = pd.DataFrame(
             [
-                {"backbone_id": "bb_high", "sequence_accession": "acc1", "species": "Escherichia_coli", "genus": "Escherichia", "primary_replicon": "IncFIB", "replicon_types": "IncFIB"},
-                {"backbone_id": "bb_low", "sequence_accession": "acc2", "species": "Klebsiella_pneumoniae", "genus": "Klebsiella", "primary_replicon": "IncN", "replicon_types": "IncN"},
-                {"backbone_id": "bb_unevaluable", "sequence_accession": "acc3", "species": "Escherichia_coli", "genus": "Escherichia", "primary_replicon": "IncA", "replicon_types": "IncA"},
+                {
+                    "backbone_id": "bb_high",
+                    "sequence_accession": "acc1",
+                    "species": "Escherichia_coli",
+                    "genus": "Escherichia",
+                    "primary_replicon": "IncFIB",
+                    "replicon_types": "IncFIB",
+                },
+                {
+                    "backbone_id": "bb_low",
+                    "sequence_accession": "acc2",
+                    "species": "Klebsiella_pneumoniae",
+                    "genus": "Klebsiella",
+                    "primary_replicon": "IncN",
+                    "replicon_types": "IncN",
+                },
+                {
+                    "backbone_id": "bb_unevaluable",
+                    "sequence_accession": "acc3",
+                    "species": "Escherichia_coli",
+                    "genus": "Escherichia",
+                    "primary_replicon": "IncA",
+                    "replicon_types": "IncA",
+                },
             ]
         )
         amr = pd.DataFrame(
             [
-                {"sequence_accession": "acc1", "amr_gene_symbols": "blaTEM-1", "amr_drug_classes": "BETA-LACTAM", "amr_gene_count": 1, "amr_class_count": 1},
-                {"sequence_accession": "acc2", "amr_gene_symbols": "", "amr_drug_classes": "", "amr_gene_count": 0, "amr_class_count": 0},
-                {"sequence_accession": "acc3", "amr_gene_symbols": "qnrS1", "amr_drug_classes": "FLUOROQUINOLONE", "amr_gene_count": 1, "amr_class_count": 1},
+                {
+                    "sequence_accession": "acc1",
+                    "amr_gene_symbols": "blaTEM-1",
+                    "amr_drug_classes": "BETA-LACTAM",
+                    "amr_gene_count": 1,
+                    "amr_class_count": 1,
+                },
+                {
+                    "sequence_accession": "acc2",
+                    "amr_gene_symbols": "",
+                    "amr_drug_classes": "",
+                    "amr_gene_count": 0,
+                    "amr_class_count": 0,
+                },
+                {
+                    "sequence_accession": "acc3",
+                    "amr_gene_symbols": "qnrS1",
+                    "amr_drug_classes": "FLUOROQUINOLONE",
+                    "amr_gene_count": 1,
+                    "amr_class_count": 1,
+                },
             ]
         )
 
@@ -52,8 +108,13 @@ class ExternalSupportTests(unittest.TestCase):
             eligible_only=True,
         )
         self.assertEqual(set(frame["backbone_id"]), {"bb_high", "bb_low"})
-        self.assertEqual(float(frame.loc[frame["backbone_id"] == "bb_high", "selection_score"].iloc[0]), 0.95)
-        self.assertEqual(str(frame.loc[frame["backbone_id"] == "bb_high", "selection_score_column"].iloc[0]), "primary_model_oof_prediction")
+        self.assertEqual(
+            float(frame.loc[frame["backbone_id"] == "bb_high", "selection_score"].iloc[0]), 0.95
+        )
+        self.assertEqual(
+            str(frame.loc[frame["backbone_id"] == "bb_high", "selection_score_column"].iloc[0]),
+            "primary_model_oof_prediction",
+        )
 
     def test_build_card_support_matches_gene_symbols(self) -> None:
         priority_backbones = pd.DataFrame(
@@ -103,9 +164,16 @@ class ExternalSupportTests(unittest.TestCase):
         high_row = detail.loc[detail["backbone_id"] == "bb_high"].iloc[0]
         self.assertEqual(int(high_row["card_matched_gene_count"]), 2)
         self.assertAlmostEqual(float(high_row["card_match_fraction"]), 1.0)
-        self.assertEqual(int(summary.loc[summary["priority_group"] == "high", "n_with_any_card_support"].iloc[0]), 1)
+        self.assertEqual(
+            int(
+                summary.loc[summary["priority_group"] == "high", "n_with_any_card_support"].iloc[0]
+            ),
+            1,
+        )
         self.assertIn("TEM family", set(family_comparison["card_amr_gene_family"]))
-        self.assertIn("antibiotic inactivation", set(mechanism_comparison["card_resistance_mechanism"]))
+        self.assertIn(
+            "antibiotic inactivation", set(mechanism_comparison["card_resistance_mechanism"])
+        )
 
     def test_build_mobsuite_support_joins_primary_replicon(self) -> None:
         priority_backbones = pd.DataFrame(
@@ -169,7 +237,14 @@ class ExternalSupportTests(unittest.TestCase):
         self.assertEqual(int(high_row["mobsuite_cluster_taxid_count"]), 2)
         self.assertTrue(bool(high_row["mobsuite_any_literature_support"]))
         self.assertAlmostEqual(float(high_row["mobsuite_cluster_mobilizable_fraction"]), 0.0)
-        self.assertEqual(int(summary.loc[summary["priority_group"] == "high", "n_with_literature_support"].iloc[0]), 1)
+        self.assertEqual(
+            int(
+                summary.loc[summary["priority_group"] == "high", "n_with_literature_support"].iloc[
+                    0
+                ]
+            ),
+            1,
+        )
 
     def test_build_pathogen_strata_group_summary_adds_dataset_label(self) -> None:
         combined = pd.DataFrame(
@@ -233,7 +308,9 @@ class ExternalSupportTests(unittest.TestCase):
         self.assertTrue(bool(high_row["who_mia_any_cia"]))
         self.assertTrue(bool(high_row["who_mia_any_hia"]))
         self.assertAlmostEqual(float(high_row["who_mia_mapped_fraction"]), 1.0)
-        self.assertEqual(int(summary.loc[summary["priority_group"] == "low", "n_with_hia_support"].iloc[0]), 1)
+        self.assertEqual(
+            int(summary.loc[summary["priority_group"] == "low", "n_with_hia_support"].iloc[0]), 1
+        )
         self.assertIn("HPCIA", set(comparison["who_mia_category"]))
 
     def test_build_who_mia_support_uses_total_group_size_for_prevalence(self) -> None:
@@ -281,7 +358,9 @@ class ExternalSupportTests(unittest.TestCase):
             catalog = build_who_mia_reference_catalog(who_text)
 
         quinolones = catalog.loc[catalog["who_mia_class"] == "Quinolones"].iloc[0]
-        glycopeptides = catalog.loc[catalog["who_mia_class"] == "Glycopeptides and lipoglycopeptides"].iloc[0]
+        glycopeptides = catalog.loc[
+            catalog["who_mia_class"] == "Glycopeptides and lipoglycopeptides"
+        ].iloc[0]
         self.assertTrue(bool(quinolones["reference_class_present_in_text"]))
         self.assertTrue(bool(glycopeptides["reference_class_present_in_text"]))
 

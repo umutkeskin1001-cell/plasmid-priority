@@ -64,7 +64,11 @@ def build_plsdb_canonical_metadata(
             "nuccore_uid": joined["NUCCORE_UID"].astype("Int64"),
             "assembly_uid": joined["ASSEMBLY_UID"].astype("Int64"),
             "biosample_uid": joined["BIOSAMPLE_UID"].astype("Int64"),
-            "record_origin": joined["NUCCORE_Source"].fillna("unknown").astype(str).str.strip().str.lower(),
+            "record_origin": joined["NUCCORE_Source"]
+            .fillna("unknown")
+            .astype(str)
+            .str.strip()
+            .str.lower(),
             "resolved_year": resolved_date.dt.year.astype("Int64"),
             "fasta_description": joined["NUCCORE_Description"].fillna("").astype(str).str.strip(),
             "sequence_length": joined["NUCCORE_Length"].astype("Int64"),
@@ -97,7 +101,9 @@ def write_plsdb_canonical_metadata(
     return int(len(frame))
 
 
-def iter_refseq_inventory_rows(refseq_fasta_path: Path, *, limit: int | None = None) -> Iterator[dict[str, object]]:
+def iter_refseq_inventory_rows(
+    refseq_fasta_path: Path, *, limit: int | None = None
+) -> Iterator[dict[str, object]]:
     """Yield raw RefSeq FASTA inventory rows for the bronze layer."""
     for index, record in enumerate(iter_fasta_summaries(refseq_fasta_path), start=1):
         yield {

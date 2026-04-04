@@ -7,7 +7,6 @@ reference the same authoritative mapping without circular imports.
 
 from __future__ import annotations
 
-
 WHO_MIA_CLASS_MAP: dict[str, dict[str, object]] = {
     "AMINOGLYCOSIDE": {
         "who_mia_category": "CIA",

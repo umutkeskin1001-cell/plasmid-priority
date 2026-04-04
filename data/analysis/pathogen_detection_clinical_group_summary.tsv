@@ -1,3 +1,3 @@
 pathogen_dataset	priority_group	n_backbones	n_with_any_support	mean_matching_records	median_matching_records	mean_matching_fraction	median_matching_fraction	mean_matching_genes
-clinical	high	247	119	18387.65991902834	0.0	0.1853112827622737	0.0	1.3765182186234817
-clinical	low	247	5	152.1174089068826	0.0	0.0018186591032246	0.0	0.0283400809716599
+clinical	high	247	105	14538.121457489879	0.0	0.1558879608313694	0.0	1.1133603238866396
+clinical	low	247	9	833.6275303643724	0.0	0.014136464050858874	0.0	0.0728744939271255

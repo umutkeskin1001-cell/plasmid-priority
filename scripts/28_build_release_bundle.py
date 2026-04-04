@@ -4,20 +4,22 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import shutil
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 
 from plasmid_priority.config import build_context
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.files import atomic_write_json, ensure_directory, relative_path_str
 
-
 RELEASE_FILES = (
+    "reports/executive_summary.md",
     "reports/jury_brief.md",
     "reports/ozet_tr.md",
+    "reports/pitch_notes.md",
     "reports/tubitak_final_metrics.txt",
     "reports/core_tables/model_metrics.tsv",
     "reports/core_tables/model_selection_summary.tsv",
@@ -28,6 +30,8 @@ RELEASE_FILES = (
     "reports/core_figures/roc_curve.png",
     "reports/core_figures/pr_curve.png",
     "reports/core_figures/score_distribution.png",
+    "reports/core_figures/temporal_design.png",
+    "reports/core_figures/knownness_vs_oof_score_scatter.png",
 )
 
 
@@ -37,6 +41,71 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _project_version(project_root: Path) -> str:
+    pyproject_path = project_root / "pyproject.toml"
+    if not pyproject_path.exists():
+        return "unknown"
+    with pyproject_path.open("rb") as handle:
+        payload = tomllib.load(handle)
+    return str(payload.get("project", {}).get("version", "unknown"))
+
+
+def _build_release_info(context_root: Path) -> str:
+    metrics_path = context_root / "reports/core_tables/model_metrics.tsv"
+    version = _project_version(context_root)
+    if not metrics_path.exists():
+        return (
+            "\n".join(
+                [
+                    "Plasmid Priority Release Bundle",
+                    f"Version: {version}",
+                    f"Generated on: {datetime.now().date().isoformat()}",
+                ]
+            )
+            + "\n"
+        )
+    metrics = pd.read_csv(metrics_path, sep="\t")
+    primary = metrics.loc[
+        metrics["model_name"].astype(str) == "phylo_support_fusion_priority"
+    ].head(1)
+    if primary.empty:
+        primary = metrics.sort_values("roc_auc", ascending=False).head(1)
+    row = primary.iloc[0]
+    permutation_text = "NA"
+    selection_adjusted_text = "NA"
+    permutation_p = pd.to_numeric(
+        pd.Series([row.get("permutation_p_roc_auc")]), errors="coerce"
+    ).iloc[0]
+    selection_adjusted_p = pd.to_numeric(
+        pd.Series([row.get("selection_adjusted_empirical_p_roc_auc")]), errors="coerce"
+    ).iloc[0]
+    if pd.notna(permutation_p):
+        permutation_text = (
+            "< 0.001" if float(permutation_p) < 0.001 else f"= {float(permutation_p):.3f}"
+        )
+    if pd.notna(selection_adjusted_p):
+        selection_adjusted_text = (
+            "< 0.001"
+            if float(selection_adjusted_p) < 0.001
+            else f"= {float(selection_adjusted_p):.3f}"
+        )
+    return (
+        "\n".join(
+            [
+                "Plasmid Priority Release Bundle",
+                f"Version: {version}",
+                f"Generated on: {datetime.now().date().isoformat()}",
+                f"Primary model: {row.get('model_name', 'unknown')}",
+                f"ROC AUC: {float(row.get('roc_auc', float('nan'))):.4f} [{float(row.get('roc_auc_ci_lower', float('nan'))):.4f}–{float(row.get('roc_auc_ci_upper', float('nan'))):.4f}]",
+                f"AP: {float(row.get('average_precision', float('nan'))):.4f} [{float(row.get('average_precision_ci_lower', float('nan'))):.4f}–{float(row.get('average_precision_ci_upper', float('nan'))):.4f}]",
+                f"Selection-adjusted permutation p {selection_adjusted_text} (n={int(row.get('n_permutations', 0) or 0)})",
+                f"Fixed-score permutation p {permutation_text} (n={int(row.get('n_permutations', 0) or 0)})",
+            ]
+        )
+        + "\n"
+    )
 
 
 def main() -> int:
@@ -98,6 +167,10 @@ def main() -> int:
             encoding="utf-8",
         )
         run.record_output(readme_path)
+
+        release_info_path = bundle_dir / "RELEASE_INFO.txt"
+        release_info_path.write_text(_build_release_info(context.root), encoding="utf-8")
+        run.record_output(release_info_path)
 
         archive_base = release_dir / "plasmid_priority_release_bundle"
         archive_path = Path(shutil.make_archive(str(archive_base), "zip", root_dir=bundle_dir))

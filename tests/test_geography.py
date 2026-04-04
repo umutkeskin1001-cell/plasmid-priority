@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import unittest
 
 import pandas as pd
-
 
 from plasmid_priority.utils.geography import (
     build_country_quality_summary,

@@ -2,6 +2,11 @@
 
 Plasmid Priority is a retrospective genomic surveillance prioritization framework for operational plasmid backbone classes. It scores backbones with mobility (`T`), observed host diversity (`H`), and AMR burden/consistency (`A`), then tests whether higher-priority backbones are retrospectively associated with later new-country visibility increase.
 
+The project now has two explicit model tracks:
+
+- `discovery`: the strongest held-out discrimination model for retrospective prioritization.
+- `governance`: the guardrail-aware model used for deployment-style interpretation, matched-knownness auditing, and report safety checks.
+
 ## Scientific Boundaries
 
 This repository does not claim to predict true biological spread, prove transmission, or act as a clinical risk tool. The primary outcome is a visibility-based retrospective label, not direct epidemiological spread.
@@ -15,7 +20,7 @@ Current computational inputs in the fast pipeline:
 - Pathogen Detection metadata tables
 - WHO MIA text extraction for curated reference validation
 - Local CARD and MOB-suite archives for descriptive support
-- Local AMRFinderPlus database for optional small-panel concordance checks (may be absent from a given release build)
+- Local AMRFinderPlus database for the supportive concordance probe (required by the current manifest; the `amrfinder` executable itself may be absent, in which case the probe is skipped)
 
 Repository-retained reserve assets not required by the current fast analytical path:
 
@@ -23,7 +28,7 @@ Repository-retained reserve assets not required by the current fast analytical p
 - NCBI taxonomy dump
 - Project-local ResFinder and PlasmidFinder databases
 
-Supportive layers include the WHO Medically Important Antimicrobials document, Pathogen Detection metadata, the local CARD archive, the local MOB-suite reference archive, and, when available, a small-panel AMRFinder concordance check. In this repository, these layers are descriptive support or sanity-check layers only; they are never used as model training features and must not be presented as standalone external validation claims.
+Supportive layers include the WHO Medically Important Antimicrobials document, Pathogen Detection metadata, the local CARD archive, the local MOB-suite reference archive, and, when the `amrfinder` executable is available, a small-panel AMRFinder concordance check. In this repository, these layers are descriptive support or sanity-check layers only; they are never used as model training features and must not be presented as standalone external validation claims.
 
 ## Repository Layout
 
@@ -32,6 +37,27 @@ Supportive layers include the WHO Medically Important Antimicrobials document, P
 - `data/manifests/`: path authority and machine-readable data contract
 - `data/experiments/`: exploratory search outputs and non-canonical experiment artifacts
 - `tests/`: unit and smoke-level checks
+
+## Bu Çalışmanın Katkısı
+
+Plasmid omurga düzeyinde biyolojik sürveyans önceliklendirmesi, çoğu zaman tür veya tekil plazmid odaklı çerçevelerin gölgesinde kalmaktadır. Bu depo, omurga sınıfını doğrudan analiz birimi yaparak bu boşluğu hedefler.
+
+Bu çalışma:
+
+1. Transfer mobilizasyonu (`T`), konak çeşitliliği (`H`) ve AMR yükü (`A`) sinyallerini birleştiren omurga-düzeyi bir önceliklendirme çerçevesi sunar.
+2. Retrospektif zamansal tasarımla, 2015 öncesi sinyallerin 2015 sonrası coğrafi görünürlük artışıyla ilişkili olduğunu gösterir.
+3. Discovery ve governance olmak üzere iki paralel model hattı kullanarak yüksek ayırıcılık ile temkinli karar katmanını birbirinden ayırır.
+
+## Tekrar Üretilebilirlik
+
+Bu analiz Python 3.13 ve `uv` ortam yöneticisi ile üretilmiştir.
+
+```bash
+pip install uv
+uv sync
+```
+
+`uv.lock`, bağımlılıkları sabit sürümlerle kilitler. Çalışma yüzeyi Python 3.12+ üzerinde de desteklenir.
 
 ## Quick Start
 
@@ -53,6 +79,7 @@ The current implementation now covers the main retrospective pipeline:
 - retrospective Module A scoring and validation
 - conservative and proxy-audit model comparisons
 - subgroup validation, coefficient audit, and feature-dropout analysis
+- discovery/governance split with guardrail-aware selection and calibrated risk reporting
 - exploratory Module B AMR comparison
 - supportive Module C Pathogen Detection metadata analysis, including clinical/environmental strata
 - supportive CARD ontology and MOB-suite literature/cluster support analysis
@@ -62,12 +89,19 @@ The current implementation now covers the main retrospective pipeline:
 
 The results of the pipeline are structured to be directly usable for scientific presentations and jury evaluations:
 
-1. **Narratives** (`reports/jury_brief.md` & `reports/ozet_tr.md`): The main English and Turkish narrative summaries for jury-facing interpretation.
-2. **Core Figures** (`reports/core_figures/`): The high-impact visualizations ready for slide decks.
-3. **Core Report Tables** (`reports/core_tables/`): The curated shortlist, model-selection, and portfolio tables that belong in presentations and handouts.
-4. **Canonical Analysis Tables** (`data/analysis/`): The full machine-readable audit outputs. Large technical tables live here instead of being mirrored into multiple report folders.
-5. **Experimental Artifacts** (`data/experiments/`): Model-search outputs, exploratory sweeps, and their checksum registry.
-6. **Compact Summary Output**: `reports/tubitak_final_metrics.txt` carries the exact TÜBİTAK-ready headline metrics.
+1. **Narratives** (`reports/jury_brief.md` & `reports/ozet_tr.md`): The main English and Turkish narrative summaries for jury-facing interpretation, with a short release-surface note that points to the blocked-holdout audit and calibration/threshold figure.
+2. **Canonical One-Page Summary** (`reports/headline_validation_summary.md`): The single-sheet validation surface with discovery, governance, baseline, and confirmatory metrics.
+3. **Core Figures** (`reports/core_figures/`): The high-impact visualizations ready for slide decks, including the compact calibration/threshold diagnostic when threshold-sensitivity data are available.
+4. **Core Report Tables** (`reports/core_tables/`): The curated shortlist, model-selection, and portfolio tables that belong in presentations and handouts.
+5. **Canonical Analysis Tables** (`data/analysis/`): The full machine-readable audit outputs. Large technical tables live here instead of being mirrored into multiple report folders.
+6. **Experimental Artifacts** (`data/experiments/`): Model-search outputs, exploratory sweeps, and their checksum registry.
+7. **Compact Summary Output**: `reports/tubitak_final_metrics.txt` carries the exact TÜBİTAK-ready headline metrics.
+
+Canonical outputs live under `reports/`. Frozen release snapshots live under `reports/release/bundle/`. Each `make release-bundle` run refreshes the snapshot from the current canonical report surface; `reports/release/` stays git-ignored by design because it is a generated export layer.
+
+The release surface also includes `blocked_holdout_summary.tsv` for the blocked-holdout stress test and `calibration_threshold_summary.png` for the combined calibration/threshold view, and the jury brief now points directly to those artifacts.
+
+The curated shortlist is not a raw top-score dump. It is source-diverse and low-knownness-aware so that the portfolio keeps both operationally strong candidates and early-signal candidates in view.
 
 ## Recommended Run Order
 
@@ -86,6 +120,11 @@ make analysis-refresh
 To just rebuild the TÜBİTAK summary output after modifying how metrics are pulled:
 ```bash
 make tubitak-summary
+```
+
+To run the same local quality gate used by CI:
+```bash
+make quality
 ```
 
 To refresh only the headline scientific core without supportive appendix layers:

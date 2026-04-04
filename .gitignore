@@ -1,4 +1,9 @@
 .DS_Store
+.agents/
+.conda-firthlogist/
+.venv-firthlogist/
+.cursorignore
+.cursorrules
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -19,8 +24,11 @@ reports/core_tables/
 reports/diagnostic_tables/
 reports/release/
 reports/tubitak_final_metrics.txt
+data/analysis/*.manifest.json
+reports/*.manifest.json
 
 !data/manifests/
 !data/manifests/data_locations.md
 !data/manifests/data_contract.json
 !data/experiments/README.md
+!data/experiments/*.py

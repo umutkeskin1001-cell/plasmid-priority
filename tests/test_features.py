@@ -1,15 +1,38 @@
 from __future__ import annotations
 
-from pathlib import Path
 import unittest
 
+import numpy as np
 import pandas as pd
 
-
 from plasmid_priority.features import compute_feature_h
+from plasmid_priority.features.core import (
+    _mean_pairwise_host_taxonomy_distance,
+    _pairwise_host_taxonomy_distance,
+    _subsample_signatures_for_pairwise_distance,
+)
 
 
 class FeatureTests(unittest.TestCase):
+    def test_pairwise_host_taxonomy_distance_caps_large_signature_sets_deterministically(self) -> None:
+        signatures = [
+            ("1224", "1236", "91347", "543", str(index // 2), str(index))
+            for index in range(60)
+        ]
+        sampled = _subsample_signatures_for_pairwise_distance(signatures)
+        self.assertEqual(len(sampled), 50)
+        self.assertEqual(sampled[0], signatures[0])
+        self.assertEqual(sampled[-1], signatures[-1])
+
+        full_distances = [
+            _pairwise_host_taxonomy_distance(left, right)
+            for i, left in enumerate(signatures)
+            for right in signatures[i + 1 :]
+        ]
+        sampled_distance = _mean_pairwise_host_taxonomy_distance(signatures)
+        self.assertTrue(np.isfinite(sampled_distance))
+        self.assertLess(abs(sampled_distance - float(np.mean(full_distances))), 0.1)
+
     def test_compute_feature_h_rewards_broader_supported_host_diversity(self) -> None:
         records = pd.DataFrame(
             {
@@ -41,8 +64,13 @@ class FeatureTests(unittest.TestCase):
             }
         )
         feature_h = compute_feature_h(records).set_index("backbone_id")
-        self.assertGreater(float(feature_h.loc["bb_high", "H_eff"]), float(feature_h.loc["bb_low", "H_eff"]))
-        self.assertGreater(float(feature_h.loc["bb_high", "H_genus_norm"]), float(feature_h.loc["bb_low", "H_genus_norm"]))
+        self.assertGreater(
+            float(feature_h.loc["bb_high", "H_eff"]), float(feature_h.loc["bb_low", "H_eff"])
+        )
+        self.assertGreater(
+            float(feature_h.loc["bb_high", "H_genus_norm"]),
+            float(feature_h.loc["bb_low", "H_genus_norm"]),
+        )
         self.assertGreater(
             float(feature_h.loc["bb_high", "host_taxon_evenness_score"]),
             float(feature_h.loc["bb_low", "host_taxon_evenness_score"]),
@@ -62,7 +90,9 @@ class FeatureTests(unittest.TestCase):
         )
         feature_h = compute_feature_h(records).set_index("backbone_id")
         self.assertLess(float(feature_h.loc["bb_single", "H_raw"]), 1.0)
-        self.assertGreater(float(feature_h.loc["bb_broad", "H_raw"]), float(feature_h.loc["bb_single", "H_raw"]))
+        self.assertGreater(
+            float(feature_h.loc["bb_broad", "H_raw"]), float(feature_h.loc["bb_single", "H_raw"])
+        )
 
     def test_compute_feature_h_emits_external_host_range_columns_when_present(self) -> None:
         records = pd.DataFrame(
@@ -80,17 +110,26 @@ class FeatureTests(unittest.TestCase):
         )
         feature_h = compute_feature_h(records).set_index("backbone_id")
         self.assertIn("H_external_host_range_score", feature_h.columns)
+        self.assertIn("H_obs", feature_h.columns)
+        self.assertIn("H_support", feature_h.columns)
         self.assertGreater(
             float(feature_h.loc["bb1", "H_external_host_range_score"]),
             float(feature_h.loc["bb2", "H_external_host_range_score"]),
         )
+        self.assertGreater(float(feature_h.loc["bb1", "H_obs"]), 0.0)
+        self.assertGreater(float(feature_h.loc["bb1", "H_support"]), 0.0)
         self.assertGreater(float(feature_h.loc["bb1", "H_external_host_range_support"]), 0.0)
         self.assertGreater(float(feature_h.loc["bb1", "H_augmented_raw"]), 0.0)
 
     def test_compute_feature_h_uses_taxonomy_ids_to_refine_phylogenetic_breadth(self) -> None:
         records = pd.DataFrame(
             {
-                "backbone_id": ["bb_same_species", "bb_same_species", "bb_species_split", "bb_species_split"],
+                "backbone_id": [
+                    "bb_same_species",
+                    "bb_same_species",
+                    "bb_species_split",
+                    "bb_species_split",
+                ],
                 "resolved_year": [2014, 2014, 2014, 2014],
                 "taxonomy_uid": [562, 562, 562, 61645],
                 "genus": ["Escherichia"] * 4,
@@ -113,7 +152,10 @@ class FeatureTests(unittest.TestCase):
             }
         )
         feature_h = compute_feature_h(records).set_index("backbone_id")
-        self.assertEqual(float(feature_h.loc["bb_same_species", "H_raw"]), float(feature_h.loc["bb_species_split", "H_raw"]))
+        self.assertEqual(
+            float(feature_h.loc["bb_same_species", "H_raw"]),
+            float(feature_h.loc["bb_species_split", "H_raw"]),
+        )
         self.assertGreater(
             float(feature_h.loc["bb_species_split", "phylo_pairwise_dispersion_score"]),
             float(feature_h.loc["bb_same_species", "phylo_pairwise_dispersion_score"]),
@@ -121,6 +163,39 @@ class FeatureTests(unittest.TestCase):
         self.assertGreater(
             float(feature_h.loc["bb_species_split", "H_phylogenetic_raw"]),
             float(feature_h.loc["bb_same_species", "H_phylogenetic_raw"]),
+        )
+
+    def test_compute_feature_h_accepts_evenness_bias_power_override(self) -> None:
+        records = pd.DataFrame(
+            {
+                "backbone_id": ["bb_biased"] * 6 + ["bb_balanced"] * 6,
+                "resolved_year": [2014] * 12,
+                "genus": [
+                    "Escherichia",
+                    "Escherichia",
+                    "Escherichia",
+                    "Escherichia",
+                    "Klebsiella",
+                    "Klebsiella",
+                    "Escherichia",
+                    "Klebsiella",
+                    "Salmonella",
+                    "Enterobacter",
+                    "Citrobacter",
+                    "Serratia",
+                ],
+                "TAXONOMY_family": ["Enterobacteriaceae"] * 12,
+                "TAXONOMY_order": ["Enterobacterales"] * 12,
+                "TAXONOMY_class": ["Gammaproteobacteria"] * 12,
+                "TAXONOMY_phylum": ["Proteobacteria"] * 12,
+            }
+        )
+        low_power = compute_feature_h(records, host_evenness_bias_power=0.3).set_index("backbone_id")
+        high_power = compute_feature_h(records, host_evenness_bias_power=1.0).set_index("backbone_id")
+        self.assertGreater(float(low_power.loc["bb_biased", "H_raw"]), float(high_power.loc["bb_biased", "H_raw"]))
+        self.assertAlmostEqual(
+            float(low_power.loc["bb_balanced", "host_taxon_evenness_score"]),
+            float(high_power.loc["bb_balanced", "host_taxon_evenness_score"]),
         )
 
 
@@ -145,7 +220,9 @@ class FeatureTTests(unittest.TestCase):
         feature_t = compute_feature_t(training_canonical).set_index("backbone_id")
         self.assertGreater(float(feature_t.loc["bb_conj", "T_raw"]), 0.0)
         self.assertEqual(float(feature_t.loc["bb_none", "T_raw"]), 0.0)
-        self.assertGreater(float(feature_t.loc["bb_conj", "T_eff"]), float(feature_t.loc["bb_none", "T_eff"]))
+        self.assertGreater(
+            float(feature_t.loc["bb_conj", "T_eff"]), float(feature_t.loc["bb_none", "T_eff"])
+        )
 
     def test_compute_feature_t_support_shrinkage_increases_with_members(self) -> None:
         from plasmid_priority.features import compute_feature_t
@@ -190,7 +267,9 @@ class FeatureTTests(unittest.TestCase):
         feature_t = compute_feature_t(training_canonical).set_index("backbone_id")
         self.assertEqual(int(feature_t.loc["bb_solo", "member_count_train"]), 1)
         self.assertGreater(float(feature_t.loc["bb_solo", "T_raw"]), 0.0)
-        self.assertLess(float(feature_t.loc["bb_solo", "T_eff"]), float(feature_t.loc["bb_solo", "T_raw"]))
+        self.assertLess(
+            float(feature_t.loc["bb_solo", "T_eff"]), float(feature_t.loc["bb_solo", "T_raw"])
+        )
 
 
 class FeatureATests(unittest.TestCase):
@@ -208,10 +287,18 @@ class FeatureATests(unittest.TestCase):
                 "amr_gene_count": [3, 2, 4, 0, 0, 0],
                 "amr_class_count": [2, 1, 3, 0, 0, 0],
                 "amr_hit_count": [5, 3, 6, 0, 0, 0],
+                "amr_gene_symbols": [
+                    "blaKPC-2,aac(6')-Ib,tetA",
+                    "blaKPC-2",
+                    "blaNDM-1,qnrS1,tetA,sul1",
+                    "",
+                    "",
+                    "",
+                ],
                 "amr_drug_classes": [
-                    "BETA-LACTAM,AMINOGLYCOSIDE",
+                    "CARBAPENEM,AMINOGLYCOSIDE",
                     "BETA-LACTAM",
-                    "BETA-LACTAM,AMINOGLYCOSIDE,TETRACYCLINE",
+                    "CARBAPENEM,POLYMYXIN,TETRACYCLINE,FLUOROQUINOLONE",
                     "",
                     "",
                     "",
@@ -223,6 +310,9 @@ class FeatureATests(unittest.TestCase):
         self.assertEqual(float(feature_a.loc["bb_clean", "mean_amr_class_count"]), 0.0)
         self.assertGreater(float(feature_a.loc["bb_amr", "A_consistency"]), 0.0)
         self.assertGreater(float(feature_a.loc["bb_amr", "A_recurrence"]), 0.0)
+        self.assertGreater(float(feature_a.loc["bb_amr", "mdr_proxy_fraction"]), 0.0)
+        self.assertGreater(float(feature_a.loc["bb_amr", "mean_last_resort_convergence_score"]), 0.0)
+        self.assertGreater(float(feature_a.loc["bb_amr", "mean_amr_mechanism_diversity_proxy"]), 0.0)
         self.assertEqual(float(feature_a.loc["bb_clean", "A_recurrence"]), 0.0)
 
     def test_compute_feature_a_all_empty_amr(self) -> None:
@@ -239,12 +329,14 @@ class FeatureATests(unittest.TestCase):
                 "amr_gene_count": [0, 0, 0],
                 "amr_class_count": [0, 0, 0],
                 "amr_hit_count": [0, 0, 0],
+                "amr_gene_symbols": ["", "", ""],
                 "amr_drug_classes": ["", "", ""],
             }
         )
         feature_a = compute_feature_a(training_canonical).set_index("backbone_id")
         self.assertEqual(float(feature_a.loc["bb1", "mean_amr_class_count"]), 0.0)
         self.assertEqual(float(feature_a.loc["bb1", "A_consistency"]), 0.0)
+        self.assertEqual(float(feature_a.loc["bb1", "mdr_proxy_fraction"]), 0.0)
         self.assertEqual(float(feature_a.loc["bb1", "amr_support_factor"]), 0.0)
 
     def test_compute_feature_a_single_member_with_amr(self) -> None:
@@ -261,12 +353,14 @@ class FeatureATests(unittest.TestCase):
                 "amr_gene_count": [5],
                 "amr_class_count": [3],
                 "amr_hit_count": [7],
-                "amr_drug_classes": ["BETA-LACTAM,AMINOGLYCOSIDE,TETRACYCLINE"],
+                "amr_gene_symbols": ["blaKPC-2,aac(6')-Ib,tetA"],
+                "amr_drug_classes": ["CARBAPENEM,AMINOGLYCOSIDE,TETRACYCLINE"],
             }
         )
         feature_a = compute_feature_a(training_canonical).set_index("backbone_id")
         self.assertEqual(int(feature_a.loc["bb_solo", "canonical_member_count_train"]), 1)
         self.assertGreater(float(feature_a.loc["bb_solo", "mean_amr_class_count"]), 0.0)
+        self.assertGreaterEqual(float(feature_a.loc["bb_solo", "mdr_proxy_fraction"]), 1.0)
 
 
 if __name__ == "__main__":

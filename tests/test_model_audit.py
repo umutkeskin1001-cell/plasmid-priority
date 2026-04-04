@@ -1,40 +1,45 @@
 from __future__ import annotations
 
-from pathlib import Path
 import unittest
 
 import pandas as pd
 
-
 from plasmid_priority.reporting import (
     build_amrfinder_coverage_table,
     build_benchmark_protocol_table,
-    build_consensus_candidate_ranking,
+    build_blocked_holdout_summary,
+    build_calibration_metric_table,
     build_candidate_dossier_table,
     build_candidate_portfolio_table,
     build_candidate_risk_table,
     build_candidate_universe_table,
-    build_calibration_metric_table,
     build_component_floor_diagnostics,
+    build_consensus_candidate_ranking,
     build_decision_yield_table,
-    build_group_holdout_performance,
+    build_frozen_scientific_acceptance_audit,
+    build_future_sentinel_audit,
     build_gate_consistency_audit,
+    build_group_holdout_performance,
     build_h_feature_diagnostics,
     build_knownness_audit_tables,
     build_logistic_implementation_audit,
+    build_magic_number_sensitivity_table,
     build_model_comparison_table,
     build_model_family_summary,
     build_model_selection_scorecard,
     build_model_simplicity_summary,
-    build_primary_model_selection_summary,
-    build_novelty_margin_summary,
     build_model_subgroup_performance,
     build_negative_control_audit,
+    build_novelty_margin_summary,
     build_permutation_null_tables,
+    build_primary_model_selection_summary,
     build_priority_bootstrap_stability_table,
     build_score_distribution_diagnostics,
+    build_selection_adjusted_permutation_null,
+    build_sleeper_threat_table,
     build_source_balance_resampling_table,
     build_temporal_drift_summary,
+    build_temporal_rank_stability_table,
     build_threshold_flip_table,
     build_variant_rank_consistency_table,
 )
@@ -48,7 +53,16 @@ class ModelAuditTests(unittest.TestCase):
                 "model_name": ["adaptive_knownness_blend_priority"] * 8,
                 "knownness_score": [0.42, 0.45, 0.48, 0.49, 0.51, 0.52, 0.55, 0.58],
                 "knownness_half": ["lower_half"] * 4 + ["upper_half"] * 4,
-                "knownness_quartile": ["q1_lowest", "q1_lowest", "q2", "q2", "q3", "q3", "q4_highest", "q4_highest"],
+                "knownness_quartile": [
+                    "q1_lowest",
+                    "q1_lowest",
+                    "q2",
+                    "q2",
+                    "q3",
+                    "q3",
+                    "q4_highest",
+                    "q4_highest",
+                ],
                 "lower_half_route_prediction": [0.62, 0.60, 0.58, 0.56, 0.54, 0.52, 0.50, 0.48],
                 "upper_half_route_prediction": [0.59, 0.57, 0.55, 0.53, 0.51, 0.49, 0.47, 0.45],
             }
@@ -65,30 +79,96 @@ class ModelAuditTests(unittest.TestCase):
                 {"model_name": "source_only", "roc_auc": 0.45},
                 {"model_name": "baseline_both", "roc_auc": 0.68},
                 {"model_name": "full_priority", "roc_auc": 0.75},
+                {"model_name": "bio_residual_synergy_priority", "roc_auc": 0.79},
+                {"model_name": "hybrid_agreement_priority", "roc_auc": 0.82},
+                {"model_name": "firth_parsimonious_priority", "roc_auc": 0.78},
                 {"model_name": "T_plus_H_plus_A", "roc_auc": 0.76},
                 {"model_name": "proxy_light_priority", "roc_auc": 0.77},
                 {"model_name": "enhanced_priority", "roc_auc": 0.78},
+                {"model_name": "monotonic_latent_priority", "roc_auc": 0.81},
+                {"model_name": "regime_stability_priority", "roc_auc": 0.80},
             ]
         )
         summary = build_model_family_summary(model_metrics)
         self.assertIn("evidence_role", summary.columns)
         self.assertIn("delta_auc_vs_enhanced_priority", summary.columns)
+        self.assertIn("model_track", summary.columns)
+        self.assertIn("track_summary", summary.columns)
+        self.assertIn("bio_residual_synergy_priority", set(summary["model_name"]))
+        self.assertIn("hybrid_agreement_priority", set(summary["model_name"]))
+        self.assertIn("firth_parsimonious_priority", set(summary["model_name"]))
         self.assertIn("enhanced_priority", set(summary["model_name"]))
+        self.assertIn("monotonic_latent_priority", set(summary["model_name"]))
+        self.assertIn("regime_stability_priority", set(summary["model_name"]))
+        baseline_row = summary.loc[summary["model_name"] == "baseline_both"].iloc[0]
+        synergy_row = summary.loc[summary["model_name"] == "bio_residual_synergy_priority"].iloc[0]
+        governance_row = summary.loc[summary["model_name"] == "regime_stability_priority"].iloc[0]
+        self.assertEqual(str(baseline_row["model_track"]), "baseline")
+        self.assertEqual(str(synergy_row["model_track"]), "discovery")
+        self.assertEqual(str(governance_row["model_track"]), "governance")
+
+    def test_build_model_family_summary_flags_suspicious_auc(self) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {"model_name": "monotonic_latent_priority", "roc_auc": 0.91},
+                {"model_name": "support_synergy_priority", "roc_auc": 0.82},
+            ]
+        )
+        summary = build_model_family_summary(model_metrics)
+        flagged = summary.loc[summary["model_name"] == "monotonic_latent_priority"].iloc[0]
+        self.assertTrue(bool(flagged["leakage_review_required"]))
+        self.assertEqual(
+            str(flagged["leakage_review_reason"]), "roc_auc_ge_0p90_on_current_feature_universe"
+        )
 
     def test_build_model_selection_scorecard_returns_composite_ranks(self) -> None:
         model_metrics = pd.DataFrame(
             [
-                {"model_name": "knownness_robust_priority", "roc_auc": 0.80, "average_precision": 0.71},
+                {
+                    "model_name": "bio_residual_synergy_priority",
+                    "roc_auc": 0.80,
+                    "average_precision": 0.71,
+                },
+                {
+                    "model_name": "phylo_support_fusion_priority",
+                    "roc_auc": 0.79,
+                    "average_precision": 0.70,
+                },
                 {"model_name": "baseline_both", "roc_auc": 0.72, "average_precision": 0.65},
+                {
+                    "model_name": "failed_model",
+                    "roc_auc": 0.99,
+                    "average_precision": 0.99,
+                    "status": "failed",
+                    "error_message": "forced failure",
+                },
             ]
         )
         predictions = pd.DataFrame(
             {
-                "backbone_id": [f"bb_{i}" for i in range(12)] * 2,
-                "model_name": ["knownness_robust_priority"] * 12 + ["baseline_both"] * 12,
-                "oof_prediction": [0.95, 0.90, 0.88, 0.80, 0.70, 0.65, 0.45, 0.35, 0.30, 0.20, 0.18, 0.12]
-                + [0.80, 0.78, 0.75, 0.70, 0.68, 0.66, 0.50, 0.45, 0.40, 0.35, 0.30, 0.25],
-                "spread_label": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0] * 2,
+                "backbone_id": [f"bb_{i}" for i in range(12)] * 4,
+                "model_name": ["bio_residual_synergy_priority"] * 12
+                + ["phylo_support_fusion_priority"] * 12
+                + ["baseline_both"] * 12
+                + ["failed_model"] * 12,
+                "oof_prediction": [
+                    0.95,
+                    0.90,
+                    0.88,
+                    0.80,
+                    0.70,
+                    0.65,
+                    0.45,
+                    0.35,
+                    0.30,
+                    0.20,
+                    0.18,
+                    0.12,
+                ]
+                + [0.92, 0.88, 0.86, 0.82, 0.72, 0.67, 0.46, 0.37, 0.32, 0.21, 0.19, 0.14]
+                + [0.80, 0.78, 0.75, 0.70, 0.68, 0.66, 0.50, 0.45, 0.40, 0.35, 0.30, 0.25]
+                + [0.55, 0.60, 0.58, 0.52, 0.48, 0.42, 0.38, 0.34, 0.28, 0.22, 0.18, 0.15],
+                "spread_label": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0] * 4,
             }
         )
         scored = pd.DataFrame(
@@ -101,16 +181,67 @@ class ModelAuditTests(unittest.TestCase):
         )
         matched = pd.DataFrame(
             [
-                {"matched_stratum": "__weighted_overall__", "model_name": "knownness_robust_priority", "roc_auc": 0.74},
-                {"matched_stratum": "__weighted_overall__", "model_name": "baseline_both", "roc_auc": 0.60},
+                {
+                    "matched_stratum": "__weighted_overall__",
+                    "model_name": "bio_residual_synergy_priority",
+                    "roc_auc": 0.74,
+                },
+                {
+                    "matched_stratum": "__weighted_overall__",
+                    "model_name": "phylo_support_fusion_priority",
+                    "roc_auc": 0.73,
+                },
+                {
+                    "matched_stratum": "__weighted_overall__",
+                    "model_name": "baseline_both",
+                    "roc_auc": 0.60,
+                },
             ]
         )
         holdout = pd.DataFrame(
             [
-                {"group_column": "dominant_source", "model_name": "knownness_robust_priority", "status": "ok", "roc_auc": 0.76, "n_test_backbones": 9},
-                {"group_column": "dominant_source", "model_name": "knownness_robust_priority", "status": "ok", "roc_auc": 0.70, "n_test_backbones": 3},
-                {"group_column": "dominant_source", "model_name": "baseline_both", "status": "ok", "roc_auc": 0.62, "n_test_backbones": 9},
-                {"group_column": "dominant_source", "model_name": "baseline_both", "status": "ok", "roc_auc": 0.58, "n_test_backbones": 3},
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "bio_residual_synergy_priority",
+                    "status": "ok",
+                    "roc_auc": 0.76,
+                    "n_test_backbones": 9,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "bio_residual_synergy_priority",
+                    "status": "ok",
+                    "roc_auc": 0.70,
+                    "n_test_backbones": 3,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "phylo_support_fusion_priority",
+                    "status": "ok",
+                    "roc_auc": 0.75,
+                    "n_test_backbones": 9,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "phylo_support_fusion_priority",
+                    "status": "ok",
+                    "roc_auc": 0.69,
+                    "n_test_backbones": 3,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "baseline_both",
+                    "status": "ok",
+                    "roc_auc": 0.62,
+                    "n_test_backbones": 9,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "baseline_both",
+                    "status": "ok",
+                    "roc_auc": 0.58,
+                    "n_test_backbones": 3,
+                },
             ]
         )
         scorecard = build_model_selection_scorecard(
@@ -122,7 +253,26 @@ class ModelAuditTests(unittest.TestCase):
         )
         self.assertIn("selection_composite_score", scorecard.columns)
         self.assertIn("selection_rank", scorecard.columns)
-        self.assertEqual(str(scorecard.iloc[0]["model_name"]), "knownness_robust_priority")
+        self.assertIn("model_track", scorecard.columns)
+        self.assertIn("track_rank", scorecard.columns)
+        self.assertIn("discovery_track_rank", scorecard.columns)
+        self.assertIn("governance_track_rank", scorecard.columns)
+        self.assertIn("baseline_track_rank", scorecard.columns)
+        self.assertEqual(str(scorecard.iloc[0]["model_name"]), "bio_residual_synergy_priority")
+        self.assertNotIn("failed_model", set(scorecard["model_name"]))
+        discovery_row = scorecard.loc[
+            scorecard["model_name"] == "bio_residual_synergy_priority"
+        ].iloc[0]
+        governance_row = scorecard.loc[
+            scorecard["model_name"] == "phylo_support_fusion_priority"
+        ].iloc[0]
+        baseline_row = scorecard.loc[scorecard["model_name"] == "baseline_both"].iloc[0]
+        self.assertEqual(str(discovery_row["model_track"]), "discovery")
+        self.assertEqual(int(discovery_row["discovery_track_rank"]), 1)
+        self.assertEqual(str(governance_row["model_track"]), "governance")
+        self.assertEqual(int(governance_row["governance_track_rank"]), 1)
+        self.assertEqual(str(baseline_row["model_track"]), "baseline")
+        self.assertEqual(int(baseline_row["baseline_track_rank"]), 1)
 
     def test_build_model_selection_scorecard_penalizes_missing_metrics(self) -> None:
         model_metrics = pd.DataFrame(
@@ -135,7 +285,20 @@ class ModelAuditTests(unittest.TestCase):
             {
                 "backbone_id": [f"bb_{i}" for i in range(12)] * 2,
                 "model_name": ["complete_model"] * 12 + ["missing_holdout_model"] * 12,
-                "oof_prediction": [0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.40, 0.35, 0.30, 0.25, 0.20, 0.10]
+                "oof_prediction": [
+                    0.90,
+                    0.85,
+                    0.80,
+                    0.75,
+                    0.70,
+                    0.65,
+                    0.40,
+                    0.35,
+                    0.30,
+                    0.25,
+                    0.20,
+                    0.10,
+                ]
                 + [0.95, 0.92, 0.88, 0.80, 0.78, 0.75, 0.45, 0.40, 0.35, 0.30, 0.25, 0.20],
                 "spread_label": [1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0] * 2,
             }
@@ -150,14 +313,34 @@ class ModelAuditTests(unittest.TestCase):
         )
         matched = pd.DataFrame(
             [
-                {"matched_stratum": "__weighted_overall__", "model_name": "complete_model", "roc_auc": 0.74},
-                {"matched_stratum": "__weighted_overall__", "model_name": "missing_holdout_model", "roc_auc": 0.74},
+                {
+                    "matched_stratum": "__weighted_overall__",
+                    "model_name": "complete_model",
+                    "roc_auc": 0.74,
+                },
+                {
+                    "matched_stratum": "__weighted_overall__",
+                    "model_name": "missing_holdout_model",
+                    "roc_auc": 0.74,
+                },
             ]
         )
         holdout = pd.DataFrame(
             [
-                {"group_column": "dominant_source", "model_name": "complete_model", "status": "ok", "roc_auc": 0.76, "n_test_backbones": 9},
-                {"group_column": "dominant_source", "model_name": "complete_model", "status": "ok", "roc_auc": 0.70, "n_test_backbones": 3},
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "complete_model",
+                    "status": "ok",
+                    "roc_auc": 0.76,
+                    "n_test_backbones": 9,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "complete_model",
+                    "status": "ok",
+                    "roc_auc": 0.70,
+                    "n_test_backbones": 3,
+                },
             ]
         )
         scorecard = build_model_selection_scorecard(
@@ -170,13 +353,305 @@ class ModelAuditTests(unittest.TestCase):
         missing_row = scorecard.loc[scorecard["model_name"] == "missing_holdout_model"].iloc[0]
         complete_row = scorecard.loc[scorecard["model_name"] == "complete_model"].iloc[0]
         self.assertEqual(int(missing_row["selection_missing_metric_count"]), 1)
-        self.assertGreater(float(complete_row["selection_composite_score"]), float(missing_row["selection_composite_score"]))
+        self.assertGreater(
+            float(complete_row["selection_composite_score"]),
+            float(missing_row["selection_composite_score"]),
+        )
+
+    def test_build_model_selection_scorecard_marks_strict_knownness_acceptance(self) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {"model_name": "accepted_model", "roc_auc": 0.80, "average_precision": 0.72},
+            ]
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)],
+                "model_name": ["accepted_model"] * 8,
+                "oof_prediction": [0.90, 0.84, 0.81, 0.78, 0.32, 0.28, 0.22, 0.10],
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0],
+            }
+        )
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)],
+                "log1p_member_count_train": [0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.5, 1.5],
+                "log1p_n_countries_train": [0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.5, 1.5],
+                "refseq_share_train": [0.2, 0.2, 0.3, 0.3, 0.8, 0.8, 0.9, 0.9],
+            }
+        )
+        matched = pd.DataFrame(
+            [
+                {
+                    "matched_stratum": "__weighted_overall__",
+                    "model_name": "accepted_model",
+                    "roc_auc": 0.81,
+                },
+            ]
+        )
+        holdout = pd.DataFrame(
+            [
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "accepted_model",
+                    "status": "ok",
+                    "roc_auc": 0.805,
+                    "n_test_backbones": 8,
+                },
+            ]
+        )
+
+        scorecard = build_model_selection_scorecard(
+            model_metrics,
+            predictions,
+            scored,
+            knownness_matched_validation=matched,
+            group_holdout=holdout,
+        )
+
+        self.assertIn("strict_knownness_acceptance_flag", scorecard.columns)
+        self.assertIn("knownness_matched_gap", scorecard.columns)
+        self.assertIn("source_holdout_gap", scorecard.columns)
+        self.assertIn("guardrail_loss", scorecard.columns)
+        self.assertIn("governance_priority_score", scorecard.columns)
+        self.assertIn("governance_rank", scorecard.columns)
+        self.assertTrue(bool(scorecard.iloc[0]["strict_knownness_acceptance_flag"]))
+
+    def test_build_model_selection_scorecard_marks_frozen_scientific_acceptance(self) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {
+                    "model_name": "accepted_model",
+                    "roc_auc": 0.80,
+                    "average_precision": 0.72,
+                    "ece": 0.03,
+                    "spatial_holdout_roc_auc": 0.78,
+                    "selection_adjusted_empirical_p_roc_auc": 0.009,
+                },
+                {
+                    "model_name": "calibration_fail_model",
+                    "roc_auc": 0.80,
+                    "average_precision": 0.72,
+                    "ece": 0.08,
+                    "spatial_holdout_roc_auc": 0.79,
+                    "selection_adjusted_empirical_p_roc_auc": 0.009,
+                },
+            ]
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)] * 2,
+                "model_name": ["accepted_model"] * 8 + ["calibration_fail_model"] * 8,
+                "oof_prediction": [0.90, 0.84, 0.81, 0.78, 0.32, 0.28, 0.22, 0.10] * 2,
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0] * 2,
+            }
+        )
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)],
+                "log1p_member_count_train": [0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.5, 1.5],
+                "log1p_n_countries_train": [0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.5, 1.5],
+                "refseq_share_train": [0.2, 0.2, 0.3, 0.3, 0.8, 0.8, 0.9, 0.9],
+            }
+        )
+        matched = pd.DataFrame(
+            [
+                {
+                    "matched_stratum": "__weighted_overall__",
+                    "model_name": "accepted_model",
+                    "roc_auc": 0.80,
+                },
+                {
+                    "matched_stratum": "__weighted_overall__",
+                    "model_name": "calibration_fail_model",
+                    "roc_auc": 0.80,
+                },
+            ]
+        )
+        holdout = pd.DataFrame(
+            [
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "accepted_model",
+                    "status": "ok",
+                    "roc_auc": 0.80,
+                    "n_test_backbones": 8,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "model_name": "calibration_fail_model",
+                    "status": "ok",
+                    "roc_auc": 0.80,
+                    "n_test_backbones": 8,
+                },
+            ]
+        )
+
+        scorecard = build_model_selection_scorecard(
+            model_metrics,
+            predictions,
+            scored,
+            knownness_matched_validation=matched,
+            group_holdout=holdout,
+        )
+
+        accepted_row = scorecard.loc[scorecard["model_name"] == "accepted_model"].iloc[0]
+        calibration_fail_row = scorecard.loc[
+            scorecard["model_name"] == "calibration_fail_model"
+        ].iloc[0]
+        self.assertIn("scientific_acceptance_flag", scorecard.columns)
+        self.assertIn("scientific_acceptance_status", scorecard.columns)
+        self.assertIn("scientific_acceptance_failed_criteria", scorecard.columns)
+        self.assertTrue(bool(accepted_row["scientific_acceptance_flag"]))
+        self.assertEqual(str(accepted_row["scientific_acceptance_status"]), "pass")
+        self.assertFalse(bool(calibration_fail_row["scientific_acceptance_flag"]))
+        self.assertEqual(str(calibration_fail_row["scientific_acceptance_status"]), "fail")
+        self.assertIn(
+            "calibration",
+            str(calibration_fail_row["scientific_acceptance_failed_criteria"]),
+        )
+
+    def test_build_frozen_scientific_acceptance_audit_filters_official_surfaces(self) -> None:
+        scorecard = pd.DataFrame(
+            [
+                {
+                    "model_name": "phylo_support_fusion_priority",
+                    "selection_rank": 2,
+                    "model_track": "governance",
+                    "roc_auc": 0.83,
+                    "average_precision": 0.77,
+                    "matched_knownness_weighted_roc_auc": 0.78,
+                    "knownness_matched_gap": -0.05,
+                    "source_holdout_weighted_roc_auc": 0.76,
+                    "source_holdout_gap": -0.07,
+                    "spatial_holdout_roc_auc": 0.81,
+                    "spatial_holdout_gap": -0.02,
+                    "ece": 0.08,
+                    "selection_adjusted_empirical_p_roc_auc": 0.005,
+                    "matched_knownness_gate_pass": False,
+                    "source_holdout_gate_pass": False,
+                    "spatial_holdout_gate_pass": True,
+                    "calibration_gate_pass": False,
+                    "selection_adjusted_gate_pass": True,
+                    "leakage_review_gate_pass": True,
+                    "scientific_acceptance_scored": True,
+                    "scientific_acceptance_flag": False,
+                    "scientific_acceptance_status": "fail",
+                    "scientific_acceptance_failed_criteria": "fail:matched_knownness,source_holdout,calibration",
+                },
+                {
+                    "model_name": "bio_clean_priority",
+                    "selection_rank": 1,
+                    "model_track": "discovery",
+                    "roc_auc": 0.73,
+                    "average_precision": 0.64,
+                    "matched_knownness_weighted_roc_auc": 0.68,
+                    "knownness_matched_gap": -0.05,
+                    "source_holdout_weighted_roc_auc": 0.72,
+                    "source_holdout_gap": -0.01,
+                    "spatial_holdout_roc_auc": 0.73,
+                    "spatial_holdout_gap": -0.01,
+                    "ece": 0.04,
+                    "selection_adjusted_empirical_p_roc_auc": 0.005,
+                    "matched_knownness_gate_pass": False,
+                    "source_holdout_gate_pass": False,
+                    "spatial_holdout_gate_pass": True,
+                    "calibration_gate_pass": True,
+                    "selection_adjusted_gate_pass": True,
+                    "leakage_review_gate_pass": True,
+                    "scientific_acceptance_scored": True,
+                    "scientific_acceptance_flag": False,
+                    "scientific_acceptance_status": "fail",
+                    "scientific_acceptance_failed_criteria": "fail:matched_knownness,source_holdout",
+                },
+                {
+                    "model_name": "baseline_both",
+                    "selection_rank": 3,
+                    "model_track": "baseline",
+                    "roc_auc": 0.72,
+                    "average_precision": 0.65,
+                    "matched_knownness_weighted_roc_auc": 0.59,
+                    "knownness_matched_gap": -0.13,
+                    "source_holdout_weighted_roc_auc": 0.74,
+                    "source_holdout_gap": 0.01,
+                    "spatial_holdout_roc_auc": 0.74,
+                    "spatial_holdout_gap": 0.02,
+                    "ece": 0.04,
+                    "selection_adjusted_empirical_p_roc_auc": 0.005,
+                    "matched_knownness_gate_pass": False,
+                    "source_holdout_gate_pass": True,
+                    "spatial_holdout_gate_pass": True,
+                    "calibration_gate_pass": True,
+                    "selection_adjusted_gate_pass": True,
+                    "leakage_review_gate_pass": True,
+                    "scientific_acceptance_scored": True,
+                    "scientific_acceptance_flag": False,
+                    "scientific_acceptance_status": "fail",
+                    "scientific_acceptance_failed_criteria": "fail:matched_knownness",
+                },
+            ]
+        )
+
+        audit = build_frozen_scientific_acceptance_audit(scorecard)
+
+        self.assertEqual(
+            audit["model_name"].tolist(),
+            [
+                "baseline_both",
+                "bio_clean_priority",
+                "phylo_support_fusion_priority",
+            ],
+        )
+        self.assertIn("matched_knownness_gap_min", audit.columns)
+        self.assertIn("selection_adjusted_p_max", audit.columns)
+        self.assertEqual(str(audit.iloc[0]["model_track"]), "baseline")
+        self.assertEqual(str(audit.iloc[1]["model_track"]), "discovery")
+        self.assertEqual(str(audit.iloc[2]["model_track"]), "governance")
+        self.assertFalse(bool(audit.iloc[1]["scientific_acceptance_flag"]))
+
+    def test_build_future_sentinel_audit_flags_future_outcome_canary_as_excluded(self) -> None:
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)],
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0],
+            }
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)],
+                "model_name": ["bio_clean_priority"] * 8,
+                "oof_prediction": [0.90, 0.84, 0.81, 0.78, 0.32, 0.28, 0.22, 0.10],
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0],
+            }
+        )
+
+        audit = build_future_sentinel_audit(
+            scored,
+            predictions=predictions,
+            primary_model_name="bio_clean_priority",
+            model_names=["bio_clean_priority", "baseline_both"],
+        )
+
+        row = audit.iloc[0]
+        self.assertEqual(str(row["audit_status"]), "pass")
+        self.assertTrue(bool(row["discovery_contract_forbidden"]))
+        self.assertFalse(bool(row["official_discovery_models_use_sentinel"]))
+        self.assertEqual(float(row["sentinel_only_roc_auc"]), 1.0)
+        self.assertGreaterEqual(float(row["delta_roc_auc_vs_primary"]), 0.0)
 
     def test_build_benchmark_protocol_table_marks_primary_and_preferred_adaptive(self) -> None:
         model_metrics = pd.DataFrame(
             [
-                {"model_name": "support_synergy_priority", "roc_auc": 0.818, "average_precision": 0.740},
-                {"model_name": "knownness_robust_priority", "roc_auc": 0.806, "average_precision": 0.719},
+                {
+                    "model_name": "support_synergy_priority",
+                    "roc_auc": 0.818,
+                    "average_precision": 0.740,
+                },
+                {
+                    "model_name": "knownness_robust_priority",
+                    "roc_auc": 0.806,
+                    "average_precision": 0.719,
+                },
                 {"model_name": "baseline_both", "roc_auc": 0.729, "average_precision": 0.675},
                 {"model_name": "source_only", "roc_auc": 0.448, "average_precision": 0.401},
             ]
@@ -187,6 +662,8 @@ class ModelAuditTests(unittest.TestCase):
                     "published_primary_model": "support_synergy_priority",
                     "conservative_model_name": "knownness_robust_priority",
                     "strongest_metric_model": "support_synergy_priority",
+                    "governance_primary_model": "knownness_robust_priority",
+                    "governance_primary_strict_knownness_acceptance_flag": True,
                 }
             ]
         )
@@ -210,8 +687,14 @@ class ModelAuditTests(unittest.TestCase):
         )
         gate_consistency = pd.DataFrame(
             [
-                {"model_name": "adaptive_support_synergy_blend_priority", "gate_consistency_tier": "stable"},
-                {"model_name": "adaptive_knownness_robust_priority", "gate_consistency_tier": "unstable"},
+                {
+                    "model_name": "adaptive_support_synergy_blend_priority",
+                    "gate_consistency_tier": "stable",
+                },
+                {
+                    "model_name": "adaptive_knownness_robust_priority",
+                    "gate_consistency_tier": "unstable",
+                },
             ]
         )
         protocol = build_benchmark_protocol_table(
@@ -219,19 +702,279 @@ class ModelAuditTests(unittest.TestCase):
             selection_summary,
             adaptive_gated_metrics=adaptive_metrics,
             gate_consistency_audit=gate_consistency,
+            model_selection_scorecard=pd.DataFrame(
+                [
+                    {
+                        "model_name": "support_synergy_priority",
+                        "selection_rank": 1,
+                        "strict_knownness_acceptance_flag": True,
+                        "knownness_matched_gap": -0.002,
+                        "source_holdout_gap": -0.001,
+                        "leakage_review_required": False,
+                        "guardrail_loss": 0.003,
+                        "governance_priority_score": 0.815,
+                        "governance_rank": 2,
+                    },
+                    {
+                        "model_name": "knownness_robust_priority",
+                        "selection_rank": 2,
+                        "strict_knownness_acceptance_flag": True,
+                        "knownness_matched_gap": -0.003,
+                        "source_holdout_gap": -0.002,
+                        "leakage_review_required": False,
+                        "guardrail_loss": 0.005,
+                        "governance_priority_score": 0.801,
+                        "governance_rank": 1,
+                    },
+                ]
+            ),
+            governance_model_name="knownness_robust_priority",
         )
         self.assertEqual(
-            str(protocol.loc[protocol["benchmark_role"] == "primary_benchmark", "model_name"].iloc[0]),
+            str(
+                protocol.loc[protocol["benchmark_role"] == "primary_benchmark", "model_name"].iloc[
+                    0
+                ]
+            ),
             "support_synergy_priority",
         )
         self.assertEqual(
-            str(protocol.loc[protocol["benchmark_role"] == "preferred_adaptive_audit", "model_name"].iloc[0]),
+            str(
+                protocol.loc[
+                    protocol["benchmark_role"] == "preferred_adaptive_audit", "model_name"
+                ].iloc[0]
+            ),
             "adaptive_support_synergy_blend_priority",
         )
         self.assertEqual(
-            str(protocol.loc[protocol["benchmark_role"] == "strongest_adaptive_upper_bound", "model_name"].iloc[0]),
+            str(
+                protocol.loc[
+                    protocol["benchmark_role"] == "strongest_adaptive_upper_bound", "model_name"
+                ].iloc[0]
+            ),
             "adaptive_knownness_robust_priority",
         )
+        primary_row = protocol.loc[protocol["benchmark_role"] == "primary_benchmark"].iloc[0]
+        governance_row = protocol.loc[protocol["benchmark_role"] == "governance_benchmark"].iloc[0]
+        self.assertIn("strict_knownness_acceptance_flag", protocol.columns)
+        self.assertIn("scientific_acceptance_status", protocol.columns)
+        self.assertIn("benchmark_track", protocol.columns)
+        self.assertEqual(str(primary_row["benchmark_guardrail_status"]), "passes_strict_acceptance")
+        self.assertEqual(str(governance_row["benchmark_track"]), "governance")
+        self.assertEqual(
+            str(governance_row["benchmark_guardrail_status"]), "passes_strict_acceptance"
+        )
+
+    def test_build_primary_model_selection_summary_separates_discovery_and_governance_tracks(
+        self,
+    ) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {"model_name": "discovery_primary", "roc_auc": 0.83, "average_precision": 0.77},
+                {
+                    "model_name": "regime_stability_priority",
+                    "roc_auc": 0.79,
+                    "average_precision": 0.73,
+                },
+                {"model_name": "conservative_model", "roc_auc": 0.72, "average_precision": 0.64},
+            ]
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)] * 3,
+                "model_name": ["discovery_primary"] * 8
+                + ["regime_stability_priority"] * 8
+                + ["conservative_model"] * 8,
+                "oof_prediction": [0.90, 0.88, 0.84, 0.80, 0.31, 0.25, 0.20, 0.12] * 3,
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0] * 3,
+            }
+        )
+        scorecard = pd.DataFrame(
+            [
+                {
+                    "model_name": "discovery_primary",
+                    "selection_rank": 1,
+                    "strict_knownness_acceptance_flag": False,
+                    "knownness_matched_gap": -0.061,
+                    "source_holdout_gap": -0.085,
+                    "leakage_review_required": False,
+                    "guardrail_loss": 0.146,
+                    "governance_priority_score": 0.684,
+                },
+                {
+                    "model_name": "regime_stability_priority",
+                    "selection_rank": 3,
+                    "strict_knownness_acceptance_flag": False,
+                    "knownness_matched_gap": -0.057,
+                    "source_holdout_gap": -0.010,
+                    "leakage_review_required": False,
+                    "guardrail_loss": 0.067,
+                    "governance_priority_score": 0.723,
+                },
+            ]
+        )
+        summary = build_primary_model_selection_summary(
+            model_metrics,
+            primary_model_name="discovery_primary",
+            conservative_model_name="conservative_model",
+            predictions=predictions,
+            model_selection_scorecard=scorecard,
+        )
+        row = summary.iloc[0]
+        self.assertEqual(str(row["published_primary_track"]), "discovery")
+        self.assertEqual(str(row["governance_primary_track"]), "governance_watch_only")
+        self.assertEqual(str(row["governance_primary_benchmark_status"]), "governance_watch_only")
+        self.assertEqual(str(row["governance_primary_model"]), "regime_stability_priority")
+        self.assertIn("governance track", str(row["selection_rationale"]))
+        self.assertIn("watch-only", str(row["governance_selection_rationale"]))
+        self.assertIn("guardrail-aware candidate", str(row["governance_selection_rationale"]))
+
+    def test_build_primary_model_selection_summary_prefers_explicit_governance_model_name(
+        self,
+    ) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {"model_name": "discovery_primary", "roc_auc": 0.83, "average_precision": 0.77},
+                {
+                    "model_name": "phylo_support_fusion_priority",
+                    "roc_auc": 0.82,
+                    "average_precision": 0.76,
+                },
+                {
+                    "model_name": "structured_signal_priority",
+                    "roc_auc": 0.79,
+                    "average_precision": 0.73,
+                },
+                {"model_name": "conservative_model", "roc_auc": 0.72, "average_precision": 0.64},
+            ]
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)] * 4,
+                "model_name": ["discovery_primary"] * 8
+                + ["phylo_support_fusion_priority"] * 8
+                + ["structured_signal_priority"] * 8
+                + ["conservative_model"] * 8,
+                "oof_prediction": [
+                    0.90,
+                    0.88,
+                    0.84,
+                    0.80,
+                    0.31,
+                    0.25,
+                    0.20,
+                    0.12,
+                ]
+                * 4,
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0] * 4,
+            }
+        )
+        scorecard = pd.DataFrame(
+            [
+                {
+                    "model_name": "discovery_primary",
+                    "selection_rank": 1,
+                    "strict_knownness_acceptance_flag": True,
+                    "knownness_matched_gap": -0.061,
+                    "source_holdout_gap": -0.085,
+                    "leakage_review_required": False,
+                    "guardrail_loss": 0.146,
+                    "governance_priority_score": 0.684,
+                },
+                {
+                    "model_name": "phylo_support_fusion_priority",
+                    "selection_rank": 2,
+                    "strict_knownness_acceptance_flag": False,
+                    "knownness_matched_gap": -0.057,
+                    "source_holdout_gap": -0.010,
+                    "leakage_review_required": False,
+                    "guardrail_loss": 0.067,
+                    "governance_priority_score": 0.723,
+                },
+                {
+                    "model_name": "structured_signal_priority",
+                    "selection_rank": 3,
+                    "strict_knownness_acceptance_flag": False,
+                    "knownness_matched_gap": -0.030,
+                    "source_holdout_gap": -0.020,
+                    "leakage_review_required": False,
+                    "guardrail_loss": 0.091,
+                    "governance_priority_score": 0.812,
+                },
+            ]
+        )
+        summary = build_primary_model_selection_summary(
+            model_metrics,
+            primary_model_name="discovery_primary",
+            conservative_model_name="conservative_model",
+            governance_model_name="phylo_support_fusion_priority",
+            predictions=predictions,
+            model_selection_scorecard=scorecard,
+        )
+        row = summary.iloc[0]
+        self.assertEqual(str(row["governance_primary_model"]), "phylo_support_fusion_priority")
+        self.assertEqual(str(row["governance_primary_track"]), "governance_watch_only")
+
+    def test_build_primary_model_selection_summary_prefers_governance_track_candidate(self) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {"model_name": "bio_clean_priority", "roc_auc": 0.83, "average_precision": 0.77},
+                {
+                    "model_name": "phylo_support_fusion_priority",
+                    "roc_auc": 0.80,
+                    "average_precision": 0.74,
+                },
+                {"model_name": "baseline_both", "roc_auc": 0.72, "average_precision": 0.64},
+            ]
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)] * 3,
+                "model_name": ["bio_clean_priority"] * 8
+                + ["phylo_support_fusion_priority"] * 8
+                + ["baseline_both"] * 8,
+                "oof_prediction": [0.90, 0.88, 0.84, 0.80, 0.31, 0.25, 0.20, 0.12] * 3,
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0] * 3,
+            }
+        )
+        scorecard = pd.DataFrame(
+            [
+                {
+                    "model_name": "bio_clean_priority",
+                    "selection_rank": 1,
+                    "strict_knownness_acceptance_flag": True,
+                    "knownness_matched_gap": -0.001,
+                    "source_holdout_gap": -0.001,
+                    "leakage_review_required": False,
+                    "guardrail_loss": 0.002,
+                    "governance_priority_score": 0.828,
+                },
+                {
+                    "model_name": "phylo_support_fusion_priority",
+                    "selection_rank": 2,
+                    "strict_knownness_acceptance_flag": False,
+                    "knownness_matched_gap": -0.010,
+                    "source_holdout_gap": -0.012,
+                    "leakage_review_required": False,
+                    "guardrail_loss": 0.022,
+                    "governance_priority_score": 0.778,
+                },
+            ]
+        )
+
+        summary = build_primary_model_selection_summary(
+            model_metrics,
+            primary_model_name="bio_clean_priority",
+            conservative_model_name="baseline_both",
+            predictions=predictions,
+            model_selection_scorecard=scorecard,
+        )
+
+        row = summary.iloc[0]
+        self.assertEqual(str(row["governance_primary_model"]), "phylo_support_fusion_priority")
+        self.assertEqual(str(row["governance_primary_track"]), "governance_watch_only")
+        self.assertEqual(int(row["governance_primary_selection_rank"]), 2)
+        self.assertIn("phylo_support_fusion_priority", str(row["governance_selection_rationale"]))
 
     def test_build_model_subgroup_performance_returns_rows(self) -> None:
         scored = pd.DataFrame(
@@ -250,7 +993,9 @@ class ModelAuditTests(unittest.TestCase):
                 "spread_label": [0, 1] * 10,
             }
         )
-        audit = build_model_subgroup_performance(predictions, scored, model_names=["enhanced_priority"])
+        audit = build_model_subgroup_performance(
+            predictions, scored, model_names=["enhanced_priority"]
+        )
         self.assertIn("overall", set(audit["subgroup_name"]))
         self.assertIn("dominant_source", set(audit["subgroup_name"]))
         self.assertTrue((audit["model_name"] == "enhanced_priority").all())
@@ -260,7 +1005,8 @@ class ModelAuditTests(unittest.TestCase):
             {
                 "backbone_id": [f"bb_{i}" for i in range(12)] * 2,
                 "model_name": ["enhanced_priority"] * 12 + ["baseline_both"] * 12,
-                "oof_prediction": [0.1, 0.2, 0.2, 0.8, 0.9, 0.7, 0.1, 0.2, 0.3, 0.8, 0.85, 0.9] + [0.4] * 12,
+                "oof_prediction": [0.1, 0.2, 0.2, 0.8, 0.9, 0.7, 0.1, 0.2, 0.3, 0.8, 0.85, 0.9]
+                + [0.4] * 12,
                 "spread_label": [0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 1] * 2,
             }
         )
@@ -319,10 +1065,70 @@ class ModelAuditTests(unittest.TestCase):
                 "spread_label": [0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1],
             }
         )
-        detail, summary = build_permutation_null_tables(predictions, model_names=["enhanced_priority"], n_permutations=20, seed=3)
+        detail, summary = build_permutation_null_tables(
+            predictions, model_names=["enhanced_priority"], n_permutations=20, seed=3
+        )
         self.assertEqual(len(detail), 20)
         self.assertEqual(summary.iloc[0]["model_name"], "enhanced_priority")
         self.assertIn("empirical_p_roc_auc", summary.columns)
+
+    def test_build_selection_adjusted_permutation_null_returns_primary_summary(self) -> None:
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(12)],
+                "spread_label": [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+                "log1p_member_count_train": [
+                    0.0,
+                    0.1,
+                    0.2,
+                    0.2,
+                    0.3,
+                    0.4,
+                    1.1,
+                    1.2,
+                    1.3,
+                    1.2,
+                    1.1,
+                    1.0,
+                ],
+                "log1p_n_countries_train": [
+                    0.0,
+                    0.1,
+                    0.1,
+                    0.2,
+                    0.2,
+                    0.3,
+                    0.8,
+                    0.9,
+                    0.9,
+                    1.0,
+                    1.0,
+                    1.1,
+                ],
+                "T_eff_norm": [0.1, 0.2, 0.1, 0.2, 0.3, 0.3, 0.8, 0.7, 0.8, 0.9, 0.8, 0.9],
+                "H_eff_norm": [0.2, 0.2, 0.3, 0.3, 0.2, 0.1, 0.7, 0.8, 0.7, 0.8, 0.9, 0.8],
+                "A_eff_norm": [0.1, 0.2, 0.2, 0.1, 0.2, 0.3, 0.7, 0.8, 0.8, 0.7, 0.9, 0.8],
+                "coherence_score": [0.3, 0.3, 0.4, 0.4, 0.3, 0.2, 0.7, 0.8, 0.8, 0.9, 0.8, 0.9],
+                "orit_support": [0.2, 0.2, 0.1, 0.2, 0.3, 0.2, 0.7, 0.8, 0.9, 0.8, 0.7, 0.9],
+            }
+        )
+
+        detail, summary = build_selection_adjusted_permutation_null(
+            scored,
+            model_names=["enhanced_priority", "baseline_both"],
+            primary_model_name="enhanced_priority",
+            n_permutations=3,
+            n_splits=3,
+            n_repeats=1,
+            seed=7,
+        )
+
+        self.assertEqual(len(detail), 3)
+        self.assertEqual(
+            set(summary["model_name"].astype(str)), {"enhanced_priority", "baseline_both"}
+        )
+        self.assertIn("selection_adjusted_empirical_p_roc_auc", summary.columns)
+        self.assertIn("modal_selected_model_name", summary.columns)
 
     def test_build_priority_bootstrap_stability_table_returns_candidate_rows(self) -> None:
         scored = pd.DataFrame(
@@ -330,13 +1136,28 @@ class ModelAuditTests(unittest.TestCase):
                 "backbone_id": [f"bb_{i}" for i in range(12)],
                 "member_count_train": [1] * 12,
                 "n_countries_train": [1] * 12,
-                "priority_index": [0.95, 0.91, 0.89, 0.84, 0.8, 0.77, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45],
+                "priority_index": [
+                    0.95,
+                    0.91,
+                    0.89,
+                    0.84,
+                    0.8,
+                    0.77,
+                    0.7,
+                    0.65,
+                    0.6,
+                    0.55,
+                    0.5,
+                    0.45,
+                ],
                 "T_eff": [0.9, 0.85, 0.82, 0.78, 0.76, 0.71, 0.66, 0.6, 0.55, 0.5, 0.44, 0.4],
                 "H_eff": [0.88, 0.84, 0.8, 0.74, 0.7, 0.68, 0.63, 0.58, 0.52, 0.47, 0.42, 0.38],
                 "A_eff": [0.92, 0.87, 0.81, 0.79, 0.75, 0.69, 0.61, 0.57, 0.51, 0.48, 0.43, 0.39],
             }
         )
-        stability = build_priority_bootstrap_stability_table(scored, candidate_n=5, top_k=3, n_bootstrap=10, seed=2)
+        stability = build_priority_bootstrap_stability_table(
+            scored, candidate_n=5, top_k=3, n_bootstrap=10, seed=2
+        )
         self.assertEqual(len(stability), 5)
         self.assertIn("bootstrap_top_k_frequency", stability.columns)
         self.assertIn("bootstrap_top_10_frequency", stability.columns)
@@ -356,7 +1177,9 @@ class ModelAuditTests(unittest.TestCase):
                 "priority_index": [0.91, 0.85, 0.65, 0.55],
             }
         )
-        consistency = build_variant_rank_consistency_table(base, {"variant_a": variant}, candidate_n=3, top_k=2)
+        consistency = build_variant_rank_consistency_table(
+            base, {"variant_a": variant}, candidate_n=3, top_k=2
+        )
         self.assertEqual(len(consistency), 3)
         self.assertIn("variant_top_k_frequency", consistency.columns)
         self.assertIn("variant_top_10_frequency", consistency.columns)
@@ -375,7 +1198,8 @@ class ModelAuditTests(unittest.TestCase):
             {
                 "backbone_id": [f"bb_{i}" for i in range(30)] * 2,
                 "model_name": ["proxy_light_priority"] * 30 + ["baseline_both"] * 30,
-                "oof_prediction": ([0.2, 0.8, 0.3, 0.7, 0.4, 0.9] * 5) + ([0.4, 0.6, 0.45, 0.55, 0.5, 0.6] * 5),
+                "oof_prediction": ([0.2, 0.8, 0.3, 0.7, 0.4, 0.9] * 5)
+                + ([0.4, 0.6, 0.45, 0.55, 0.5, 0.6] * 5),
                 "spread_label": ([0, 1, 0, 1, 0, 1] * 5) * 2,
             }
         )
@@ -406,7 +1230,8 @@ class ModelAuditTests(unittest.TestCase):
             {
                 "backbone_id": [f"bb_{i}" for i in range(24)] * 2,
                 "model_name": ["proxy_light_priority"] * 24 + ["baseline_both"] * 24,
-                "oof_prediction": ([0.2, 0.8, 0.3, 0.7, 0.35, 0.85] * 4) + ([0.4, 0.6, 0.45, 0.55, 0.5, 0.6] * 4),
+                "oof_prediction": ([0.2, 0.8, 0.3, 0.7, 0.35, 0.85] * 4)
+                + ([0.4, 0.6, 0.45, 0.55, 0.5, 0.6] * 4),
                 "spread_label": ([0, 1, 0, 1, 0, 1] * 4) * 2,
             }
         )
@@ -451,6 +1276,58 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("group_column", holdout.columns)
         self.assertTrue((holdout["model_name"] == "enhanced_priority").all())
 
+    def test_build_blocked_holdout_summary_filters_failed_rows(self) -> None:
+        group_holdout = pd.DataFrame(
+            [
+                {
+                    "group_column": "dominant_source",
+                    "group_value": "refseq_leaning",
+                    "model_name": "enhanced_priority",
+                    "status": "ok",
+                    "roc_auc": 0.84,
+                    "n_test_backbones": 20,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "group_value": "insd_leaning",
+                    "model_name": "enhanced_priority",
+                    "status": "ok",
+                    "roc_auc": 0.76,
+                    "n_test_backbones": 18,
+                },
+                {
+                    "group_column": "dominant_region_train",
+                    "group_value": "Europe",
+                    "model_name": "enhanced_priority",
+                    "status": "ok",
+                    "roc_auc": 0.81,
+                    "n_test_backbones": 22,
+                },
+                {
+                    "group_column": "dominant_region_train",
+                    "group_value": "Asia",
+                    "model_name": "enhanced_priority",
+                    "status": "failed",
+                    "roc_auc": 0.99,
+                    "n_test_backbones": 5,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "group_value": "refseq_leaning",
+                    "model_name": "baseline_both",
+                    "status": "ok",
+                    "roc_auc": 0.78,
+                    "n_test_backbones": 20,
+                },
+            ]
+        )
+        summary = build_blocked_holdout_summary(group_holdout)
+        self.assertIn("blocked_holdout_roc_auc", summary.columns)
+        self.assertEqual(set(summary["model_name"]), {"enhanced_priority", "baseline_both"})
+        enhanced = summary.loc[summary["model_name"] == "enhanced_priority"].iloc[0]
+        self.assertEqual(int(enhanced["blocked_holdout_group_count"]), 3)
+        self.assertNotIn("dominant_region_train:Asia", str(enhanced["worst_blocked_holdout_group"]))
+
     def test_build_negative_control_audit_returns_noise_rows(self) -> None:
         scored = pd.DataFrame(
             {
@@ -465,7 +1342,9 @@ class ModelAuditTests(unittest.TestCase):
                 "orit_support": [0.2, 0.9] * 10,
             }
         )
-        audit = build_negative_control_audit(scored, primary_model_name="enhanced_priority", n_splits=4, n_repeats=2, seed=3)
+        audit = build_negative_control_audit(
+            scored, primary_model_name="enhanced_priority", n_splits=4, n_repeats=2, seed=3
+        )
         self.assertIn("primary_model", set(audit["audit_name"]))
         self.assertIn("negative_control_noise_a_only", set(audit["audit_name"]))
         self.assertIn("delta_roc_auc_vs_primary", audit.columns)
@@ -473,8 +1352,18 @@ class ModelAuditTests(unittest.TestCase):
     def test_build_model_simplicity_summary_returns_overlap_columns(self) -> None:
         model_metrics = pd.DataFrame(
             [
-                {"model_name": "enhanced_priority", "roc_auc": 0.78, "average_precision": 0.81, "brier_score": 0.19},
-                {"model_name": "proxy_light_priority", "roc_auc": 0.77, "average_precision": 0.80, "brier_score": 0.20},
+                {
+                    "model_name": "enhanced_priority",
+                    "roc_auc": 0.78,
+                    "average_precision": 0.81,
+                    "brier_score": 0.19,
+                },
+                {
+                    "model_name": "proxy_light_priority",
+                    "roc_auc": 0.77,
+                    "average_precision": 0.80,
+                    "brier_score": 0.20,
+                },
             ]
         )
         predictions = pd.DataFrame(
@@ -523,7 +1412,9 @@ class ModelAuditTests(unittest.TestCase):
             }
         )
         coefficient_table = pd.DataFrame({"feature_name": ["H_eff_norm"], "coefficient": [0.25]})
-        dropout_table = pd.DataFrame({"feature_name": ["H_eff_norm"], "roc_auc_drop_vs_full": [0.03]})
+        dropout_table = pd.DataFrame(
+            {"feature_name": ["H_eff_norm"], "roc_auc_drop_vs_full": [0.03]}
+        )
         diagnostics = build_h_feature_diagnostics(
             scored,
             coefficient_table=coefficient_table,
@@ -589,7 +1480,8 @@ class ModelAuditTests(unittest.TestCase):
                 "backbone_id": ["bb1", "bb2"],
                 "freeze_rank": [1, 2],
                 "priority_index": [0.9, 0.8],
-                "coherence_score": [0.7, 0.4],
+                "coherence_score": [0.7, 0.6],
+                "consensus_support_count": [3, 2],
                 "member_count_train": [4, 1],
                 "n_countries_train": [3, 1],
                 "refseq_share_train": [0.6, 1.0],
@@ -599,23 +1491,63 @@ class ModelAuditTests(unittest.TestCase):
         stability = pd.DataFrame(
             {
                 "backbone_id": ["bb1", "bb2"],
-                "bootstrap_top_k_frequency": [0.9, 0.3],
-                "variant_top_k_frequency": [0.8, 0.2],
+                "bootstrap_top_k_frequency": [0.9, 0.72],
+                "variant_top_k_frequency": [0.8, 0.7],
+                "primary_model_full_fit_prediction_std": [0.18, 0.05],
+                "assignment_confidence_score": [0.92, 0.55],
+                "mash_graph_novelty_score": [0.18, 0.84],
+                "mash_graph_bridge_fraction": [0.12, 0.78],
+                "amr_agreement_score": [0.81, 0.42],
+                "mean_amr_uncertainty_score": [0.12, 0.52],
             }
         )
         predictions = pd.DataFrame(
             {
                 "backbone_id": ["bb1", "bb2", "bb1", "bb2"],
-                "model_name": ["enhanced_priority", "enhanced_priority", "proxy_light_priority", "proxy_light_priority"],
+                "model_name": [
+                    "enhanced_priority",
+                    "enhanced_priority",
+                    "proxy_light_priority",
+                    "proxy_light_priority",
+                ],
                 "oof_prediction": [0.8, 0.6, 0.7, 0.3],
                 "spread_label": [1, 0, 1, 0],
             }
         )
-        who = pd.DataFrame({"backbone_id": ["bb1"], "who_mia_any_support": [True], "who_mia_any_hpecia": [True], "who_mia_mapped_fraction": [1.0]})
-        card = pd.DataFrame({"backbone_id": ["bb1"], "card_any_support": [True], "card_match_fraction": [0.5]})
-        mobsuite = pd.DataFrame({"backbone_id": ["bb1"], "mobsuite_any_literature_support": [True], "mobsuite_any_cluster_support": [True]})
-        pathogen = pd.DataFrame({"pathogen_dataset": ["combined"], "backbone_id": ["bb1"], "pd_any_support": [True], "pd_matching_fraction": [0.4]})
-        amrfinder = pd.DataFrame({"backbone_id": ["bb1"], "amrfinder_any_hit": [True], "gene_jaccard": [0.5], "class_jaccard": [0.5]})
+        who = pd.DataFrame(
+            {
+                "backbone_id": ["bb1"],
+                "who_mia_any_support": [True],
+                "who_mia_any_hpecia": [True],
+                "who_mia_mapped_fraction": [1.0],
+            }
+        )
+        card = pd.DataFrame(
+            {"backbone_id": ["bb1"], "card_any_support": [True], "card_match_fraction": [0.5]}
+        )
+        mobsuite = pd.DataFrame(
+            {
+                "backbone_id": ["bb1"],
+                "mobsuite_any_literature_support": [True],
+                "mobsuite_any_cluster_support": [True],
+            }
+        )
+        pathogen = pd.DataFrame(
+            {
+                "pathogen_dataset": ["combined"],
+                "backbone_id": ["bb1"],
+                "pd_any_support": [True],
+                "pd_matching_fraction": [0.4],
+            }
+        )
+        amrfinder = pd.DataFrame(
+            {
+                "backbone_id": ["bb1"],
+                "amrfinder_any_hit": [True],
+                "gene_jaccard": [0.5],
+                "class_jaccard": [0.5],
+            }
+        )
         dossier = build_candidate_dossier_table(
             base,
             candidate_stability=stability,
@@ -634,9 +1566,58 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("primary_driver_axis", dossier.columns)
         self.assertIn("mechanistic_rationale", dossier.columns)
         self.assertIn("monitoring_rationale", dossier.columns)
-        self.assertFalse(any(column.endswith("_x") or column.endswith("_y") for column in dossier.columns))
-        self.assertEqual(int(dossier.loc[dossier["backbone_id"] == "bb1", "external_support_modalities_count"].iloc[0]), 4)
+        self.assertIn("model_prediction_uncertainty", dossier.columns)
+        self.assertIn("uncertainty_review_tier", dossier.columns)
+        self.assertIn("assignment_confidence_score", dossier.columns)
+        self.assertIn("mash_graph_novelty_score", dossier.columns)
+        self.assertIn("amr_agreement_score", dossier.columns)
+        self.assertFalse(
+            any(column.endswith("_x") or column.endswith("_y") for column in dossier.columns)
+        )
+        self.assertEqual(
+            int(
+                dossier.loc[
+                    dossier["backbone_id"] == "bb1", "external_support_modalities_count"
+                ].iloc[0]
+            ),
+            4,
+        )
+        self.assertGreater(
+            float(dossier.loc[dossier["backbone_id"] == "bb1", "risk_uncertainty"].iloc[0]),
+            float(dossier.loc[dossier["backbone_id"] == "bb2", "risk_uncertainty"].iloc[0]),
+        )
+        self.assertEqual(
+            str(dossier.loc[dossier["backbone_id"] == "bb1", "uncertainty_review_tier"].iloc[0]),
+            "review",
+        )
+        self.assertEqual(
+            str(dossier.loc[dossier["backbone_id"] == "bb2", "uncertainty_review_tier"].iloc[0]),
+            "clear",
+        )
+        self.assertIn(
+            "assignment_confidence_high",
+            str(dossier.loc[dossier["backbone_id"] == "bb1", "monitoring_rationale"].iloc[0]),
+        )
+        self.assertEqual(
+            str(dossier.loc[dossier["backbone_id"] == "bb1", "primary_driver_axis"].iloc[0]),
+            "assignment_confidence",
+        )
+        self.assertEqual(
+            str(dossier.loc[dossier["backbone_id"] == "bb2", "primary_driver_axis"].iloc[0]),
+            "graph_novelty",
+        )
+        self.assertEqual(
+            str(dossier.loc[dossier["backbone_id"] == "bb2", "secondary_driver_axis"].iloc[0]),
+            "graph_bridge",
+        )
         self.assertIn("false_positive_risk_tier", risk.columns)
+        self.assertIn("uncertainty_review_tier", risk.columns)
+        self.assertIn("low_assignment_confidence_risk", risk.columns)
+        self.assertIn("graph_novelty_risk", risk.columns)
+        self.assertIn("amr_uncertainty_risk", risk.columns)
+        self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "low_assignment_confidence_risk"].iloc[0]))
+        self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "graph_novelty_risk"].iloc[0]))
+        self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "amr_uncertainty_risk"].iloc[0]))
 
     def test_build_consensus_candidate_ranking_prefers_cross_model_agreement(self) -> None:
         candidate_context = pd.DataFrame(
@@ -675,6 +1656,11 @@ class ModelAuditTests(unittest.TestCase):
                 "eligible_for_oof": [True, False],
                 "knownness_score": [0.8, 0.7],
                 "knownness_half": ["upper_half", "upper_half"],
+                "assignment_confidence_score": [0.94, 0.57],
+                "mash_graph_novelty_score": [0.21, 0.88],
+                "mash_graph_bridge_fraction": [0.11, 0.79],
+                "amr_agreement_score": [0.80, 0.44],
+                "mean_amr_uncertainty_score": [0.12, 0.48],
                 "refseq_share_train": [0.9, 0.6],
                 "insd_share_train": [0.1, 0.4],
                 "bootstrap_top_10_frequency": [0.9, 0.4],
@@ -683,6 +1669,7 @@ class ModelAuditTests(unittest.TestCase):
                 "mobsuite_any_literature_support": [pd.NA, pd.NA],
                 "pd_any_support": [True, pd.NA],
                 "false_positive_risk_tier": ["low", "medium"],
+                "uncertainty_review_tier": ["clear", "review"],
             }
         )
         novelty_watchlist = pd.DataFrame(
@@ -701,13 +1688,99 @@ class ModelAuditTests(unittest.TestCase):
                 "spread_label": [1, 0],
             }
         )
-        portfolio = build_candidate_portfolio_table(candidate_dossiers, novelty_watchlist, established_n=1, novel_n=1)
-        self.assertEqual(set(portfolio["portfolio_track"]), {"established_high_risk", "novel_signal"})
+        portfolio = build_candidate_portfolio_table(
+            candidate_dossiers, novelty_watchlist, established_n=1, novel_n=1
+        )
+        self.assertEqual(
+            set(portfolio["portfolio_track"]), {"established_high_risk", "novel_signal"}
+        )
         self.assertIn("primary_model_candidate_score", portfolio.columns)
         self.assertIn("candidate_prediction_source", portfolio.columns)
         self.assertIn("recommended_monitoring_tier", portfolio.columns)
         self.assertIn("source_support_tier", portfolio.columns)
-        self.assertEqual(int(portfolio.loc[portfolio["backbone_id"] == "bb1", "external_support_modalities_count"].iloc[0]), 2)
+        self.assertIn("uncertainty_review_tier", portfolio.columns)
+        self.assertEqual(
+            int(
+                portfolio.loc[
+                    portfolio["backbone_id"] == "bb1", "external_support_modalities_count"
+                ].iloc[0]
+            ),
+            2,
+        )
+        self.assertEqual(
+            str(portfolio.loc[portfolio["backbone_id"] == "bb1", "uncertainty_review_tier"].iloc[0]),
+            "clear",
+        )
+        self.assertIn("assignment_confidence_score", portfolio.columns)
+        self.assertIn("mash_graph_novelty_score", portfolio.columns)
+        self.assertIn("amr_agreement_score", portfolio.columns)
+
+    def test_build_candidate_portfolio_table_preserves_source_coverage_diversity(self) -> None:
+        candidate_dossiers = pd.DataFrame(
+            {
+                "backbone_id": ["bb1", "bb2", "bb3"],
+                "candidate_confidence_tier": ["tier_a", "tier_a", "tier_a"],
+                "priority_index": [0.95, 0.93, 0.91],
+                "primary_model_candidate_score": [0.95, 0.93, 0.91],
+                "baseline_both_candidate_score": [0.72, 0.70, 0.69],
+                "novelty_margin_vs_baseline": [0.23, 0.23, 0.22],
+                "candidate_prediction_source": ["oof", "oof", "oof"],
+                "eligible_for_oof": [True, True, True],
+                "knownness_score": [0.82, 0.75, 0.74],
+                "knownness_half": ["upper_half", "upper_half", "upper_half"],
+                "refseq_share_train": [0.92, 0.48, 0.08],
+                "insd_share_train": [0.08, 0.52, 0.92],
+                "bootstrap_top_10_frequency": [0.9, 0.9, 0.9],
+                "who_mia_any_support": [True, True, True],
+                "card_any_support": [False, False, False],
+                "mobsuite_any_literature_support": [pd.NA, pd.NA, pd.NA],
+                "pd_any_support": [True, True, True],
+                "false_positive_risk_tier": ["low", "low", "low"],
+                "spread_label": [1, 1, 1],
+            }
+        )
+        portfolio = build_candidate_portfolio_table(
+            candidate_dossiers, pd.DataFrame(), established_n=2, novel_n=0
+        )
+        self.assertEqual(len(portfolio), 2)
+        self.assertEqual(len(set(portfolio["source_support_tier"])), 2)
+        self.assertIn("cross_source_supported", set(portfolio["source_support_tier"]))
+        self.assertTrue(
+            {"refseq_dominant", "insd_dominant"} & set(portfolio["source_support_tier"])
+        )
+
+    def test_build_candidate_portfolio_table_reserves_low_knownness_coverage(self) -> None:
+        candidate_dossiers = pd.DataFrame(
+            {
+                "backbone_id": ["bb1", "bb2", "bb3"],
+                "candidate_confidence_tier": ["tier_a", "tier_a", "tier_a"],
+                "priority_index": [0.99, 0.98, 0.97],
+                "primary_model_candidate_score": [0.99, 0.98, 0.97],
+                "baseline_both_candidate_score": [0.80, 0.79, 0.78],
+                "novelty_margin_vs_baseline": [0.19, 0.19, 0.19],
+                "candidate_prediction_source": ["oof", "oof", "oof"],
+                "eligible_for_oof": [True, True, True],
+                "knownness_score": [0.9, 0.88, 0.28],
+                "knownness_half": ["upper_half", "upper_half", "lower_half"],
+                "refseq_share_train": [0.9, 0.9, 0.9],
+                "insd_share_train": [0.1, 0.1, 0.1],
+                "bootstrap_top_10_frequency": [0.9, 0.9, 0.9],
+                "who_mia_any_support": [True, True, True],
+                "card_any_support": [False, False, False],
+                "mobsuite_any_literature_support": [pd.NA, pd.NA, pd.NA],
+                "pd_any_support": [True, True, True],
+                "false_positive_risk_tier": ["low", "low", "low"],
+                "spread_label": [1, 1, 1],
+            }
+        )
+        portfolio = build_candidate_portfolio_table(
+            candidate_dossiers, pd.DataFrame(), established_n=2, novel_n=0
+        )
+        self.assertEqual(len(portfolio), 2)
+        self.assertGreaterEqual(
+            int((portfolio["knownness_half"].astype(str) == "lower_half").sum()), 1
+        )
+        self.assertIn("bb3", set(portfolio["backbone_id"]))
 
     def test_build_logistic_implementation_audit_returns_similarity_metrics(self) -> None:
         scored = pd.DataFrame(
@@ -727,7 +1800,13 @@ class ModelAuditTests(unittest.TestCase):
         audit = build_logistic_implementation_audit(
             scored,
             model_name="visibility_adjusted_priority",
-            columns=["T_raw_norm", "H_specialization_norm", "A_raw_norm", "orit_support", "H_support_norm_residual"],
+            columns=[
+                "T_raw_norm",
+                "H_specialization_norm",
+                "A_raw_norm",
+                "orit_support",
+                "H_support_norm_residual",
+            ],
             n_splits=2,
             n_repeats=1,
             seed=1,
@@ -746,7 +1825,9 @@ class ModelAuditTests(unittest.TestCase):
                 "spread_label": [1, 1, 0, 0, 1, 0],
             }
         )
-        decision_yield = build_decision_yield_table(predictions, model_names=["parsimonious_priority"], top_ks=(2, 4))
+        decision_yield = build_decision_yield_table(
+            predictions, model_names=["parsimonious_priority"], top_ks=(2, 4)
+        )
         self.assertEqual(set(decision_yield["top_k"]), {2, 4})
         top2 = decision_yield.loc[decision_yield["top_k"] == 2].iloc[0]
         self.assertEqual(int(top2["n_positive_selected"]), 2)
@@ -771,14 +1852,47 @@ class ModelAuditTests(unittest.TestCase):
         self.assertFalse(bool(bb2["eligible_for_threshold_audit"]))
 
     def test_build_candidate_universe_table_sets_origin_flags(self) -> None:
-        scored = pd.DataFrame({"backbone_id": ["bb1", "bb2"], "priority_index": [0.9, 0.7], "spread_label": [1, 0]})
+        scored = pd.DataFrame(
+            {"backbone_id": ["bb1", "bb2"], "priority_index": [0.9, 0.7], "spread_label": [1, 0]}
+        )
         consensus = pd.DataFrame({"backbone_id": ["bb1"], "consensus_rank": [1]})
-        dossiers = pd.DataFrame({"backbone_id": ["bb1"], "candidate_confidence_tier": ["tier_a"], "recommended_monitoring_tier": ["core_surveillance"]})
-        portfolio = pd.DataFrame({"backbone_id": ["bb1"], "portfolio_track": ["established_high_risk"], "track_rank": [1]})
-        novelty = pd.DataFrame({"backbone_id": ["bb2"], "knownness_half": ["lower_half"], "novelty_margin_vs_baseline": [0.2]})
+        dossiers = pd.DataFrame(
+            {
+                "backbone_id": ["bb1"],
+                "candidate_confidence_tier": ["tier_a"],
+                "recommended_monitoring_tier": ["core_surveillance"],
+            }
+        )
+        portfolio = pd.DataFrame(
+            {
+                "backbone_id": ["bb1"],
+                "portfolio_track": ["established_high_risk"],
+                "track_rank": [1],
+            }
+        )
+        novelty = pd.DataFrame(
+            {
+                "backbone_id": ["bb2"],
+                "knownness_half": ["lower_half"],
+                "novelty_margin_vs_baseline": [0.2],
+            }
+        )
         freeze = pd.DataFrame({"backbone_id": ["bb2"], "freeze_rank": [2]})
-        high_conf = pd.DataFrame({"backbone_id": ["bb1"], "candidate_confidence_tier": ["tier_a"], "false_positive_risk_tier": ["low"]})
-        risk = pd.DataFrame({"backbone_id": ["bb2"], "false_positive_risk_tier": ["medium"], "risk_flag_count": [1], "risk_flags": ["stability_risk"]})
+        high_conf = pd.DataFrame(
+            {
+                "backbone_id": ["bb1"],
+                "candidate_confidence_tier": ["tier_a"],
+                "false_positive_risk_tier": ["low"],
+            }
+        )
+        risk = pd.DataFrame(
+            {
+                "backbone_id": ["bb2"],
+                "false_positive_risk_tier": ["medium"],
+                "risk_flag_count": [1],
+                "risk_flags": ["stability_risk"],
+            }
+        )
         universe = build_candidate_universe_table(
             scored=scored,
             consensus_candidates=consensus,
@@ -798,16 +1912,46 @@ class ModelAuditTests(unittest.TestCase):
     def test_build_primary_model_selection_summary_reports_strongest_overlap(self) -> None:
         model_metrics = pd.DataFrame(
             [
-                {"model_name": "parsimonious_priority", "roc_auc": 0.76, "average_precision": 0.67, "brier_score": 0.18},
-                {"model_name": "evidence_aware_priority", "roc_auc": 0.81, "average_precision": 0.73, "brier_score": 0.17},
-                {"model_name": "bio_clean_priority", "roc_auc": 0.77, "average_precision": 0.68, "brier_score": 0.18},
+                {
+                    "model_name": "parsimonious_priority",
+                    "roc_auc": 0.76,
+                    "average_precision": 0.67,
+                    "brier_score": 0.18,
+                },
+                {
+                    "model_name": "evidence_aware_priority",
+                    "roc_auc": 0.81,
+                    "average_precision": 0.73,
+                    "brier_score": 0.17,
+                },
+                {
+                    "model_name": "bio_clean_priority",
+                    "roc_auc": 0.77,
+                    "average_precision": 0.68,
+                    "brier_score": 0.18,
+                },
             ]
         )
         predictions = pd.DataFrame(
             {
                 "backbone_id": [f"bb_{i}" for i in range(12)] * 3,
-                "model_name": ["parsimonious_priority"] * 12 + ["evidence_aware_priority"] * 12 + ["bio_clean_priority"] * 12,
-                "oof_prediction": [0.99, 0.98, 0.97, 0.96, 0.2, 0.19, 0.18, 0.17, 0.16, 0.15, 0.14, 0.13]
+                "model_name": ["parsimonious_priority"] * 12
+                + ["evidence_aware_priority"] * 12
+                + ["bio_clean_priority"] * 12,
+                "oof_prediction": [
+                    0.99,
+                    0.98,
+                    0.97,
+                    0.96,
+                    0.2,
+                    0.19,
+                    0.18,
+                    0.17,
+                    0.16,
+                    0.15,
+                    0.14,
+                    0.13,
+                ]
                 + [0.11, 0.12, 0.13, 0.14, 0.99, 0.98, 0.97, 0.96, 0.95, 0.94, 0.93, 0.92]
                 + [0.99, 0.95, 0.94, 0.93, 0.92, 0.1, 0.09, 0.08, 0.07, 0.06, 0.05, 0.04],
                 "spread_label": [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0] * 3,
@@ -823,6 +1967,143 @@ class ModelAuditTests(unittest.TestCase):
         self.assertEqual(int(row["primary_vs_strongest_top_10_overlap_count"]), 8)
         self.assertAlmostEqual(float(row["primary_vs_strongest_top_10_overlap_fraction"]), 0.8)
         self.assertIn("headline benchmark", str(row["selection_rationale"]))
+
+    def test_build_primary_model_selection_summary_uses_guardrail_failure_to_keep_primary(
+        self,
+    ) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {"model_name": "primary_model", "roc_auc": 0.82, "average_precision": 0.74},
+                {"model_name": "strongest_model", "roc_auc": 0.83, "average_precision": 0.75},
+                {"model_name": "conservative_model", "roc_auc": 0.79, "average_precision": 0.70},
+            ]
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)] * 3,
+                "model_name": ["primary_model"] * 8
+                + ["strongest_model"] * 8
+                + ["conservative_model"] * 8,
+                "oof_prediction": [0.9, 0.8, 0.7, 0.6, 0.4, 0.3, 0.2, 0.1] * 3,
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0] * 3,
+            }
+        )
+        scorecard = pd.DataFrame(
+            [
+                {
+                    "model_name": "primary_model",
+                    "selection_rank": 2,
+                    "strict_knownness_acceptance_flag": True,
+                    "knownness_matched_gap": -0.002,
+                    "source_holdout_gap": -0.004,
+                    "leakage_review_required": False,
+                },
+                {
+                    "model_name": "strongest_model",
+                    "selection_rank": 1,
+                    "strict_knownness_acceptance_flag": False,
+                    "knownness_matched_gap": -0.030,
+                    "source_holdout_gap": -0.020,
+                    "leakage_review_required": False,
+                },
+            ]
+        )
+
+        summary = build_primary_model_selection_summary(
+            model_metrics,
+            primary_model_name="primary_model",
+            conservative_model_name="conservative_model",
+            predictions=predictions,
+            model_selection_scorecard=scorecard,
+        )
+
+        row = summary.iloc[0]
+        self.assertTrue(bool(row["published_primary_strict_knownness_acceptance_flag"]))
+        self.assertFalse(bool(row["strongest_metric_model_strict_knownness_acceptance_flag"]))
+        self.assertIn(
+            "passes strict matched-knownness and source-holdout guardrails",
+            str(row["selection_rationale"]),
+        )
+
+    def test_build_temporal_rank_stability_table_reports_kendall_tau(self) -> None:
+        predictions = pd.DataFrame(
+            {
+                "split_year": [2014] * 6 + [2015] * 6,
+                "model_name": ["bio_clean_priority"] * 12,
+                "backbone_id": [f"bb_{i}" for i in range(6)] * 2,
+                "oof_prediction": [
+                    0.90,
+                    0.80,
+                    0.70,
+                    0.30,
+                    0.20,
+                    0.10,
+                    0.88,
+                    0.79,
+                    0.69,
+                    0.31,
+                    0.22,
+                    0.11,
+                ],
+            }
+        )
+        summary = build_temporal_rank_stability_table(predictions)
+        self.assertEqual(len(summary), 1)
+        self.assertEqual(str(summary.iloc[0]["status"]), "ok")
+        self.assertGreater(float(summary.iloc[0]["kendall_tau"]), 0.8)
+
+    def test_build_sleeper_threat_table_compares_ap_and_naap(self) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {
+                    "model_name": "discovery_model",
+                    "average_precision": 0.55,
+                    "novelty_adjusted_average_precision": 0.62,
+                },
+                {
+                    "model_name": "bias_riding_model",
+                    "average_precision": 0.60,
+                    "novelty_adjusted_average_precision": 0.52,
+                },
+            ]
+        )
+        summary = build_sleeper_threat_table(model_metrics)
+        discovery_row = summary.loc[summary["model_name"] == "discovery_model"].iloc[0]
+        bias_row = summary.loc[summary["model_name"] == "bias_riding_model"].iloc[0]
+        self.assertGreater(float(discovery_row["naap_minus_ap"]), 0.0)
+        self.assertEqual(
+            str(discovery_row["sleeper_threat_advantage"]),
+            "favors_low_knownness_positives",
+        )
+        self.assertLess(float(bias_row["naap_minus_ap"]), 0.0)
+
+    def test_build_magic_number_sensitivity_table_flags_large_auc_shifts(self) -> None:
+        sensitivity = pd.DataFrame(
+            [
+                {
+                    "variant": "default",
+                    "parameter_name": "host_evenness_bias_power",
+                    "parameter_value": 0.5,
+                    "roc_auc": 0.80,
+                },
+                {
+                    "variant": "bias_power_low",
+                    "parameter_name": "host_evenness_bias_power",
+                    "parameter_value": 0.3,
+                    "roc_auc": 0.79,
+                },
+                {
+                    "variant": "bias_power_high",
+                    "parameter_name": "host_evenness_bias_power",
+                    "parameter_value": 1.0,
+                    "roc_auc": 0.70,
+                },
+            ]
+        )
+        summary = build_magic_number_sensitivity_table(sensitivity)
+        high_row = summary.loc[summary["variant"] == "bias_power_high"].iloc[0]
+        self.assertFalse(bool(high_row["passes_auc_tolerance"]))
+        self.assertGreater(float(high_row["abs_relative_auc_delta"]), 0.05)
 
 
 if __name__ == "__main__":

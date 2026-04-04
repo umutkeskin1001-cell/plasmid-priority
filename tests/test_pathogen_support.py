@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import unittest
 
 import pandas as pd
-
 
 from plasmid_priority.reporting.pathogen_support import (
     build_pathogen_group_comparison,

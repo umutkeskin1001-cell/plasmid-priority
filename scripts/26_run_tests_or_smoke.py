@@ -49,11 +49,19 @@ def main() -> int:
         if not validation_report.ok:
             raise RuntimeError("Input validation failed during smoke run.")
 
-        for script_name in ("01_check_inputs.py", "27_run_advanced_audits.py", "24_build_reports.py"):
+        for script_name in (
+            "01_check_inputs.py",
+            "27_run_advanced_audits.py",
+            "24_build_reports.py",
+            "25_export_tubitak_summary.py",
+            "28_build_release_bundle.py",
+        ):
             completed = _run_cli_smoke(script_name)
             run.set_metric(f"{script_name}_returncode", int(completed.returncode))
             if completed.returncode != 0:
-                run.warn(completed.stderr.strip() or completed.stdout.strip() or f"{script_name} failed")
+                run.warn(
+                    completed.stderr.strip() or completed.stdout.strip() or f"{script_name} failed"
+                )
                 raise RuntimeError(f"CLI smoke failed for {script_name}.")
 
         plsdb_metadata = context.asset_path("plsdb_metadata_tsv")

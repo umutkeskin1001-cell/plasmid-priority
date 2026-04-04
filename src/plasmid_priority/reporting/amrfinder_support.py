@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
 
 import pandas as pd
 
@@ -36,7 +36,9 @@ def _build_fasta_record_index(input_path: Path, index_path: Path) -> dict[str, t
             if line.startswith(b">"):
                 if current_accession:
                     rows.append((current_accession, current_start, current_offset))
-                current_accession = line[1:].split(maxsplit=1)[0].decode("utf-8", errors="ignore").strip()
+                current_accession = (
+                    line[1:].split(maxsplit=1)[0].decode("utf-8", errors="ignore").strip()
+                )
                 current_start = current_offset
             current_offset = next_offset
     if current_accession:
@@ -95,9 +97,16 @@ def select_amrfinder_probe_panel(
         how="inner",
     )
     if "is_canonical_representative" in merged.columns:
-        merged["is_canonical_representative"] = merged["is_canonical_representative"].fillna(False).astype(bool)
+        merged["is_canonical_representative"] = (
+            merged["is_canonical_representative"].fillna(False).astype(bool)
+        )
         merged = merged.sort_values(
-            ["priority_group", "selection_score", "is_canonical_representative", "sequence_accession"],
+            [
+                "priority_group",
+                "selection_score",
+                "is_canonical_representative",
+                "sequence_accession",
+            ],
             ascending=[True, False, False, True],
         )
     else:
@@ -109,7 +118,9 @@ def select_amrfinder_probe_panel(
     return panel
 
 
-def write_selected_fasta_records(input_path: Path, accessions: list[str], output_path: Path) -> dict[str, object]:
+def write_selected_fasta_records(
+    input_path: Path, accessions: list[str], output_path: Path
+) -> dict[str, object]:
     """Write a small FASTA containing only the requested accessions."""
     target = set(accessions)
     found: set[str] = set()
@@ -117,11 +128,7 @@ def write_selected_fasta_records(input_path: Path, accessions: list[str], output
 
     if input_path.suffix != ".gz":
         index = _load_fasta_record_index(input_path)
-        selected = [
-            (accession, *index[accession])
-            for accession in target
-            if accession in index
-        ]
+        selected = [(accession, *index[accession]) for accession in target if accession in index]
         selected.sort(key=lambda item: item[1])
         with input_path.open("rb") as reader, output_path.open("wb") as writer:
             for accession, start, end in selected:
@@ -138,7 +145,10 @@ def write_selected_fasta_records(input_path: Path, accessions: list[str], output
         import gzip
 
         capture = False
-        with gzip.open(input_path, "rt", encoding="utf-8") as reader, output_path.open("w", encoding="utf-8") as writer:
+        with (
+            gzip.open(input_path, "rt", encoding="utf-8") as reader,
+            output_path.open("w", encoding="utf-8") as writer,
+        ):
             for raw_line in reader:
                 if raw_line.startswith(">"):
                     if found == target and not capture:
@@ -212,8 +222,14 @@ def parse_amrfinder_probe_report(report_path: Path) -> pd.DataFrame:
     hits["Class"] = hits["Class"].fillna("").map(normalize_drug_class_token)
     grouped = hits.groupby("Contig id", sort=False)
     frame = grouped.agg(
-        amrfinder_gene_symbols=("Element symbol", lambda values: ",".join(sorted({value for value in values if value}))),
-        amrfinder_class_tokens=("Class", lambda values: ",".join(sorted({value for value in values if value}))),
+        amrfinder_gene_symbols=(
+            "Element symbol",
+            lambda values: ",".join(sorted({value for value in values if value})),
+        ),
+        amrfinder_class_tokens=(
+            "Class",
+            lambda values: ",".join(sorted({value for value in values if value})),
+        ),
         amrfinder_hit_count=("Element symbol", "size"),
     ).reset_index()
     return frame.rename(columns={"Contig id": "sequence_accession"})
@@ -286,13 +302,23 @@ def build_amrfinder_concordance_tables(
 
     detail_rows: list[dict[str, object]] = []
     for row in merged.to_dict(orient="records"):
-        existing_genes = _token_set(row.get("amr_gene_symbols", ""), normalize_fn=normalize_gene_symbol)
-        amrfinder_genes = _token_set(row.get("amrfinder_gene_symbols", ""), normalize_fn=normalize_gene_symbol)
-        existing_classes = _token_set(row.get("amr_drug_classes", ""), normalize_fn=normalize_drug_class_token)
-        amrfinder_classes = _token_set(row.get("amrfinder_class_tokens", ""), normalize_fn=normalize_drug_class_token)
+        existing_genes = _token_set(
+            row.get("amr_gene_symbols", ""), normalize_fn=normalize_gene_symbol
+        )
+        amrfinder_genes = _token_set(
+            row.get("amrfinder_gene_symbols", ""), normalize_fn=normalize_gene_symbol
+        )
+        existing_classes = _token_set(
+            row.get("amr_drug_classes", ""), normalize_fn=normalize_drug_class_token
+        )
+        amrfinder_classes = _token_set(
+            row.get("amrfinder_class_tokens", ""), normalize_fn=normalize_drug_class_token
+        )
         amrfinder_hit_count = row.get("amrfinder_hit_count", 0)
         amrfinder_hit_count = 0 if pd.isna(amrfinder_hit_count) else int(amrfinder_hit_count)
-        any_amr_evidence = bool(existing_genes or amrfinder_genes or existing_classes or amrfinder_classes)
+        any_amr_evidence = bool(
+            existing_genes or amrfinder_genes or existing_classes or amrfinder_classes
+        )
 
         shared_genes = existing_genes & amrfinder_genes
         shared_classes = existing_classes & amrfinder_classes
@@ -329,14 +355,30 @@ def build_amrfinder_concordance_tables(
                 "n_sequences": int(frame["sequence_accession"].nunique()),
                 "n_with_amrfinder_hits": int(frame["amrfinder_any_hit"].sum()),
                 "n_with_any_amr_evidence": int(frame["any_amr_evidence"].sum()),
-                "mean_gene_jaccard": float(frame["gene_jaccard"].mean()) if not nonempty.empty else float("nan"),
-                "median_gene_jaccard": float(frame["gene_jaccard"].median()) if not nonempty.empty else float("nan"),
-                "mean_gene_jaccard_nonempty": float(nonempty["gene_jaccard"].mean()) if not nonempty.empty else float("nan"),
-                "median_gene_jaccard_nonempty": float(nonempty["gene_jaccard"].median()) if not nonempty.empty else float("nan"),
-                "mean_class_jaccard": float(frame["class_jaccard"].mean()) if not nonempty.empty else float("nan"),
-                "median_class_jaccard": float(frame["class_jaccard"].median()) if not nonempty.empty else float("nan"),
-                "mean_class_jaccard_nonempty": float(nonempty["class_jaccard"].mean()) if not nonempty.empty else float("nan"),
-                "median_class_jaccard_nonempty": float(nonempty["class_jaccard"].median()) if not nonempty.empty else float("nan"),
+                "mean_gene_jaccard": float(frame["gene_jaccard"].mean())
+                if not nonempty.empty
+                else float("nan"),
+                "median_gene_jaccard": float(frame["gene_jaccard"].median())
+                if not nonempty.empty
+                else float("nan"),
+                "mean_gene_jaccard_nonempty": float(nonempty["gene_jaccard"].mean())
+                if not nonempty.empty
+                else float("nan"),
+                "median_gene_jaccard_nonempty": float(nonempty["gene_jaccard"].median())
+                if not nonempty.empty
+                else float("nan"),
+                "mean_class_jaccard": float(frame["class_jaccard"].mean())
+                if not nonempty.empty
+                else float("nan"),
+                "median_class_jaccard": float(frame["class_jaccard"].median())
+                if not nonempty.empty
+                else float("nan"),
+                "mean_class_jaccard_nonempty": float(nonempty["class_jaccard"].mean())
+                if not nonempty.empty
+                else float("nan"),
+                "median_class_jaccard_nonempty": float(nonempty["class_jaccard"].median())
+                if not nonempty.empty
+                else float("nan"),
                 "mean_shared_gene_count": float(frame["shared_gene_count"].mean()),
                 "mean_shared_class_count": float(frame["shared_class_count"].mean()),
             }
@@ -353,12 +395,20 @@ def build_amrfinder_concordance_tables(
                 "n_with_any_amr_evidence": int(detail["any_amr_evidence"].sum()),
                 "mean_gene_jaccard": float(detail["gene_jaccard"].mean()),
                 "median_gene_jaccard": float(detail["gene_jaccard"].median()),
-                "mean_gene_jaccard_nonempty": float(overall_nonempty["gene_jaccard"].mean()) if not overall_nonempty.empty else float("nan"),
-                "median_gene_jaccard_nonempty": float(overall_nonempty["gene_jaccard"].median()) if not overall_nonempty.empty else float("nan"),
+                "mean_gene_jaccard_nonempty": float(overall_nonempty["gene_jaccard"].mean())
+                if not overall_nonempty.empty
+                else float("nan"),
+                "median_gene_jaccard_nonempty": float(overall_nonempty["gene_jaccard"].median())
+                if not overall_nonempty.empty
+                else float("nan"),
                 "mean_class_jaccard": float(detail["class_jaccard"].mean()),
                 "median_class_jaccard": float(detail["class_jaccard"].median()),
-                "mean_class_jaccard_nonempty": float(overall_nonempty["class_jaccard"].mean()) if not overall_nonempty.empty else float("nan"),
-                "median_class_jaccard_nonempty": float(overall_nonempty["class_jaccard"].median()) if not overall_nonempty.empty else float("nan"),
+                "mean_class_jaccard_nonempty": float(overall_nonempty["class_jaccard"].mean())
+                if not overall_nonempty.empty
+                else float("nan"),
+                "median_class_jaccard_nonempty": float(overall_nonempty["class_jaccard"].median())
+                if not overall_nonempty.empty
+                else float("nan"),
                 "mean_shared_gene_count": float(detail["shared_gene_count"].mean()),
                 "mean_shared_class_count": float(detail["shared_class_count"].mean()),
             }

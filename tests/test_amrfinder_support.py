@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 import pandas as pd
-
 
 from plasmid_priority.reporting.amrfinder_support import (
     build_amrfinder_concordance_tables,
@@ -71,9 +70,18 @@ class AmrFinderSupportTests(unittest.TestCase):
         detail, summary = build_amrfinder_concordance_tables(panel, amr_consensus, amrfinder_probe)
         self.assertAlmostEqual(float(detail.iloc[0]["gene_jaccard"]), 2 / 3)
         self.assertAlmostEqual(float(detail.iloc[0]["class_jaccard"]), 2 / 3)
-        self.assertEqual(int(summary.loc[summary["priority_group"] == "high", "n_with_any_amr_evidence"].iloc[0]), 1)
+        self.assertEqual(
+            int(
+                summary.loc[summary["priority_group"] == "high", "n_with_any_amr_evidence"].iloc[0]
+            ),
+            1,
+        )
         self.assertAlmostEqual(
-            float(summary.loc[summary["priority_group"] == "high", "mean_gene_jaccard_nonempty"].iloc[0]),
+            float(
+                summary.loc[summary["priority_group"] == "high", "mean_gene_jaccard_nonempty"].iloc[
+                    0
+                ]
+            ),
             2 / 3,
         )
         self.assertEqual(summary.iloc[-1]["priority_group"], "overall")
@@ -111,12 +119,24 @@ class AmrFinderSupportTests(unittest.TestCase):
         self.assertEqual(int(detail.iloc[0]["amrfinder_hit_count"]), 0)
         self.assertFalse(bool(detail.iloc[0]["amrfinder_any_hit"]))
         self.assertTrue(bool(detail.iloc[0]["any_amr_evidence"]))
-        self.assertEqual(int(summary.loc[summary["priority_group"] == "low", "n_with_any_amr_evidence"].iloc[0]), 1)
         self.assertEqual(
-            float(summary.loc[summary["priority_group"] == "low", "mean_gene_jaccard_nonempty"].iloc[0]),
+            int(summary.loc[summary["priority_group"] == "low", "n_with_any_amr_evidence"].iloc[0]),
+            1,
+        )
+        self.assertEqual(
+            float(
+                summary.loc[summary["priority_group"] == "low", "mean_gene_jaccard_nonempty"].iloc[
+                    0
+                ]
+            ),
             0.0,
         )
-        self.assertEqual(float(summary.loc[summary["priority_group"] == "low", "mean_shared_gene_count"].iloc[0]), 0.0)
+        self.assertEqual(
+            float(
+                summary.loc[summary["priority_group"] == "low", "mean_shared_gene_count"].iloc[0]
+            ),
+            0.0,
+        )
 
     def test_write_selected_fasta_records_extracts_requested_accessions(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

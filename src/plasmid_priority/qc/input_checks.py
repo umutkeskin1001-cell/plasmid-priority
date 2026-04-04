@@ -110,7 +110,11 @@ def _check_amrfinder_release(path: Path) -> list[str]:
     if not release_dirs:
         return ["No AMRFinder release directory found."]
     release_dir = release_dirs[-1]
-    missing = [name for name in ("version.txt", "AMRProt.fa", "AMR_CDS.fa") if not (release_dir / name).exists()]
+    missing = [
+        name
+        for name in ("version.txt", "AMRProt.fa", "AMR_CDS.fa")
+        if not (release_dir / name).exists()
+    ]
     if missing:
         return [f"Latest AMRFinder release {release_dir.name} is missing: {', '.join(missing)}."]
     return [f"Using AMRFinder release {release_dir.name}."]
@@ -118,9 +122,7 @@ def _check_amrfinder_release(path: Path) -> list[str]:
 
 def _check_blast_index_siblings(path: Path) -> list[str]:
     missing = [
-        suffix
-        for suffix in BLAST_INDEX_SUFFIXES
-        if not list(path.parent.glob(f"*{suffix}"))
+        suffix for suffix in BLAST_INDEX_SUFFIXES if not list(path.parent.glob(f"*{suffix}"))
     ]
     if missing:
         return [f"Missing BLAST index suffixes in directory: {', '.join(missing)}"]
@@ -172,7 +174,10 @@ def _run_asset_specific_checks(asset: DataAssetSpec, path: Path) -> tuple[str, l
         if any(detail.startswith("Missing BLAST") for detail in blast_details):
             status = "error"
 
-    if asset.key in {"plsdb_sequences_fasta", "refseq_plasmids_fasta", "bronze_all_plasmids_fasta"} and path.exists():
+    if (
+        asset.key in {"plsdb_sequences_fasta", "refseq_plasmids_fasta", "bronze_all_plasmids_fasta"}
+        and path.exists()
+    ):
         details.extend(_check_fasta_header(path))
 
     if asset.key == "plsdb_meta_tables_dir":

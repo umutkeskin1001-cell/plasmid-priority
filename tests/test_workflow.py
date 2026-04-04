@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 import sys
 import unittest
-
+from pathlib import Path
+from unittest import mock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
@@ -50,6 +50,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("29_build_experiment_registry", names)
         release_step = next(step for step in steps if step.name == "28_build_release_bundle")
         self.assertEqual(release_step.deps, ("24_build_reports", "25_export_tubitak_summary"))
+
+    def test_auto_job_cap_splits_cpu_budget_across_workers(self) -> None:
+        with mock.patch.object(run_workflow_script.os, "cpu_count", return_value=12):
+            self.assertEqual(run_workflow_script._auto_job_cap(4), 3)
+            self.assertEqual(run_workflow_script._auto_job_cap(1), 8)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+priority_group	n_sequences	n_with_amrfinder_hits	n_with_any_amr_evidence	mean_gene_jaccard	median_gene_jaccard	mean_gene_jaccard_nonempty	median_gene_jaccard_nonempty	mean_class_jaccard	median_class_jaccard	mean_class_jaccard_nonempty	median_class_jaccard_nonempty	mean_shared_gene_count	mean_shared_class_count
+high	20	16	16	0.7353116883116884	0.8452380952380952	0.6691396103896103	0.72	0.7493315018315019	0.9375	0.6866643772893772	0.8516483516483516	4.85	3.05
+low	20	2	4	0.8949999999999999	1.0	0.475	0.45	0.9	1.0	0.5	0.5	0.6	0.55
+overall	40	18	20	0.8151558441558443	1.0	0.6303116883116883	0.72	0.824665750915751	1.0	0.6493315018315018	0.8516483516483516	2.725	1.8

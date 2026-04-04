@@ -3,8 +3,9 @@ from __future__ import annotations
 import importlib.util
 import json
 import tempfile
-from pathlib import Path
+import time
 import unittest
+from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,12 +19,285 @@ _BUILD_REPORTS_SPEC.loader.exec_module(build_reports_script)
 
 from plasmid_priority.config import build_context
 from plasmid_priority.reporting import ManagedScriptRun
-from plasmid_priority.reporting.model_audit import build_candidate_risk_table, build_threshold_flip_table
-from plasmid_priority.reporting.figures import _candidate_tick_label
-from plasmid_priority.utils.files import atomic_write_json
+from plasmid_priority.reporting.figures import (
+    _candidate_tick_label,
+    plot_calibration_threshold_summary,
+)
+from plasmid_priority.reporting.model_audit import (
+    build_candidate_risk_table,
+    build_threshold_flip_table,
+)
+from plasmid_priority.utils.files import (
+    atomic_write_json,
+    load_signature_manifest,
+    write_signature_manifest,
+)
 
 
 class ReportingTests(unittest.TestCase):
+    def test_report_model_metrics_keeps_audit_models_and_marks_official_surface(self) -> None:
+        import pandas as pd
+
+        model_metrics = pd.DataFrame(
+            [
+                {
+                    "model_name": "primary_model",
+                    "status": "ok",
+                    "roc_auc": 0.83,
+                    "average_precision": 0.77,
+                    "brier_score": 0.16,
+                    "positive_prevalence": 0.36,
+                    "n_backbones": 100,
+                    "n_positive": 36,
+                },
+                {
+                    "model_name": "governance_model",
+                    "status": "ok",
+                    "roc_auc": 0.79,
+                    "average_precision": 0.71,
+                    "brier_score": 0.17,
+                    "positive_prevalence": 0.36,
+                    "n_backbones": 100,
+                    "n_positive": 36,
+                },
+                {
+                    "model_name": "baseline_both",
+                    "status": "ok",
+                    "roc_auc": 0.72,
+                    "average_precision": 0.65,
+                    "brier_score": 0.19,
+                    "positive_prevalence": 0.36,
+                    "n_backbones": 100,
+                    "n_positive": 36,
+                },
+                {
+                    "model_name": "audit_only_model",
+                    "status": "ok",
+                    "roc_auc": 0.81,
+                    "average_precision": 0.73,
+                    "brier_score": 0.18,
+                    "positive_prevalence": 0.36,
+                    "n_backbones": 100,
+                    "n_positive": 36,
+                },
+            ]
+        )
+        confirmatory = pd.DataFrame(
+            [
+                {
+                    "cohort_name": "confirmatory_internal",
+                    "model_name": "primary_model",
+                    "status": "ok",
+                    "roc_auc": 0.78,
+                    "average_precision": 0.66,
+                    "brier_score": 0.15,
+                    "positive_prevalence": 0.30,
+                    "n_backbones": 70,
+                    "n_positive": 21,
+                    "share_of_primary_eligible": 0.70,
+                }
+            ]
+        )
+
+        result = build_reports_script._build_report_model_metrics(
+            model_metrics,
+            confirmatory_cohort_summary=confirmatory,
+            primary_model_name="primary_model",
+            governance_model_name="governance_model",
+        )
+
+        self.assertEqual(
+            result["model_name"].head(4).tolist(),
+            [
+                "primary_model",
+                "governance_model",
+                "baseline_both",
+                "internal_high_integrity_subset_primary_model",
+            ],
+        )
+        self.assertIn("audit_only_model", set(result["model_name"].astype(str)))
+        self.assertIn("brier_skill_score", result.columns)
+        self.assertIn("report_visibility", result.columns)
+        primary_row = result.loc[result["model_name"] == "primary_model"].iloc[0]
+        audit_row = result.loc[result["model_name"] == "audit_only_model"].iloc[0]
+        self.assertAlmostEqual(float(primary_row["brier_skill_score"]), 1.0 - (0.16 / (0.36 * 0.64)))
+        self.assertEqual(str(primary_row["report_visibility"]), "official")
+        self.assertEqual(str(audit_row["report_visibility"]), "audit_only")
+
+    def test_headline_validation_summary_uses_internal_subset_label(self) -> None:
+        import pandas as pd
+
+        model_metrics = pd.DataFrame(
+            [
+                {"model_name": "primary_model", "roc_auc": 0.83, "average_precision": 0.77},
+                {"model_name": "governance_model", "roc_auc": 0.79, "average_precision": 0.71},
+                {"model_name": "baseline_both", "roc_auc": 0.72, "average_precision": 0.65},
+                {
+                    "model_name": "internal_high_integrity_subset_primary_model",
+                    "roc_auc": 0.78,
+                    "average_precision": 0.66,
+                },
+            ]
+        )
+        blocked_holdout = pd.DataFrame(
+            [
+                {
+                    "model_name": "primary_model",
+                    "blocked_holdout_group_columns": "dominant_source,dominant_region_train",
+                    "blocked_holdout_roc_auc": 0.74,
+                    "blocked_holdout_group_count": 5,
+                    "worst_blocked_holdout_group": "dominant_region_train:Asia",
+                    "worst_blocked_holdout_group_roc_auc": 0.70,
+                }
+            ]
+        )
+        country_missingness_bounds = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "eligible_for_country_bounds": True,
+                    "label_observed": 1,
+                    "label_midpoint": 1,
+                    "label_optimistic": 1,
+                    "label_weighted": 1,
+                },
+                {
+                    "backbone_id": "bb2",
+                    "eligible_for_country_bounds": True,
+                    "label_observed": 0,
+                    "label_midpoint": 1,
+                    "label_optimistic": 1,
+                    "label_weighted": 0,
+                },
+            ]
+        )
+        country_missingness_sensitivity = pd.DataFrame(
+            [
+                {
+                    "model_name": "primary_model",
+                    "outcome_name": "label_observed",
+                    "roc_auc": 0.74,
+                    "average_precision": 0.63,
+                },
+                {
+                    "model_name": "primary_model",
+                    "outcome_name": "label_midpoint",
+                    "roc_auc": 0.77,
+                    "average_precision": 0.66,
+                },
+                {
+                    "model_name": "primary_model",
+                    "outcome_name": "label_optimistic",
+                    "roc_auc": 0.78,
+                    "average_precision": 0.68,
+                },
+                {
+                    "model_name": "primary_model",
+                    "outcome_name": "label_weighted",
+                    "roc_auc": 0.75,
+                    "average_precision": 0.64,
+                },
+            ]
+        )
+
+        result = build_reports_script._build_headline_validation_summary(
+            model_metrics,
+            primary_model_name="primary_model",
+            governance_model_name="governance_model",
+        )
+
+        self.assertIn("internal_high_integrity_subset", result["summary_label"].tolist())
+        self.assertIn("scientific_acceptance_status", result.columns)
+        self.assertIn("scientific_acceptance_failed_criteria", result.columns)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "headline_validation_summary.md"
+            build_reports_script._write_headline_validation_summary(
+                output_path,
+                result,
+                primary_model_name="primary_model",
+                governance_model_name="governance_model",
+                blocked_holdout_summary=blocked_holdout,
+                country_missingness_bounds=country_missingness_bounds,
+                country_missingness_sensitivity=country_missingness_sensitivity,
+            )
+            content = output_path.read_text(encoding="utf-8")
+        self.assertIn("Blocked Holdout Audit", content)
+        self.assertIn("dominant_source + dominant_region_train", content)
+        self.assertIn("dominant_region_train:Asia", content)
+        self.assertIn("Country Missingness", content)
+        self.assertIn("country_missingness_bounds.tsv", content)
+        self.assertIn("country_missingness_sensitivity.tsv", content)
+
+    def test_weighting_sensitivity_table_uses_explicit_sample_weight_modes(self) -> None:
+        sensitivity = {
+            "default": {
+                "sample_weight_mode": "class_balanced",
+                "roc_auc": 0.81,
+                "average_precision": 0.74,
+                "average_precision_lift": 0.37,
+                "brier_score": 0.17,
+                "precision_at_top_25": 1.0,
+                "recall_at_top_25": 0.07,
+                "positive_prevalence": 0.36,
+            },
+            "class_plus_knownness_balanced_primary": {
+                "sample_weight_mode": "class_balanced+knownness_balanced",
+                "roc_auc": 0.80,
+                "average_precision": 0.73,
+                "average_precision_lift": 0.36,
+                "brier_score": 0.18,
+                "precision_at_top_25": 1.0,
+                "recall_at_top_25": 0.07,
+                "positive_prevalence": 0.36,
+            },
+            "knownness_balanced_primary": {
+                "sample_weight_mode": "knownness_balanced",
+                "roc_auc": 0.79,
+                "average_precision": 0.72,
+                "average_precision_lift": 0.35,
+                "brier_score": 0.16,
+                "precision_at_top_25": 0.96,
+                "recall_at_top_25": 0.06,
+                "positive_prevalence": 0.36,
+            },
+        }
+
+        result = build_reports_script._build_weighting_sensitivity_table(sensitivity)
+
+        self.assertEqual(
+            result["variant"].tolist(),
+            ["default", "class_plus_knownness_balanced_primary", "knownness_balanced_primary"],
+        )
+        self.assertEqual(
+            result["sample_weight_mode"].tolist(),
+            [
+                "class_balanced",
+                "class_balanced+knownness_balanced",
+                "knownness_balanced",
+            ],
+        )
+        self.assertEqual(result["brier_score"].tolist(), [0.17, 0.18, 0.16])
+
+    def test_l2_sensitivity_table_keeps_resolved_sample_weight_mode(self) -> None:
+        sensitivity = {
+            "primary_l2_0p5": {
+                "l2": 0.5,
+                "sample_weight_mode": "class_balanced+knownness_balanced",
+                "roc_auc": 0.81,
+                "average_precision": 0.74,
+                "average_precision_lift": 0.37,
+                "brier_score": 0.17,
+                "precision_at_top_25": 1.0,
+                "recall_at_top_25": 0.07,
+            }
+        }
+
+        result = build_reports_script._build_l2_sensitivity_table(sensitivity)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.loc[0, "sample_weight_mode"], "class_balanced+knownness_balanced")
+        self.assertEqual(float(result.loc[0, "brier_score"]), 0.17)
+
     def test_atomic_write_json_sanitizes_nan(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_path = Path(tmp_dir) / "payload.json"
@@ -40,7 +314,14 @@ class ReportingTests(unittest.TestCase):
             (root / "data/manifests").mkdir(parents=True)
             (root / "reports").mkdir()
             (root / "data/manifests/data_contract.json").write_text(
-                json.dumps({"version": 1, "created_on": "2026-03-22", "download_date": "2026-03-22", "assets": []}),
+                json.dumps(
+                    {
+                        "version": 1,
+                        "created_on": "2026-03-22",
+                        "download_date": "2026-03-22",
+                        "assets": [],
+                    }
+                ),
                 encoding="utf-8",
             )
             context = build_context(root)
@@ -50,6 +331,85 @@ class ReportingTests(unittest.TestCase):
             payload = json.loads(summary_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["status"], "ok")
             self.assertEqual(payload["notes"], ["hello"])
+
+    def test_signature_manifest_round_trip_and_invalidates_on_input_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            input_path = root / "input.tsv"
+            output_path = root / "output.tsv"
+            source_path = root / "script.py"
+            manifest_path = root / "cache.manifest.json"
+            input_path.write_text("a\n", encoding="utf-8")
+            output_path.write_text("result\n", encoding="utf-8")
+            source_path.write_text("print('x')\n", encoding="utf-8")
+            metadata = {"pipeline_settings": {"split_year": 2015}}
+
+            write_signature_manifest(
+                manifest_path,
+                input_paths=[input_path],
+                output_paths=[output_path],
+                source_paths=[source_path],
+                metadata=metadata,
+            )
+            self.assertTrue(
+                load_signature_manifest(
+                    manifest_path,
+                    input_paths=[input_path],
+                    source_paths=[source_path],
+                    metadata=metadata,
+                )
+            )
+
+            time.sleep(0.01)
+            input_path.write_text("b\n", encoding="utf-8")
+            self.assertFalse(
+                load_signature_manifest(
+                    manifest_path,
+                    input_paths=[input_path],
+                    source_paths=[source_path],
+                    metadata=metadata,
+                )
+            )
+
+    def test_signature_manifest_invalidates_on_nested_directory_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            input_dir = root / "db"
+            nested_dir = input_dir / "release"
+            output_path = root / "output.tsv"
+            source_path = root / "script.py"
+            manifest_path = root / "cache.manifest.json"
+            nested_dir.mkdir(parents=True)
+            (nested_dir / "index.tsv").write_text("a\n", encoding="utf-8")
+            output_path.write_text("result\n", encoding="utf-8")
+            source_path.write_text("print('x')\n", encoding="utf-8")
+
+            write_signature_manifest(
+                manifest_path,
+                input_paths=[input_dir],
+                output_paths=[output_path],
+                source_paths=[source_path],
+                metadata={},
+            )
+            self.assertTrue(
+                load_signature_manifest(
+                    manifest_path,
+                    input_paths=[input_dir],
+                    source_paths=[source_path],
+                    metadata={},
+                )
+            )
+
+            time.sleep(0.01)
+            (nested_dir / "index.tsv").write_text("b\n", encoding="utf-8")
+            self.assertFalse(
+                load_signature_manifest(
+                    manifest_path,
+                    input_paths=[input_dir],
+                    source_paths=[source_path],
+                    metadata={},
+                )
+            )
 
     def test_threshold_flip_table_handles_nan_inputs_and_recomputes_default_status(self) -> None:
         import pandas as pd
@@ -67,7 +427,9 @@ class ReportingTests(unittest.TestCase):
             ]
         )
 
-        result = build_threshold_flip_table(scored, candidate_ids=["AA001"], thresholds=(1, 2, 3, 4), default_threshold=3)
+        result = build_threshold_flip_table(
+            scored, candidate_ids=["AA001"], thresholds=(1, 2, 3, 4), default_threshold=3
+        )
 
         self.assertEqual(len(result), 1)
         self.assertEqual(int(result.loc[0, "member_count_train"]), 0)
@@ -116,11 +478,12 @@ class ReportingTests(unittest.TestCase):
             [
                 {
                     "portfolio_track": "novel_signal",
-                    "track_rank": 1,
-                    "backbone_id": "AA276",
-                    "member_count_train": 1,
-                    "n_countries_train": 1,
-                    "n_new_countries": 4,
+                "track_rank": 1,
+                "backbone_id": "AA276",
+                "uncertainty_review_tier": "review",
+                "member_count_train": 1,
+                "n_countries_train": 1,
+                "n_new_countries": 4,
                     "source_support_tier": "refseq_dominant",
                     "evidence_tier": "novelty_watchlist",
                     "action_tier": "low_confidence_backlog",
@@ -154,26 +517,199 @@ class ReportingTests(unittest.TestCase):
             ]
         )
         amr_consensus = pd.DataFrame(
-            [{"sequence_accession": "seq1", "amr_gene_symbols": "blaOXA-1", "amr_drug_classes": "BETA-LACTAM"}]
+            [
+                {
+                    "sequence_accession": "seq1",
+                    "amr_gene_symbols": "blaOXA-1",
+                    "amr_drug_classes": "BETA-LACTAM",
+                }
+            ]
         )
 
-        result = build_reports_script._build_candidate_brief_table(candidate_portfolio, backbones, amr_consensus)
+        result = build_reports_script._build_candidate_brief_table(
+            candidate_portfolio, backbones, amr_consensus
+        )
+        case_studies = build_reports_script._build_candidate_case_studies(result, per_track=1)
         summary_tr = str(result.loc[0, "candidate_summary_tr"])
 
         self.assertIn("coklu model uzlasi top-50", summary_tr)
         self.assertIn("ayri erken sinyal izleme hatti", summary_tr)
         self.assertNotIn("Consensus kisa listesinde", summary_tr)
+        self.assertIn("uncertainty_review_tier", result.columns)
+        self.assertEqual(str(result.loc[0, "uncertainty_review_tier"]), "review")
+        self.assertIn("uncertainty_review_tier", case_studies.columns)
+        self.assertEqual(str(case_studies.loc[0, "uncertainty_review_tier"]), "review")
+        self.assertIn("Belirsizlik inceleme seviyesi", str(result.loc[0, "candidate_summary_tr"]))
+
+    def test_plot_calibration_threshold_summary_writes_compact_figure(self) -> None:
+        import pandas as pd
+
+        calibration = pd.DataFrame(
+            [
+                {"mean_prediction": 0.12, "observed_rate": 0.10, "n_backbones": 12},
+                {"mean_prediction": 0.34, "observed_rate": 0.30, "n_backbones": 18},
+                {"mean_prediction": 0.66, "observed_rate": 0.70, "n_backbones": 22},
+            ]
+        )
+        threshold_sensitivity = pd.DataFrame(
+            [
+                {
+                    "new_country_threshold": 2,
+                    "roc_auc": 0.74,
+                    "roc_auc_ci_lower": 0.70,
+                    "roc_auc_ci_upper": 0.78,
+                    "average_precision": 0.63,
+                    "n_eligible_backbones": 120,
+                },
+                {
+                    "new_country_threshold": 3,
+                    "roc_auc": 0.77,
+                    "roc_auc_ci_lower": 0.73,
+                    "roc_auc_ci_upper": 0.81,
+                    "average_precision": 0.66,
+                    "n_eligible_backbones": 115,
+                },
+                {
+                    "new_country_threshold": 4,
+                    "roc_auc": 0.73,
+                    "roc_auc_ci_lower": 0.69,
+                    "roc_auc_ci_upper": 0.77,
+                    "average_precision": 0.61,
+                    "n_eligible_backbones": 108,
+                },
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "calibration_threshold_summary.png"
+            plot_calibration_threshold_summary(
+                calibration,
+                threshold_sensitivity,
+                output_path,
+                "primary_model",
+            )
+
+            self.assertTrue(output_path.exists())
+            self.assertGreater(output_path.stat().st_size, 0)
+
+    def test_candidate_evidence_matrix_combines_portfolio_and_threshold_context(self) -> None:
+        import pandas as pd
+
+        candidate_portfolio = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "AA001",
+                    "portfolio_track": "established_high_risk",
+                    "track_rank": 1,
+                    "candidate_confidence_tier": "tier_a",
+                    "evidence_tier": "tier_a",
+                    "action_tier": "core_surveillance",
+                    "false_positive_risk_tier": "low",
+                    "risk_flag_count": 1,
+                    "consensus_rank": 3,
+                    "consensus_support_count": 2,
+                    "primary_model_candidate_score": 0.91,
+                    "baseline_both_candidate_score": 0.72,
+                    "novelty_margin_vs_baseline": 0.19,
+                    "operational_risk_score": 0.84,
+                    "risk_spread_probability": 0.93,
+                    "risk_uncertainty": 0.12,
+                    "risk_decision_tier": "action",
+                    "risk_abstain_flag": False,
+                    "bootstrap_top_10_frequency": 0.9,
+                    "variant_top_10_frequency": 0.8,
+                    "external_support_modalities_count": 2,
+                    "source_support_tier": "cross_source_supported",
+                    "module_f_enriched_signature_count": 1,
+                    "n_new_countries": 4,
+                    "spread_label": 1,
+                }
+            ]
+        )
+        candidate_briefs = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "AA001",
+                    "dominant_genus": "Escherichia",
+                    "dominant_species": "Escherichia coli",
+                    "top_amr_classes": "BETA-LACTAM",
+                    "top_amr_genes": "blaCTX-M",
+                }
+            ]
+        )
+        candidate_threshold_flip = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "AA001",
+                    "threshold_flip_count": 2,
+                    "eligible_for_threshold_audit": True,
+                    "default_threshold": 3,
+                    "spread_label_default": 1,
+                    "label_ge_2": 1,
+                    "label_ge_3": 1,
+                    "label_ge_4": 0,
+                }
+            ]
+        )
+
+        matrix = build_reports_script._build_candidate_evidence_matrix(
+            candidate_portfolio,
+            candidate_briefs,
+            candidate_threshold_flip,
+        )
+
+        self.assertEqual(len(matrix), 1)
+        self.assertEqual(matrix.loc[0, "portfolio_track"], "established_high_risk")
+        self.assertEqual(int(matrix.loc[0, "threshold_flip_count"]), 2)
+        self.assertEqual(matrix.loc[0, "dominant_species"], "Escherichia coli")
+        self.assertEqual(matrix.loc[0, "top_amr_classes"], "BETA-LACTAM")
 
     def test_jury_brief_uses_guardrail_language_for_knownness_and_model_choice(self) -> None:
         import pandas as pd
 
         model_metrics = pd.DataFrame(
             [
-                {"model_name": "parsimonious_priority", "roc_auc": 0.765, "average_precision": 0.675},
-                {"model_name": "evidence_aware_priority", "roc_auc": 0.803, "average_precision": 0.731},
+                {
+                    "model_name": "parsimonious_priority",
+                    "roc_auc": 0.765,
+                    "average_precision": 0.675,
+                },
+                {
+                    "model_name": "evidence_aware_priority",
+                    "roc_auc": 0.803,
+                    "average_precision": 0.731,
+                },
                 {"model_name": "bio_clean_priority", "roc_auc": 0.768, "average_precision": 0.680},
                 {"model_name": "baseline_both", "roc_auc": 0.729, "average_precision": 0.651},
                 {"model_name": "source_only", "roc_auc": 0.448, "average_precision": 0.330},
+            ]
+        )
+        country_missingness_bounds = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "eligible_for_country_bounds": True,
+                    "label_observed": 1,
+                    "label_midpoint": 1,
+                    "label_optimistic": 1,
+                    "label_weighted": 1,
+                }
+            ]
+        )
+        country_missingness_sensitivity = pd.DataFrame(
+            [
+                {
+                    "model_name": "parsimonious_priority",
+                    "outcome_name": "label_observed",
+                    "roc_auc": 0.74,
+                    "average_precision": 0.63,
+                },
+                {
+                    "model_name": "parsimonious_priority",
+                    "outcome_name": "label_midpoint",
+                    "roc_auc": 0.77,
+                    "average_precision": 0.66,
+                },
             ]
         )
         family_summary = pd.DataFrame()
@@ -184,14 +720,41 @@ class ReportingTests(unittest.TestCase):
             ]
         )
         scored = pd.DataFrame({"backbone_id": ["bb1", "bb2"]})
-        candidate_portfolio = pd.DataFrame({"portfolio_track": ["established_high_risk", "novel_signal"]})
+        candidate_portfolio = pd.DataFrame(
+            {"portfolio_track": ["established_high_risk", "novel_signal"]}
+        )
         decision_yield = pd.DataFrame(
             [
-                {"model_name": "parsimonious_priority", "top_k": 10, "precision_at_k": 0.8, "recall_at_k": 0.022},
-                {"model_name": "parsimonious_priority", "top_k": 25, "precision_at_k": 0.92, "recall_at_k": 0.064},
-                {"model_name": "evidence_aware_priority", "top_k": 10, "precision_at_k": 1.0, "recall_at_k": 0.028},
-                {"model_name": "bio_clean_priority", "top_k": 10, "precision_at_k": 0.9, "recall_at_k": 0.025},
-                {"model_name": "baseline_both", "top_k": 10, "precision_at_k": 0.9, "recall_at_k": 0.025},
+                {
+                    "model_name": "parsimonious_priority",
+                    "top_k": 10,
+                    "precision_at_k": 0.8,
+                    "recall_at_k": 0.022,
+                },
+                {
+                    "model_name": "parsimonious_priority",
+                    "top_k": 25,
+                    "precision_at_k": 0.92,
+                    "recall_at_k": 0.064,
+                },
+                {
+                    "model_name": "evidence_aware_priority",
+                    "top_k": 10,
+                    "precision_at_k": 1.0,
+                    "recall_at_k": 0.028,
+                },
+                {
+                    "model_name": "bio_clean_priority",
+                    "top_k": 10,
+                    "precision_at_k": 0.9,
+                    "recall_at_k": 0.025,
+                },
+                {
+                    "model_name": "baseline_both",
+                    "top_k": 10,
+                    "precision_at_k": 0.9,
+                    "recall_at_k": 0.025,
+                },
             ]
         )
         model_selection_summary = pd.DataFrame(
@@ -201,7 +764,33 @@ class ReportingTests(unittest.TestCase):
                     "primary_vs_strongest_top_10_overlap_count": 0,
                     "primary_vs_strongest_top_25_overlap_count": 9,
                     "primary_vs_strongest_top_50_overlap_count": 26,
+                    "governance_primary_model": "evidence_aware_priority",
+                    "governance_selection_rationale": "governance track is kept separate from discovery so that guardrail loss, not headline AUC, governs the policy readout",
                 }
+            ]
+        )
+        model_selection_scorecard = pd.DataFrame(
+            [
+                {
+                    "model_name": "parsimonious_priority",
+                    "selection_rank": 2,
+                    "strict_knownness_acceptance_flag": True,
+                    "knownness_matched_gap": -0.002,
+                    "source_holdout_gap": -0.004,
+                    "guardrail_loss": 0.006,
+                    "governance_priority_score": 0.754,
+                    "leakage_review_required": False,
+                },
+                {
+                    "model_name": "evidence_aware_priority",
+                    "selection_rank": 1,
+                    "strict_knownness_acceptance_flag": False,
+                    "knownness_matched_gap": -0.018,
+                    "source_holdout_gap": -0.007,
+                    "guardrail_loss": 0.025,
+                    "governance_priority_score": 0.778,
+                    "leakage_review_required": False,
+                },
             ]
         )
         knownness_summary = pd.DataFrame(
@@ -233,6 +822,25 @@ class ReportingTests(unittest.TestCase):
                 }
             ]
         )
+        operational_risk_watchlist = pd.DataFrame(
+            [
+                {"backbone_id": "bb1", "risk_decision_tier": "action"},
+                {"backbone_id": "bb2", "risk_decision_tier": "review"},
+                {"backbone_id": "bb3", "risk_decision_tier": "abstain"},
+            ]
+        )
+        blocked_holdout = pd.DataFrame(
+            [
+                {
+                    "model_name": "parsimonious_priority",
+                    "blocked_holdout_group_columns": "dominant_source,dominant_region_train",
+                    "blocked_holdout_roc_auc": 0.76,
+                    "blocked_holdout_group_count": 4,
+                    "worst_blocked_holdout_group": "dominant_source:insd_leaning",
+                    "worst_blocked_holdout_group_roc_auc": 0.71,
+                }
+            ]
+        )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_path = Path(tmp_dir) / "jury_brief.md"
@@ -247,25 +855,358 @@ class ReportingTests(unittest.TestCase):
                 candidate_portfolio=candidate_portfolio,
                 decision_yield=decision_yield,
                 model_selection_summary=model_selection_summary,
+                model_selection_scorecard=model_selection_scorecard,
                 knownness_summary=knownness_summary,
                 source_balance_resampling=source_balance_resampling,
                 novelty_specialist_metrics=novelty_specialist_metrics,
                 adaptive_gated_metrics=adaptive_gated_metrics,
+                operational_risk_watchlist=operational_risk_watchlist,
                 outcome_threshold=3,
+                country_missingness_bounds=country_missingness_bounds,
+                country_missingness_sensitivity=country_missingness_sensitivity,
+                blocked_holdout_summary=blocked_holdout,
             )
             content = output_path.read_text(encoding="utf-8")
 
         self.assertIn("## Interpretation Guardrails", content)
         self.assertIn("## Formal Hypotheses", content)
         self.assertNotIn("## Why This Is Defensible", content)
+        self.assertIn("Discovery benchmark", content)
+        self.assertIn("Governance watch-only", content)
+        self.assertIn("Governance track", content)
         self.assertIn("top-25 overlap: `9/25`", content)
         self.assertIn("top-50 overlap: `26/50`", content)
         self.assertIn("shortlist-prioritization benchmark", content)
         self.assertIn("sampling saturation / knownness signals", content)
         self.assertIn("AMRFinder is optional", content)
         self.assertIn("adaptive_natural_priority", content)
+        self.assertIn("operational_risk_watchlist.tsv", content)
+        self.assertIn("Current operational watchlist mix", content)
         self.assertIn("## Zero-Floor Component Behavior", content)
         self.assertIn("## OLS Residual Approach", content)
+        self.assertIn("Only three models are official", content)
+        self.assertIn("No external validation claim is made", content)
+        self.assertIn("Blocked Holdout Audit", content)
+        self.assertIn("dominant_source + dominant_region_train", content)
+        self.assertIn("internal source/region stress test", content)
+        self.assertIn("## Release Surface", content)
+        self.assertIn("blocked_holdout_summary.tsv", content)
+        self.assertIn("calibration_threshold_summary.png", content)
+        self.assertIn("Country Missingness", content)
+        self.assertIn("country_missingness_bounds.tsv", content)
+        self.assertIn("country_missingness_sensitivity.tsv", content)
+
+        bundle_jury_brief = (
+            PROJECT_ROOT / "reports/release/bundle/reports/jury_brief.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("## Release Surface", bundle_jury_brief)
+        self.assertIn("blocked_holdout_summary.tsv", bundle_jury_brief)
+        self.assertIn("calibration_threshold_summary.png", bundle_jury_brief)
+        self.assertIn("Country Missingness", bundle_jury_brief)
+        self.assertIn("country_missingness_bounds.tsv", bundle_jury_brief)
+        self.assertIn("country_missingness_sensitivity.tsv", bundle_jury_brief)
+
+    def test_executive_summary_reports_confirmatory_cohort_and_case_studies(self) -> None:
+        import pandas as pd
+
+        model_metrics = pd.DataFrame(
+            [
+                {"model_name": "seer_model", "roc_auc": 0.82, "average_precision": 0.74},
+                {"model_name": "guard_model", "roc_auc": 0.79, "average_precision": 0.70},
+                {"model_name": "baseline_both", "roc_auc": 0.72, "average_precision": 0.65},
+            ]
+        )
+        country_missingness_bounds = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "eligible_for_country_bounds": True,
+                    "label_observed": 1,
+                    "label_midpoint": 1,
+                    "label_optimistic": 1,
+                    "label_weighted": 1,
+                }
+            ]
+        )
+        country_missingness_sensitivity = pd.DataFrame(
+            [
+                {
+                    "model_name": "seer_model",
+                    "outcome_name": "label_observed",
+                    "roc_auc": 0.74,
+                    "average_precision": 0.63,
+                },
+                {
+                    "model_name": "seer_model",
+                    "outcome_name": "label_midpoint",
+                    "roc_auc": 0.77,
+                    "average_precision": 0.66,
+                },
+            ]
+        )
+        confirmatory = pd.DataFrame(
+            [
+                {
+                    "cohort_name": "confirmatory_internal",
+                    "model_name": "seer_model",
+                    "status": "ok",
+                    "n_backbones": 42,
+                    "roc_auc": 0.81,
+                    "average_precision": 0.72,
+                    "share_of_primary_eligible": 0.35,
+                }
+            ]
+        )
+        false_negative_audit = pd.DataFrame(
+            [{"backbone_id": "bb1", "miss_driver_flags": "low_knownness,threshold_fragile"}]
+        )
+        case_studies = pd.DataFrame([{"backbone_id": "bb1"}])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "executive_summary.md"
+            build_reports_script._write_executive_summary(
+                output_path,
+                primary_model_name="seer_model",
+                governance_model_name="guard_model",
+                baseline_model_name="baseline_both",
+                model_metrics=model_metrics,
+                confirmatory_cohort_summary=confirmatory,
+                false_negative_audit=false_negative_audit,
+                candidate_case_studies=case_studies,
+                country_missingness_bounds=country_missingness_bounds,
+                country_missingness_sensitivity=country_missingness_sensitivity,
+                blocked_holdout_summary=pd.DataFrame(
+                    [
+                        {
+                            "model_name": "seer_model",
+                            "blocked_holdout_group_columns": "dominant_source,dominant_region_train",
+                            "blocked_holdout_roc_auc": 0.77,
+                            "blocked_holdout_group_count": 3,
+                            "worst_blocked_holdout_group": "dominant_region_train:Europe",
+                            "worst_blocked_holdout_group_roc_auc": 0.71,
+                        }
+                    ]
+                ),
+            )
+            content = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("The Seer", content)
+        self.assertIn("The Guard", content)
+        self.assertIn("No external validation claim is made", content)
+        self.assertIn("Internal high-integrity subset audit", content)
+        self.assertIn("candidate_case_studies.tsv", content)
+        self.assertIn("blocked_holdout_summary.tsv", content)
+        self.assertIn("calibration_threshold_summary.png", content)
+        self.assertIn("Country Missingness", content)
+        self.assertIn("country_missingness_bounds.tsv", content)
+        self.assertIn("country_missingness_sensitivity.tsv", content)
+
+    def test_turkish_summary_reports_release_surface_assets(self) -> None:
+        import pandas as pd
+
+        model_metrics = pd.DataFrame(
+            [
+                {
+                    "model_name": "seer_model",
+                    "roc_auc": 0.82,
+                    "average_precision": 0.74,
+                    "brier_skill_score": 0.19,
+                },
+                {
+                    "model_name": "guard_model",
+                    "roc_auc": 0.79,
+                    "average_precision": 0.70,
+                    "brier_skill_score": 0.17,
+                },
+                {
+                    "model_name": "baseline_both",
+                    "roc_auc": 0.72,
+                    "average_precision": 0.65,
+                    "brier_skill_score": 0.0,
+                },
+            ]
+        )
+        country_missingness_bounds = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "eligible_for_country_bounds": True,
+                    "label_observed": 1,
+                    "label_midpoint": 1,
+                    "label_optimistic": 1,
+                    "label_weighted": 1,
+                }
+            ]
+        )
+        country_missingness_sensitivity = pd.DataFrame(
+            [
+                {
+                    "model_name": "seer_model",
+                    "outcome_name": "label_observed",
+                    "roc_auc": 0.74,
+                    "average_precision": 0.63,
+                },
+                {
+                    "model_name": "seer_model",
+                    "outcome_name": "label_midpoint",
+                    "roc_auc": 0.77,
+                    "average_precision": 0.66,
+                },
+            ]
+        )
+        blocked_holdout = pd.DataFrame(
+            [
+                {
+                    "model_name": "seer_model",
+                    "blocked_holdout_group_columns": "dominant_source,dominant_region_train",
+                    "blocked_holdout_roc_auc": 0.77,
+                    "blocked_holdout_group_count": 3,
+                    "worst_blocked_holdout_group": "dominant_region_train:Europe",
+                    "worst_blocked_holdout_group_roc_auc": 0.71,
+                }
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "ozet_tr.md"
+            build_reports_script._write_turkish_summary(
+                output_path,
+                primary_model_name="seer_model",
+                conservative_model_name="guard_model",
+                model_metrics=model_metrics,
+                candidate_briefs=pd.DataFrame(),
+                candidate_portfolio=pd.DataFrame(),
+                decision_yield=pd.DataFrame(),
+                model_selection_summary=pd.DataFrame(),
+                knownness_summary=pd.DataFrame(),
+                source_balance_resampling=pd.DataFrame(),
+                novelty_specialist_metrics=pd.DataFrame(),
+                adaptive_gated_metrics=pd.DataFrame(),
+                outcome_threshold=3,
+                blocked_holdout_summary=blocked_holdout,
+                country_missingness_bounds=country_missingness_bounds,
+                country_missingness_sensitivity=country_missingness_sensitivity,
+            )
+            content = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("## Sürüm Yüzeyi", content)
+        self.assertIn("blocked_holdout_summary.tsv", content)
+        self.assertIn("calibration_threshold_summary.png", content)
+        self.assertIn("bloke edilmiş holdout denetimi", content)
+        self.assertIn("dominant_source + dominant_region_train", content)
+        self.assertIn("country_missingness_bounds.tsv", content)
+        self.assertIn("country_missingness_sensitivity.tsv", content)
+        self.assertIn("ülke eksikliği varsayımlarına göre", content)
+
+    def test_operational_risk_watchlist_prefers_action_rows_and_keeps_primary_model(self) -> None:
+        import pandas as pd
+
+        risk_dictionary = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "model_name": "primary_model",
+                    "operational_risk_score": 0.91,
+                    "risk_spread_probability": 0.88,
+                    "risk_event_within_3y": 0.82,
+                    "risk_macro_region_jump_3y": 0.79,
+                    "risk_three_countries_within_5y": 0.76,
+                    "risk_uncertainty": 0.20,
+                    "risk_decision_tier": "action",
+                    "knownness_score": 0.4,
+                    "source_band": "source_mixed",
+                },
+                {
+                    "backbone_id": "bb2",
+                    "model_name": "primary_model",
+                    "operational_risk_score": 0.85,
+                    "risk_spread_probability": 0.80,
+                    "risk_event_within_3y": 0.75,
+                    "risk_macro_region_jump_3y": 0.60,
+                    "risk_three_countries_within_5y": 0.55,
+                    "risk_uncertainty": 0.15,
+                    "risk_decision_tier": "review",
+                    "knownness_score": 0.7,
+                    "source_band": "cross_source_supported",
+                },
+                {
+                    "backbone_id": "bb3",
+                    "model_name": "other_model",
+                    "operational_risk_score": 0.99,
+                    "risk_spread_probability": 0.99,
+                    "risk_event_within_3y": 0.99,
+                    "risk_macro_region_jump_3y": 0.99,
+                    "risk_three_countries_within_5y": 0.99,
+                    "risk_uncertainty": 0.05,
+                    "risk_decision_tier": "action",
+                },
+            ]
+        )
+        candidate_portfolio = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "portfolio_track": "established_high_risk",
+                    "track_rank": 1,
+                    "candidate_confidence_tier": "tier_a",
+                },
+                {
+                    "backbone_id": "bb2",
+                    "portfolio_track": "novel_signal",
+                    "track_rank": 1,
+                    "candidate_confidence_tier": "watchlist",
+                },
+            ]
+        )
+
+        watchlist = build_reports_script._build_operational_risk_watchlist(
+            risk_dictionary,
+            primary_model_name="primary_model",
+            candidate_portfolio=candidate_portfolio,
+            top_k=10,
+        )
+
+        self.assertEqual(watchlist["backbone_id"].tolist(), ["bb1", "bb2"])
+        self.assertEqual(str(watchlist.loc[0, "risk_decision_tier"]), "action")
+        self.assertIn("portfolio_track", watchlist.columns)
+
+    def test_operational_risk_watchlist_is_tiered_across_action_review_abstain(self) -> None:
+        import pandas as pd
+
+        risk_dictionary = pd.DataFrame(
+            [
+                {
+                    "backbone_id": f"bb{i}",
+                    "model_name": "primary_model",
+                    "operational_risk_score": 0.95 - i * 0.01,
+                    "risk_spread_probability": 0.90 - i * 0.01,
+                    "risk_event_within_3y": 0.80 - i * 0.01,
+                    "risk_macro_region_jump_3y": 0.75 - i * 0.01,
+                    "risk_three_countries_within_5y": 0.70 - i * 0.01,
+                    "risk_uncertainty": 0.10 + i * 0.02,
+                    "risk_uncertainty_quantile": 0.10 + i * 0.08,
+                    "risk_decision_tier": "action" if i < 6 else "review" if i < 10 else "abstain",
+                    "knownness_score": 0.5,
+                    "source_band": "source_mixed",
+                }
+                for i in range(12)
+            ]
+        )
+
+        watchlist = build_reports_script._build_operational_risk_watchlist(
+            risk_dictionary,
+            primary_model_name="primary_model",
+            top_k=6,
+        )
+
+        self.assertEqual(len(watchlist), 6)
+        self.assertIn("risk_uncertainty_quantile", watchlist.columns)
+        self.assertTrue(
+            {"action", "review", "abstain"}.issubset(
+                set(watchlist["risk_decision_tier"].astype(str))
+            )
+        )
+        self.assertEqual(watchlist["operational_risk_rank"].tolist(), list(range(1, 7)))
 
     def test_candidate_multiverse_stability_requires_more_than_threshold_only_signal(self) -> None:
         import pandas as pd
@@ -292,8 +1233,16 @@ class ReportingTests(unittest.TestCase):
         )
         candidate_threshold_flip = pd.DataFrame(
             [
-                {"backbone_id": "AA001", "threshold_flip_count": 0, "eligible_for_threshold_audit": True},
-                {"backbone_id": "AA002", "threshold_flip_count": 0, "eligible_for_threshold_audit": True},
+                {
+                    "backbone_id": "AA001",
+                    "threshold_flip_count": 0,
+                    "eligible_for_threshold_audit": True,
+                },
+                {
+                    "backbone_id": "AA002",
+                    "threshold_flip_count": 0,
+                    "eligible_for_threshold_audit": True,
+                },
             ]
         )
 
@@ -307,7 +1256,9 @@ class ReportingTests(unittest.TestCase):
 
         self.assertAlmostEqual(float(threshold_only["bootstrap_top_25_frequency"]), 0.0)
         self.assertAlmostEqual(float(threshold_only["variant_top_25_frequency"]), 0.0)
-        self.assertAlmostEqual(float(threshold_only["multiverse_stability_score"]), 1.0 / 3.0, places=6)
+        self.assertAlmostEqual(
+            float(threshold_only["multiverse_stability_score"]), 1.0 / 3.0, places=6
+        )
         self.assertEqual(str(threshold_only["multiverse_stability_tier"]), "fragile")
         self.assertEqual(int(threshold_only["multiverse_component_count"]), 3)
 

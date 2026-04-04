@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from pathlib import Path
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,6 +20,7 @@ class WorkflowStep:
     script: str
     deps: tuple[str, ...] = ()
     args: tuple[str, ...] = ()
+    env: tuple[tuple[str, str], ...] = ()
 
 
 STEP_LIBRARY: dict[str, WorkflowStep] = {
@@ -41,19 +42,47 @@ STEP_LIBRARY: dict[str, WorkflowStep] = {
         "04_harmonize_metadata.py",
         deps=("03_build_bronze_table",),
     ),
-    "05_deduplicate": WorkflowStep("05_deduplicate", "05_deduplicate.py", deps=("04_harmonize_metadata",)),
-    "06_annotate_mobility": WorkflowStep("06_annotate_mobility", "06_annotate_mobility.py", deps=("05_deduplicate",)),
-    "07_annotate_amr": WorkflowStep("07_annotate_amr", "07_annotate_amr.py", deps=("06_annotate_mobility",)),
-    "08_build_amr_consensus": WorkflowStep("08_build_amr_consensus", "08_build_amr_consensus.py", deps=("07_annotate_amr",)),
-    "09_assign_backbones": WorkflowStep("09_assign_backbones", "09_assign_backbones.py", deps=("08_build_amr_consensus",)),
-    "10_compute_coherence": WorkflowStep("10_compute_coherence", "10_compute_coherence.py", deps=("09_assign_backbones",)),
-    "11_compute_feature_T": WorkflowStep("11_compute_feature_T", "11_compute_feature_T.py", deps=("10_compute_coherence",)),
-    "12_compute_feature_H": WorkflowStep("12_compute_feature_H", "12_compute_feature_H.py", deps=("11_compute_feature_T",)),
-    "13_compute_feature_A": WorkflowStep("13_compute_feature_A", "13_compute_feature_A.py", deps=("12_compute_feature_H",)),
-    "14_build_backbone_table": WorkflowStep("14_build_backbone_table", "14_build_backbone_table.py", deps=("13_compute_feature_A",)),
-    "15_normalize_and_score": WorkflowStep("15_normalize_and_score", "15_normalize_and_score.py", deps=("14_build_backbone_table",)),
-    "16_run_module_A": WorkflowStep("16_run_module_A", "16_run_module_A.py", deps=("15_normalize_and_score",)),
-    "17_run_module_B": WorkflowStep("17_run_module_B", "17_run_module_B.py", deps=("15_normalize_and_score",)),
+    "05_deduplicate": WorkflowStep(
+        "05_deduplicate", "05_deduplicate.py", deps=("04_harmonize_metadata",)
+    ),
+    "06_annotate_mobility": WorkflowStep(
+        "06_annotate_mobility", "06_annotate_mobility.py", deps=("05_deduplicate",)
+    ),
+    "07_annotate_amr": WorkflowStep(
+        "07_annotate_amr", "07_annotate_amr.py", deps=("06_annotate_mobility",)
+    ),
+    "08_build_amr_consensus": WorkflowStep(
+        "08_build_amr_consensus", "08_build_amr_consensus.py", deps=("07_annotate_amr",)
+    ),
+    "09_assign_backbones": WorkflowStep(
+        "09_assign_backbones", "09_assign_backbones.py", deps=("08_build_amr_consensus",)
+    ),
+    "10_compute_coherence": WorkflowStep(
+        "10_compute_coherence", "10_compute_coherence.py", deps=("09_assign_backbones",)
+    ),
+    "11_compute_feature_T": WorkflowStep(
+        "11_compute_feature_T", "11_compute_feature_T.py", deps=("10_compute_coherence",)
+    ),
+    "12_compute_feature_H": WorkflowStep(
+        "12_compute_feature_H", "12_compute_feature_H.py", deps=("11_compute_feature_T",)
+    ),
+    "13_compute_feature_A": WorkflowStep(
+        "13_compute_feature_A", "13_compute_feature_A.py", deps=("12_compute_feature_H",)
+    ),
+    "14_build_backbone_table": WorkflowStep(
+        "14_build_backbone_table", "14_build_backbone_table.py", deps=("13_compute_feature_A",)
+    ),
+    "15_normalize_and_score": WorkflowStep(
+        "15_normalize_and_score", "15_normalize_and_score.py", deps=("14_build_backbone_table",)
+    ),
+    "16_run_module_A": WorkflowStep(
+        "16_run_module_A",
+        "16_run_module_A.py",
+        deps=("15_normalize_and_score",),
+    ),
+    "17_run_module_B": WorkflowStep(
+        "17_run_module_B", "17_run_module_B.py", deps=("15_normalize_and_score",)
+    ),
     "18_run_module_C_pathogen_detection": WorkflowStep(
         "18_run_module_C_pathogen_detection",
         "18_run_module_C_pathogen_detection.py",
@@ -69,10 +98,22 @@ STEP_LIBRARY: dict[str, WorkflowStep] = {
         "20_run_module_E_amrfinder_concordance.py",
         deps=("16_run_module_A",),
     ),
-    "21_run_validation": WorkflowStep("21_run_validation", "21_run_validation.py", deps=("16_run_module_A",)),
-    "22_run_sensitivity": WorkflowStep("22_run_sensitivity", "22_run_sensitivity.py", deps=("15_normalize_and_score",)),
-    "23_run_module_f_enrichment": WorkflowStep("23_run_module_f_enrichment", "23_run_module_f_enrichment.py", deps=("15_normalize_and_score",)),
-    "27_run_advanced_audits": WorkflowStep("27_run_advanced_audits", "27_run_advanced_audits.py", deps=("21_run_validation",)),
+    "21_run_validation": WorkflowStep(
+        "21_run_validation", "21_run_validation.py", deps=("16_run_module_A",)
+    ),
+    "22_run_sensitivity": WorkflowStep(
+        "22_run_sensitivity",
+        "22_run_sensitivity.py",
+        deps=("15_normalize_and_score",),
+    ),
+    "23_run_module_f_enrichment": WorkflowStep(
+        "23_run_module_f_enrichment",
+        "23_run_module_f_enrichment.py",
+        deps=("15_normalize_and_score",),
+    ),
+    "27_run_advanced_audits": WorkflowStep(
+        "27_run_advanced_audits", "27_run_advanced_audits.py", deps=("21_run_validation",)
+    ),
     "24_build_reports": WorkflowStep(
         "24_build_reports",
         "24_build_reports.py",
@@ -87,13 +128,17 @@ STEP_LIBRARY: dict[str, WorkflowStep] = {
             "27_run_advanced_audits",
         ),
     ),
-    "25_export_tubitak_summary": WorkflowStep("25_export_tubitak_summary", "25_export_tubitak_summary.py", deps=("24_build_reports",)),
+    "25_export_tubitak_summary": WorkflowStep(
+        "25_export_tubitak_summary", "25_export_tubitak_summary.py", deps=("24_build_reports",)
+    ),
     "28_build_release_bundle": WorkflowStep(
         "28_build_release_bundle",
         "28_build_release_bundle.py",
         deps=("24_build_reports", "25_export_tubitak_summary"),
     ),
-    "29_build_experiment_registry": WorkflowStep("29_build_experiment_registry", "29_build_experiment_registry.py"),
+    "29_build_experiment_registry": WorkflowStep(
+        "29_build_experiment_registry", "29_build_experiment_registry.py"
+    ),
 }
 
 
@@ -252,14 +297,24 @@ def _workflow_steps(mode: str) -> list[WorkflowStep]:
     return _topologically_sorted(steps)
 
 
-def _run_step(step: WorkflowStep) -> int:
+def _auto_job_cap(max_workers: int) -> int:
+    cpu_total = os.cpu_count() or 1
+    return max(1, min(8, cpu_total // max(max_workers, 1)))
+
+
+def _run_step(step: WorkflowStep, *, auto_job_cap: int | None = None) -> int:
     command = [sys.executable, str(PROJECT_ROOT / "scripts" / step.script), *step.args]
     print(f"[workflow] {step.name}: {' '.join(command)}", flush=True)
-    completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False)
+    env = os.environ.copy()
+    if step.env:
+        env.update(dict(step.env))
+    if auto_job_cap is not None and "PLASMID_PRIORITY_MAX_JOBS" not in env:
+        env["PLASMID_PRIORITY_MAX_JOBS"] = str(int(auto_job_cap))
+    completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False, env=env)
     return int(completed.returncode)
 
 
-def run_workflow(mode: str, *, max_workers: int = 1, dry_run: bool = False) -> int:
+def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = False) -> int:
     steps = _workflow_steps(mode)
     if dry_run:
         for step in steps:
@@ -268,7 +323,10 @@ def run_workflow(mode: str, *, max_workers: int = 1, dry_run: bool = False) -> i
             print(f"{step.name}{dep_text}: {step.script}{arg_text}")
         return 0
 
+    if max_workers is None:
+        max_workers = min(4, os.cpu_count() or 1)
     max_workers = max(1, min(int(max_workers), len(steps)))
+    auto_job_cap = _auto_job_cap(max_workers)
     order = {step.name: index for index, step in enumerate(steps)}
     pending = {step.name: step for step in steps}
     completed: set[str] = set()
@@ -286,7 +344,7 @@ def run_workflow(mode: str, *, max_workers: int = 1, dry_run: bool = False) -> i
 
             while ready and len(running) < max_workers:
                 step = ready.pop(0)
-                future = executor.submit(_run_step, step)
+                future = executor.submit(_run_step, step, auto_job_cap=auto_job_cap)
                 running[future] = step
 
             if not running:
@@ -301,7 +359,11 @@ def run_workflow(mode: str, *, max_workers: int = 1, dry_run: bool = False) -> i
                 step = running.pop(future)
                 return_code = int(future.result())
                 if return_code != 0:
-                    print(f"[workflow] {step.name} failed with exit code {return_code}", file=sys.stderr, flush=True)
+                    print(
+                        f"[workflow] {step.name} failed with exit code {return_code}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                     return return_code
                 completed.add(step.name)
                 pending.pop(step.name, None)
@@ -312,8 +374,12 @@ def run_workflow(mode: str, *, max_workers: int = 1, dry_run: bool = False) -> i
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=tuple(MODE_STEP_NAMES))
-    parser.add_argument("--max-workers", type=int, default=1, help="Maximum number of concurrent steps.")
-    parser.add_argument("--dry-run", action="store_true", help="Print resolved steps without executing scripts.")
+    parser.add_argument(
+        "--max-workers", type=int, default=None, help="Maximum number of concurrent steps."
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print resolved steps without executing scripts."
+    )
     args = parser.parse_args(argv)
     return run_workflow(args.mode, max_workers=args.max_workers, dry_run=args.dry_run)
 

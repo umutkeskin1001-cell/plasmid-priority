@@ -18,22 +18,29 @@ def main() -> int:
     canonical_path = context.root / "data/bronze/plsdb_canonical_metadata.tsv"
     typing_path = context.asset_path("plsdb_meta_tables_dir") / "typing.csv"
     biosample_path = context.asset_path("plsdb_meta_tables_dir") / "biosample.csv"
+    plasmidfinder_path = context.asset_path("plsdb_meta_tables_dir") / "plasmidfinder.csv"
     output_path = context.root / "data/silver/plasmid_harmonized.tsv"
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "04_harmonize_metadata") as run:
-        for path in (canonical_path, typing_path, biosample_path):
+        for path in (canonical_path, typing_path, biosample_path, plasmidfinder_path):
             run.record_input(path)
         run.record_output(output_path)
 
-        harmonized = build_harmonized_plasmid_table(canonical_path, typing_path, biosample_path)
+        harmonized = build_harmonized_plasmid_table(
+            canonical_path,
+            typing_path,
+            biosample_path,
+            plasmidfinder_path,
+        )
         harmonized.to_csv(output_path, sep="\t", index=False)
 
         run.set_rows_out("plasmid_harmonized_rows", int(len(harmonized)))
-        run.set_metric("country_non_null", int(harmonized["country"].astype(str).str.len().gt(0).sum()))
+        run.set_metric(
+            "country_non_null", int(harmonized["country"].astype(str).str.len().gt(0).sum())
+        )
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

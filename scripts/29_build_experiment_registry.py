@@ -9,12 +9,9 @@ from pathlib import Path
 
 import pandas as pd
 
-
-
 from plasmid_priority.config import build_context
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.files import ensure_directory, relative_path_str
-
 
 LEGACY_EXPERIMENT_FILENAMES = (
     "adaptive_blend_search.tsv",
@@ -73,7 +70,9 @@ def _registry_rows(experiments_dir: Path, root: Path) -> list[dict[str, object]]
                 "relative_path": relative_path_str(path, root),
                 "suffix": path.suffix,
                 "size_bytes": int(stat.st_size),
-                "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(timespec="seconds"),
+                "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(
+                    timespec="seconds"
+                ),
                 "sha256": _sha256(path),
             }
         )
@@ -88,7 +87,11 @@ def main() -> int:
     with ManagedScriptRun(context, "29_build_experiment_registry") as run:
         moved = _move_legacy_experiment_outputs(context.root, experiments_dir)
         rows = _registry_rows(experiments_dir, context.root)
-        registry = pd.DataFrame(rows).sort_values(["artifact_name", "relative_path"]).reset_index(drop=True)
+        registry = (
+            pd.DataFrame(rows)
+            .sort_values(["artifact_name", "relative_path"])
+            .reset_index(drop=True)
+        )
         registry.to_csv(registry_path, sep="\t", index=False)
 
         for path in moved:

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
 import unittest
 
 import pandas as pd
 
-
-from plasmid_priority.backbone import assign_backbone_ids_training_only, fallback_backbone_key
+from plasmid_priority.backbone import (
+    assign_backbone_ids,
+    assign_backbone_ids_training_only,
+    fallback_backbone_key,
+)
 from plasmid_priority.config import DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD
 from plasmid_priority.features import build_backbone_table
 
@@ -25,12 +27,31 @@ class BackboneTests(unittest.TestCase):
         )
         assigned = assign_backbone_ids_training_only(records, split_year=2015)
         lookup = assigned.set_index("sequence_accession")["backbone_id"].to_dict()
-        seen_lookup = assigned.set_index("sequence_accession")["backbone_seen_in_training"].to_dict()
+        seen_lookup = assigned.set_index("sequence_accession")[
+            "backbone_seen_in_training"
+        ].to_dict()
         self.assertEqual(lookup["train_a"], "AA001")
         self.assertEqual(lookup["test_seen"], "AA001")
         self.assertTrue(lookup["test_unseen"].startswith("UNSEEN::"))
         self.assertTrue(bool(seen_lookup["test_seen"]))
         self.assertFalse(bool(seen_lookup["test_unseen"]))
+        self.assertEqual(
+            set(assigned["backbone_assignment_mode"].astype(str)),
+            {"training_only"},
+        )
+
+    def test_assign_backbone_ids_all_records_marks_assignment_mode(self) -> None:
+        records = pd.DataFrame(
+            {
+                "sequence_accession": ["a", "b"],
+                "primary_cluster_id": ["AA001", ""],
+                "predicted_mobility": ["mobilizable", "mobilizable"],
+                "mpf_type": ["MPFT", "MPFT"],
+                "primary_replicon": ["IncFIB", "IncFIB"],
+            }
+        )
+        assigned = assign_backbone_ids(records)
+        self.assertEqual(set(assigned["backbone_assignment_mode"].astype(str)), {"all_records"})
 
     def test_fallback_backbone_key_uses_expected_parts(self) -> None:
         key = fallback_backbone_key(
@@ -93,9 +114,22 @@ class BackboneTests(unittest.TestCase):
                 "PMLST_scheme": ["schemeA", "schemeA", ""],
                 "PMLST_sequence_type": ["ST1", "ST1", ""],
                 "PMLST_alleles": ["a1,b1", "a1,b1", ""],
+                "plasmidfinder_hit_count": [2, 1, 0],
+                "plasmidfinder_type_count": [2, 1, 0],
+                "plasmidfinder_dominant_type": ["IncFIB(K)", "IncFIB(K)", ""],
+                "plasmidfinder_max_identity": [99.0, 97.0, 0.0],
+                "plasmidfinder_mean_coverage": [100.0, 95.0, 0.0],
                 "associated_pmid(s)": ["12345,67890", "12345", ""],
-                "BIOSAMPLE_package": ["clinical isolate", "clinical isolate", "environmental sample"],
-                "BIOSAMPLE_title": ["patient blood isolate", "patient urine isolate", "wastewater isolate"],
+                "BIOSAMPLE_package": [
+                    "clinical isolate",
+                    "clinical isolate",
+                    "environmental sample",
+                ],
+                "BIOSAMPLE_title": [
+                    "patient blood isolate",
+                    "patient urine isolate",
+                    "wastewater isolate",
+                ],
                 "BIOSAMPLE_pathogenicity": ["pathogenic", "", ""],
                 "ECOSYSTEM_tags": ["clinical", "clinical", "wastewater"],
                 "DISEASE_tags": ["sepsis", "uti", ""],
@@ -105,18 +139,49 @@ class BackboneTests(unittest.TestCase):
         table = build_backbone_table(records, coherence, split_year=2015, test_year_end=2023)
         row = table.iloc[0]
         self.assertIn("backbone_purity_score", table.columns)
+        self.assertIn("backbone_assignment_mode", table.columns)
+        self.assertIn("max_resolved_year_train", table.columns)
+        self.assertIn("min_resolved_year_test", table.columns)
+        self.assertIn("training_only_future_unseen_backbone_flag", table.columns)
         self.assertIn("assignment_confidence_score", table.columns)
         self.assertIn("mean_n_replicon_types_train", table.columns)
         self.assertIn("multi_replicon_fraction_train", table.columns)
         self.assertIn("primary_replicon_diversity_train", table.columns)
+        self.assertIn("plasmidfinder_support_score", table.columns)
+        self.assertIn("plasmidfinder_complexity_score", table.columns)
         self.assertIn("pmlst_coherence_score", table.columns)
         self.assertIn("clinical_context_fraction_train", table.columns)
         self.assertIn("ecology_context_diversity_train", table.columns)
         self.assertAlmostEqual(float(row["assignment_primary_fraction"]), 1.0)
         self.assertGreaterEqual(float(row["backbone_purity_score"]), 0.9)
+        self.assertGreater(float(row["plasmidfinder_support_score"]), 0.0)
+        self.assertGreater(float(row["plasmidfinder_complexity_score"]), 0.0)
         self.assertGreater(float(row["pmlst_coherence_score"]), 0.0)
         self.assertGreater(float(row["clinical_context_fraction_train"]), 0.0)
         self.assertGreater(float(row["mean_pmid_count_train"]), 0.0)
+
+    def test_build_backbone_table_propagates_training_only_metadata(self) -> None:
+        records = pd.DataFrame(
+            {
+                "backbone_id": ["bb1", "bb1", "UNSEEN::bb2"],
+                "canonical_id": ["c1", "c2", "c3"],
+                "resolved_year": [2014, 2017, 2018],
+                "country": ["TR", "DE", "US"],
+                "record_origin": ["insd", "refseq", "refseq"],
+                "backbone_assignment_mode": ["training_only", "training_only", "training_only"],
+                "backbone_seen_in_training": [True, True, False],
+            }
+        )
+        coherence = pd.DataFrame({"backbone_id": ["bb1", "UNSEEN::bb2"], "coherence_score": [0.8, 0.1]})
+        table = build_backbone_table(records, coherence, split_year=2015, test_year_end=2023)
+        bb1 = table.set_index("backbone_id").loc["bb1"]
+        bb2 = table.set_index("backbone_id").loc["UNSEEN::bb2"]
+        self.assertEqual(str(bb1["backbone_assignment_mode"]), "training_only")
+        self.assertEqual(int(bb1["max_resolved_year_train"]), 2014)
+        self.assertEqual(int(bb1["min_resolved_year_test"]), 2017)
+        self.assertFalse(bool(bb1["training_only_future_unseen_backbone_flag"]))
+        self.assertTrue(bool(bb2["training_only_future_unseen_backbone_flag"]))
+        self.assertTrue(pd.isna(bb2["spread_label"]))
 
 
 if __name__ == "__main__":

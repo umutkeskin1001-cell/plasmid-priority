@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import re
+from collections import Counter
+from typing import cast
 
 import numpy as np
 import pandas as pd
+from scipy.stats import fisher_exact
+
+from plasmid_priority.reporting.external_support import (
+    normalize_drug_class_token,
+    split_field_tokens,
+)
 
 
 def _format_qvalue(value: float) -> str:
@@ -15,9 +22,6 @@ def _format_qvalue(value: float) -> str:
     if value < 0.001:
         return "q<0.001"
     return f"q={value:.3f}"
-from scipy.stats import fisher_exact
-
-from plasmid_priority.reporting.external_support import normalize_drug_class_token, split_field_tokens
 
 
 _NON_PUBLIC_HEALTH_AMR_TERMS = (
@@ -88,7 +92,9 @@ def build_backbone_identity_table(
     split_year: int = 2015,
 ) -> pd.DataFrame:
     """Aggregate training-period categorical identities per evaluable backbone."""
-    label_column = "spread_label" if "spread_label" in scored.columns else "visibility_expansion_label"
+    label_column = (
+        "spread_label" if "spread_label" in scored.columns else "visibility_expansion_label"
+    )
     if label_column not in scored.columns:
         return pd.DataFrame()
     eligible = scored.loc[scored[label_column].notna(), ["backbone_id", label_column]].copy()
@@ -98,7 +104,9 @@ def build_backbone_identity_table(
     training_records = backbones.copy()
     years = pd.to_numeric(training_records["resolved_year"], errors="coerce").fillna(0).astype(int)
     training_records = training_records.loc[years <= split_year].copy()
-    training_records = training_records.loc[training_records["backbone_id"].isin(eligible["backbone_id"])].copy()
+    training_records = training_records.loc[
+        training_records["backbone_id"].isin(eligible["backbone_id"])
+    ].copy()
     training_records = training_records.merge(eligible, on="backbone_id", how="left")
     training_records = training_records.merge(
         amr_consensus[["sequence_accession", "amr_drug_classes", "amr_gene_symbols"]],
@@ -123,7 +131,7 @@ def build_backbone_identity_table(
 
         dominant_replicon = _dominant_non_empty(frame["primary_replicon"])
         if not dominant_replicon:
-            replicon_tokens = Counter()
+            replicon_tokens: Counter[str] = Counter()
             for value in frame["replicon_types"].fillna(""):
                 for token in split_field_tokens(value, separators=(",",)):
                     replicon_tokens[token] += 1
@@ -138,7 +146,9 @@ def build_backbone_identity_table(
                 "primary_replicon": dominant_replicon,
                 "dominant_mpf_type": _dominant_non_empty(frame["mpf_type"]),
                 "amr_class_tokens": ",".join(sorted(amr_classes)),
-                "dominant_amr_gene_family": gene_families.most_common(1)[0][0] if gene_families else "",
+                "dominant_amr_gene_family": gene_families.most_common(1)[0][0]
+                if gene_families
+                else "",
             }
         )
     return pd.DataFrame(rows)
@@ -212,9 +222,10 @@ def build_module_f_enrichment_table(
     add_rows(
         "amr_class",
         {
-            token: working["amr_class_tokens"].fillna("").astype(str).str.contains(
-                fr"(?:^|,){re.escape(token)}(?:,|$)"
-            )
+            token: working["amr_class_tokens"]
+            .fillna("")
+            .astype(str)
+            .str.contains(rf"(?:^|,){re.escape(token)}(?:,|$)")
             for token in sorted(amr_classes)
         },
     )
@@ -231,8 +242,18 @@ def build_module_f_enrichment_table(
                 combo = f"{row.dominant_genus} + {token}"
                 combo_memberships.setdefault(combo, pd.Series(False, index=working.index))
                 combo_memberships[combo].loc[working["backbone_id"] == row.backbone_id] = True
-    add_rows("replicon_amr_class", {k: v for k, v in combo_memberships.items() if " + " in k and not k.split(" + ")[0].istitle()})
-    add_rows("genus_amr_class", {k: v for k, v in combo_memberships.items() if " + " in k and k.split(" + ")[0].istitle()})
+    add_rows(
+        "replicon_amr_class",
+        {
+            k: v
+            for k, v in combo_memberships.items()
+            if " + " in k and not k.split(" + ")[0].istitle()
+        },
+    )
+    add_rows(
+        "genus_amr_class",
+        {k: v for k, v in combo_memberships.items() if " + " in k and k.split(" + ")[0].istitle()},
+    )
 
     enrichment = pd.DataFrame(rows)
     if enrichment.empty:
@@ -264,7 +285,9 @@ def build_module_f_top_hits(
     ].copy()
     if working.empty:
         return working
-    working["log2_odds_ratio"] = np.log2(working["odds_ratio"].replace(0.0, np.nan).replace(np.inf, 1e9))
+    working["log2_odds_ratio"] = np.log2(
+        working["odds_ratio"].replace(0.0, np.nan).replace(np.inf, 1e9)
+    )
     selected_frames = []
     for _, frame in working.groupby("feature_group", sort=False):
         selected_frames.append(frame.head(max_per_group))
@@ -308,7 +331,9 @@ def build_candidate_signature_context(
 
     rows: list[dict[str, object]] = []
     for row in working.to_dict(orient="records"):
-        amr_classes = set(split_field_tokens(str(row.get("amr_class_tokens", "")), separators=(",",)))
+        amr_classes = set(
+            split_field_tokens(str(row.get("amr_class_tokens", "")), separators=(",",))
+        )
         matched: list[tuple[float, str]] = []
 
         def maybe_add(group: str, value: str) -> None:
@@ -317,10 +342,12 @@ def build_candidate_signature_context(
             hit = feature_maps.get(group, {}).get(value)
             if hit is None:
                 return
+            q_value = float(cast(float, hit.get("q_value", 1.0)))
+            odds_ratio = float(cast(float, hit.get("odds_ratio", np.nan)))
             matched.append(
                 (
-                    float(hit.get("q_value", 1.0)),
-                    f"{group}:{value} (OR={float(hit.get('odds_ratio', np.nan)):.2f}, {_format_qvalue(float(hit.get('q_value', np.nan)))})",
+                    q_value,
+                    f"global {group}:{value} (OR={odds_ratio:.2f}, {_format_qvalue(q_value)})",
                 )
             )
 
@@ -349,7 +376,9 @@ def build_candidate_signature_context(
                 "dominant_mpf_type": str(row.get("dominant_mpf_type", "")),
                 "dominant_amr_gene_family": str(row.get("dominant_amr_gene_family", "")),
                 "module_f_enriched_signature_count": int(len(unique_signatures)),
-                "module_f_enriched_signatures": " | ".join(unique_signatures[:max_signatures_per_candidate]),
+                "module_f_enriched_signatures": " | ".join(
+                    unique_signatures[:max_signatures_per_candidate]
+                ),
             }
         )
     return pd.DataFrame(rows)

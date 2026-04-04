@@ -2,132 +2,111 @@
 
 from __future__ import annotations
 
-import math
 import warnings
-from dataclasses import dataclass
-
-from plasmid_priority.config import build_context
-
-
-def _load_project_config() -> dict:
-    return build_context().config
-
-
-_project_config = None
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from typing import Any, cast
 
 import numpy as np
-
 import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.isotonic import IsotonicRegression
 
+try:
+    from interpret.glassbox import ExplainableBoostingClassifier
+except ImportError:  # pragma: no cover - optional research dependency
+    ExplainableBoostingClassifier = None
+
+from plasmid_priority.modeling.module_a_support import (
+    ABLATION_MODEL_NAMES,
+    CONSERVATIVE_MODEL_NAME,
+    CORE_MODEL_NAMES,
+    FEATURE_PROVENANCE_REGISTRY,
+    GOVERNANCE_MODEL_FALLBACK,
+    GOVERNANCE_MODEL_NAME,
+    MODULE_A_FEATURE_SETS,
+    MODULE_A_MODEL_TRACKS,
+    PRIMARY_MODEL_FALLBACK,
+    PRIMARY_MODEL_NAME,
+    RESEARCH_MODEL_NAMES,
+    ModelResult,
+    _bayesian_coefficient_summary,
+    _bayesian_prediction_summary,
+    _ensure_config_loaded,
+    _fit_feature_imputer,
+    _fit_kwarg_float,
+    _fit_kwarg_int,
+    _fit_kwarg_mode,
+    _fit_kwarg_str,
+    _fit_kwarg_value,
+    _fit_logistic_regression,
+    _fit_logistic_regression_with_diagnostics,
+    _fit_standardized_model,
+    _logistic_posterior_covariance,
+    _model_fit_kwargs,
+    _predict_calibrated,
+    _predict_logistic,
+    _resolve_parallel_jobs,
+    _standardize_apply,
+    _standardize_fit,
+    _stratified_folds,
+    _top_k_precision_recall,
+    build_failed_model_result,
+)
+from plasmid_priority.modeling.module_a_support import (
+    NOVELTY_SPECIALIST_FEATURES as _NOVELTY_SPECIALIST_FEATURES,
+)
+from plasmid_priority.modeling.module_a_support import (
+    NOVELTY_SPECIALIST_FIT_CONFIG as _NOVELTY_SPECIALIST_FIT_CONFIG,
+)
+from plasmid_priority.utils.parallel import limit_native_threads
 from plasmid_priority.validation import (
     average_precision,
     average_precision_enrichment,
     average_precision_lift,
-    brier_score,
     bootstrap_intervals,
+    brier_decomposition,
+    brier_score,
+    expected_calibration_error,
+    log_loss,
+    max_calibration_error,
+    ndcg_at_k,
+    novelty_adjusted_average_precision,
     positive_prevalence,
     roc_auc_score,
+    weighted_classification_cost,
 )
 
-_DEFAULT_MODEL_CONFIG = {
-    "primary_model_name": "support_synergy_priority",
-    "primary_model_fallback": "support_calibrated_priority",
-    "conservative_model_name": "bio_clean_priority",
-    "feature_sets": {},
-    "core_model_names": (),
-    "research_model_names": (),
-    "ablation_model_names": (),
-    "fit_config": {},
-    "novelty_specialist": {"features": (), "fit_config": {}},
-}
+NOVELTY_SPECIALIST_FEATURES = _NOVELTY_SPECIALIST_FEATURES
+NOVELTY_SPECIALIST_FIT_CONFIG = _NOVELTY_SPECIALIST_FIT_CONFIG
 
 
-def _get_model_config() -> dict:
-    global _project_config
-    if _project_config is None:
-        _project_config = _load_project_config()
-    models = _project_config.get("models", {}) if isinstance(_project_config, dict) else {}
-    if not isinstance(models, dict):
-        return _DEFAULT_MODEL_CONFIG
-    return {
-        "primary_model_name": models.get("primary_model_name", _DEFAULT_MODEL_CONFIG["primary_model_name"]),
-        "primary_model_fallback": models.get("primary_model_fallback", _DEFAULT_MODEL_CONFIG["primary_model_fallback"]),
-        "conservative_model_name": models.get("conservative_model_name", _DEFAULT_MODEL_CONFIG["conservative_model_name"]),
-        "feature_sets": models.get("feature_sets", _DEFAULT_MODEL_CONFIG["feature_sets"]),
-        "core_model_names": tuple(models.get("core_model_names", _DEFAULT_MODEL_CONFIG["core_model_names"])),
-        "research_model_names": tuple(models.get("research_model_names", _DEFAULT_MODEL_CONFIG["research_model_names"])),
-        "ablation_model_names": tuple(models.get("ablation_model_names", _DEFAULT_MODEL_CONFIG["ablation_model_names"])),
-        "fit_config": models.get("fit_config", _DEFAULT_MODEL_CONFIG["fit_config"]),
-        "novelty_specialist": models.get("novelty_specialist", _DEFAULT_MODEL_CONFIG["novelty_specialist"]),
-    }
+def _fit_backend_name(fit_kwargs: dict[str, object] | None = None) -> str:
+    return _fit_kwarg_str(fit_kwargs, "fit_backend", "logistic").strip().lower()
 
 
-def _config_snapshot() -> dict:
-    config = _get_model_config()
-    novelty = config.get("novelty_specialist", {}) if isinstance(config.get("novelty_specialist"), dict) else {}
-    return {
-        "PRIMARY_MODEL_NAME": config["primary_model_name"],
-        "PRIMARY_MODEL_FALLBACK": config["primary_model_fallback"],
-        "CONSERVATIVE_MODEL_NAME": config["conservative_model_name"],
-        "MODULE_A_FEATURE_SETS": config["feature_sets"],
-        "CORE_MODEL_NAMES": tuple(config["core_model_names"]),
-        "RESEARCH_MODEL_NAMES": tuple(config["research_model_names"]),
-        "ABLATION_MODEL_NAMES": tuple(config["ablation_model_names"]),
-        "MODEL_FIT_CONFIG": config["fit_config"],
-        "NOVELTY_SPECIALIST_FEATURES": novelty.get("features", ()),
-        "NOVELTY_SPECIALIST_FIT_CONFIG": novelty.get("fit_config", {}),
-    }
+def _model_type_name(fit_kwargs: dict[str, object] | None = None) -> str:
+    return _fit_kwarg_str(fit_kwargs, "model_type", "logistic").strip().lower()
 
 
-_CONFIG_LOADED = False
-
-PRIMARY_MODEL_NAME = _DEFAULT_MODEL_CONFIG["primary_model_name"]
-PRIMARY_MODEL_FALLBACK = _DEFAULT_MODEL_CONFIG["primary_model_fallback"]
-CONSERVATIVE_MODEL_NAME = _DEFAULT_MODEL_CONFIG["conservative_model_name"]
-MODULE_A_FEATURE_SETS = _DEFAULT_MODEL_CONFIG["feature_sets"]
-CORE_MODEL_NAMES = _DEFAULT_MODEL_CONFIG["core_model_names"]
-RESEARCH_MODEL_NAMES = _DEFAULT_MODEL_CONFIG["research_model_names"]
-ABLATION_MODEL_NAMES = _DEFAULT_MODEL_CONFIG["ablation_model_names"]
-MODEL_FIT_CONFIG = _DEFAULT_MODEL_CONFIG["fit_config"]
-NOVELTY_SPECIALIST_FEATURES = _DEFAULT_MODEL_CONFIG["novelty_specialist"]["features"]
-NOVELTY_SPECIALIST_FIT_CONFIG = _DEFAULT_MODEL_CONFIG["novelty_specialist"]["fit_config"]
-
-
-def _ensure_config_loaded() -> None:
-    global _CONFIG_LOADED
-    global PRIMARY_MODEL_NAME
-    global PRIMARY_MODEL_FALLBACK
-    global CONSERVATIVE_MODEL_NAME
-    global MODULE_A_FEATURE_SETS
-    global CORE_MODEL_NAMES
-    global RESEARCH_MODEL_NAMES
-    global ABLATION_MODEL_NAMES
-    global MODEL_FIT_CONFIG
-    global NOVELTY_SPECIALIST_FEATURES
-    global NOVELTY_SPECIALIST_FIT_CONFIG
-
-    if _CONFIG_LOADED:
-        return
-    config = _config_snapshot()
-    PRIMARY_MODEL_NAME = config["PRIMARY_MODEL_NAME"]
-    PRIMARY_MODEL_FALLBACK = config["PRIMARY_MODEL_FALLBACK"]
-    CONSERVATIVE_MODEL_NAME = config["CONSERVATIVE_MODEL_NAME"]
-    MODULE_A_FEATURE_SETS = config["MODULE_A_FEATURE_SETS"]
-    CORE_MODEL_NAMES = config["CORE_MODEL_NAMES"]
-    RESEARCH_MODEL_NAMES = config["RESEARCH_MODEL_NAMES"]
-    ABLATION_MODEL_NAMES = config["ABLATION_MODEL_NAMES"]
-    MODEL_FIT_CONFIG = config["MODEL_FIT_CONFIG"]
-    NOVELTY_SPECIALIST_FEATURES = config["NOVELTY_SPECIALIST_FEATURES"]
-    NOVELTY_SPECIALIST_FIT_CONFIG = config["NOVELTY_SPECIALIST_FIT_CONFIG"]
-    _CONFIG_LOADED = True
-
-_ensure_config_loaded()
-
-@dataclass
-class ModelResult:
-    name: str
-    metrics: dict[str, float]
-    predictions: pd.DataFrame
+def _fit_kwarg_optional_int(
+    fit_kwargs: dict[str, object] | None,
+    key: str,
+    default: int | None = None,
+) -> int | None:
+    raw = _fit_kwarg_value(fit_kwargs, key, default)
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        normalized = raw.strip().lower()
+        if not normalized or normalized == "none":
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            return default
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    return default
 
 
 def get_module_a_model_names(
@@ -144,252 +123,6 @@ def get_module_a_model_names(
     return tuple(dict.fromkeys(names))
 
 
-def _top_k_precision_recall(y: np.ndarray, preds: np.ndarray, *, top_k: int) -> tuple[float, float]:
-    if len(y) == 0:
-        return float("nan"), float("nan")
-    k = max(1, min(int(top_k), len(y)))
-    order = np.argsort(-preds, kind="mergesort")[:k]
-    selected = y[order]
-    positives = max(int((y == 1).sum()), 1)
-    precision = float(np.mean(selected == 1))
-    recall = float(np.sum(selected == 1) / positives)
-    return precision, recall
-
-
-def _sigmoid(values: np.ndarray) -> np.ndarray:
-    values = np.clip(values, -40, 40)
-    return 1.0 / (1.0 + np.exp(-values))
-
-
-def _standardize_fit(X: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    # Use robust scaling so long-tailed backbone counts do not dominate optimization.
-    median = np.median(X, axis=0)
-    q75, q25 = np.percentile(X, [75, 25], axis=0)
-    iqr = q75 - q25
-    iqr[iqr == 0] = 1.0
-    return (X - median) / iqr, median, iqr
-
-
-def _standardize_apply(X: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
-    return (X - mean) / std
-
-
-from sklearn.exceptions import ConvergenceWarning
-from sklearn.linear_model import LogisticRegression
-from sklearn.impute import SimpleImputer
-
-def _fit_logistic_regression_with_diagnostics(
-    X: np.ndarray,
-    y: np.ndarray,
-    *,
-    l2: float = 1.0,
-    max_iter: int = 100,
-    sample_weight: np.ndarray | None = None,
-) -> tuple[np.ndarray, dict[str, float | bool | int]]:
-    # l2 parameter in this codebase maps to alpha in ridge regression.
-    # sklearn LogisticRegression uses C = 1 / alpha
-    C_val = 1.0 / max(l2, 1e-5)
-    base_max_iter = max(int(max_iter), 1000)
-    attempts = (
-        ("lbfgs", base_max_iter),
-        ("lbfgs", max(base_max_iter * 5, 5000)),
-        ("liblinear", max(base_max_iter * 5, 5000)),
-    )
-
-    last_clf: LogisticRegression | None = None
-    last_convergence_warnings: list[warnings.WarningMessage] = []
-    last_effective_max_iter = base_max_iter
-    last_solver = "lbfgs"
-
-    for solver_name, effective_max_iter in attempts:
-        clf = LogisticRegression(
-            C=C_val,
-            solver=solver_name,
-            max_iter=effective_max_iter,
-            tol=1e-5,
-        )
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always", ConvergenceWarning)
-            clf.fit(X, y, sample_weight=sample_weight)
-
-        convergence_warnings = [
-            warning_record
-            for warning_record in caught
-            if issubclass(warning_record.category, ConvergenceWarning)
-        ]
-        for warning_record in caught:
-            if issubclass(warning_record.category, ConvergenceWarning):
-                continue
-            warnings.warn(
-                str(warning_record.message),
-                category=warning_record.category,
-                stacklevel=2,
-            )
-
-        last_clf = clf
-        last_convergence_warnings = convergence_warnings
-        last_effective_max_iter = effective_max_iter
-        last_solver = solver_name
-        if not convergence_warnings:
-            break
-
-    assert last_clf is not None
-    beta = np.concatenate([last_clf.intercept_, last_clf.coef_[0]])
-
-    diagnostics = {
-        "converged": len(last_convergence_warnings) == 0,
-        "used_pinv": False,
-        "iterations_run": int(np.max(last_clf.n_iter_)),
-        "max_abs_delta": 0.0 if len(last_convergence_warnings) == 0 else float("nan"),
-        "effective_max_iter": last_effective_max_iter,
-        "solver": last_solver,
-    }
-    return beta, diagnostics
-
-
-def _fit_logistic_regression(
-    X: np.ndarray,
-    y: np.ndarray,
-    *,
-    l2: float = 1.0,
-    max_iter: int = 100,
-    sample_weight: np.ndarray | None = None,
-) -> np.ndarray:
-    beta, diagnostics = _fit_logistic_regression_with_diagnostics(
-        X,
-        y,
-        l2=l2,
-        max_iter=max_iter,
-        sample_weight=sample_weight,
-    )
-    if not bool(diagnostics["converged"]):
-        iterations_run = int(diagnostics["iterations_run"])
-        effective_max_iter = int(diagnostics.get("effective_max_iter", max_iter))
-        solver_name = str(diagnostics.get("solver", "lbfgs"))
-        warnings.warn(
-            f"Logistic regression did not converge after {iterations_run} iterations "
-            f"(solver: {solver_name}; configured limit: {effective_max_iter}; "
-            f"max coefficient change: {float(diagnostics['max_abs_delta']):.2e}; "
-            f"pseudo-inverse fallback used: {bool(diagnostics['used_pinv'])})",
-            stacklevel=2,
-        )
-    return beta
-
-
-def _predict_calibrated(X: np.ndarray, beta: np.ndarray, predictor: _LinearPredictor) -> np.ndarray:
-    return predictor.predict_proba(X, beta)
-
-def _predict_logistic(X: np.ndarray, beta: np.ndarray) -> np.ndarray:
-    X = np.column_stack([np.ones(len(X)), X])
-    return _sigmoid(X @ beta)
-
-
-class _LinearPredictor:
-    """Keep prediction, auditing, and coefficient tables aligned to one logistic model."""
-
-    def __init__(self):
-        pass
-
-    def fit(self, X_raw, beta, y, sample_weight=None):
-        return self
-
-    def predict_proba(self, X_raw, beta):
-        return _predict_logistic(X_raw, beta)
-
-def _fit_standardized_model(
-    X: np.ndarray,
-    y: np.ndarray,
-    *,
-    l2: float = 1.0,
-    max_iter: int = 100,
-    sample_weight: np.ndarray | None = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, _LinearPredictor]:
-    X_scaled, mean, std = _standardize_fit(X)
-    beta = _fit_logistic_regression(
-        X_scaled,
-        y,
-        l2=l2,
-        max_iter=max_iter,
-        sample_weight=sample_weight,
-    )
-
-    predictor = _LinearPredictor().fit(X_scaled, beta, y, sample_weight=sample_weight)
-
-    return beta, mean, std, predictor
-
-from sklearn.model_selection import RepeatedStratifiedKFold
-
-def _stratified_folds(y: np.ndarray, *, n_splits: int, n_repeats: int, seed: int) -> list[list[np.ndarray]]:
-    """Build repeated stratified folds while respecting rare-class support."""
-    y = np.asarray(y, dtype=int)
-    n_repeats = max(int(n_repeats), 1)
-    if y.size == 0:
-        return [[] for _ in range(n_repeats)]
-    _, class_counts = np.unique(y, return_counts=True)
-    if len(class_counts) < 2:
-        raise ValueError("Repeated stratified folds require both outcome classes.")
-    effective_splits = min(max(int(n_splits), 2), int(class_counts.min()))
-    if effective_splits < 2:
-        raise ValueError("Repeated stratified folds require at least two members in every class.")
-    skf = RepeatedStratifiedKFold(n_splits=effective_splits, n_repeats=n_repeats, random_state=seed)
-    folds_per_repeat: list[list[np.ndarray]] = [[] for _ in range(n_repeats)]
-
-    all_splits = list(skf.split(np.zeros(len(y), dtype=int), y))
-    for i, (_, test_idx) in enumerate(all_splits):
-        repeat_idx = i // effective_splits
-        folds_per_repeat[repeat_idx].append(test_idx)
-    return folds_per_repeat
-
-
-def _oof_predictions(
-    X: np.ndarray,
-    y: np.ndarray,
-    *,
-    n_splits: int,
-    n_repeats: int,
-    seed: int,
-    sample_weight: np.ndarray | None = None,
-    l2: float = 1.0,
-    max_iter: int = 100,
-) -> np.ndarray:
-    preds = np.zeros(len(y), dtype=float)
-    counts = np.zeros(len(y), dtype=float)
-    for fold_indices in _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed):
-        for test_idx in fold_indices:
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            X_train, X_test = X[train_mask], X[test_idx]
-            y_train = y[train_mask]
-            train_weight = sample_weight[train_mask] if sample_weight is not None else None
-            X_train_scaled, mean, std = _standardize_fit(X_train)
-            X_test_scaled = _standardize_apply(X_test, mean, std)
-            beta = _fit_logistic_regression(
-                X_train_scaled,
-                y_train,
-                l2=l2,
-                max_iter=max_iter,
-                sample_weight=train_weight,
-            )
-            preds[test_idx] += _predict_logistic(X_test_scaled, beta)
-            counts[test_idx] += 1
-    if counts.min() == 0:
-        warnings.warn(
-            f"{int((counts == 0).sum())} sample(s) never appeared in any test fold",
-            stacklevel=2,
-        )
-        counts[counts == 0] = 1
-    return preds / counts
-
-
-def _model_fit_kwargs(model_name: str, overrides: dict[str, object] | None = None) -> dict[str, object]:
-    _ensure_config_loaded()
-    defaults = {"l2": 1.0, "max_iter": 100, "sample_weight_mode": None}
-    defaults.update(MODEL_FIT_CONFIG.get(model_name, {}))
-    if overrides:
-        defaults.update(overrides)
-    return defaults
-
-
 def _masked_percentile_rank(values: pd.Series, cohort_mask: pd.Series | None = None) -> pd.Series:
     values = pd.to_numeric(values, errors="coerce")
     result = pd.Series(np.nan, index=values.index, dtype=float)
@@ -401,7 +134,9 @@ def _masked_percentile_rank(values: pd.Series, cohort_mask: pd.Series | None = N
     return result
 
 
-def _knownness_score_series(frame: pd.DataFrame, *, cohort_mask: pd.Series | None = None) -> pd.Series:
+def _knownness_score_series(
+    frame: pd.DataFrame, *, cohort_mask: pd.Series | None = None
+) -> pd.Series:
     member_rank = _masked_percentile_rank(
         pd.Series(frame.get("log1p_member_count_train", 0.0), index=frame.index),
         cohort_mask=cohort_mask,
@@ -414,11 +149,7 @@ def _knownness_score_series(frame: pd.DataFrame, *, cohort_mask: pd.Series | Non
         pd.Series(frame.get("refseq_share_train", 0.0), index=frame.index),
         cohort_mask=cohort_mask,
     )
-    return (
-        member_rank
-        + country_rank
-        + source_rank
-    ) / 3.0
+    return (member_rank + country_rank + source_rank) / 3.0
 
 
 def _stable_quantile_labels(
@@ -470,19 +201,20 @@ def _compute_sample_weight(eligible: pd.DataFrame, *, mode: str | None) -> np.nd
             )
             counts = pd.Series(dominant_source).value_counts()
             if not counts.empty:
-                weights *= np.asarray(
-                    [1.0 / max(float(counts.get(source, 1.0)), 1.0) for source in dominant_source],
-                    dtype=float,
+                inverse = (1.0 / counts.clip(lower=1.0)).to_dict()
+                weights *= (
+                    pd.Series(dominant_source, index=eligible.index)
+                    .map(inverse)
+                    .fillna(1.0)
+                    .to_numpy(dtype=float)
                 )
             continue
         if token == "class_balanced":
             labels = eligible["spread_label"].fillna(0).astype(int)
             counts = labels.value_counts()
             if not counts.empty and len(counts) >= 2:
-                weights *= np.asarray(
-                    [1.0 / max(float(counts.get(label, 1.0)), 1.0) for label in labels],
-                    dtype=float,
-                )
+                inverse = (1.0 / counts.clip(lower=1.0)).to_dict()
+                weights *= labels.map(inverse).fillna(1.0).to_numpy(dtype=float)
             continue
         if token == "knownness_balanced":
             knownness = _knownness_score_series(eligible)
@@ -490,19 +222,29 @@ def _compute_sample_weight(eligible: pd.DataFrame, *, mode: str | None) -> np.nd
             if n_bins >= 2:
                 counts = quantile_labels.value_counts()
                 if not counts.empty:
-                    weights *= np.asarray(
-                        [1.0 / max(float(counts.get(label, 1.0)), 1.0) for label in quantile_labels],
-                        dtype=float,
-                    )
+                    inverse = (1.0 / counts.clip(lower=1.0)).to_dict()
+                    weights *= quantile_labels.map(inverse).fillna(1.0).to_numpy(dtype=float)
             continue
         raise ValueError(f"Unsupported sample_weight_mode: {mode}")
-    return weights / max(weights.mean(), 1e-6)
+    return np.asarray(weights / max(weights.mean(), 1e-6), dtype=float)
 
 
 def _knownness_design_matrix(frame: pd.DataFrame) -> np.ndarray:
-    member = frame.get("log1p_member_count_train", pd.Series(0.0, index=frame.index)).fillna(0.0).to_numpy(dtype=float)
-    country = frame.get("log1p_n_countries_train", pd.Series(0.0, index=frame.index)).fillna(0.0).to_numpy(dtype=float)
-    source = frame.get("refseq_share_train", pd.Series(0.0, index=frame.index)).fillna(0.0).to_numpy(dtype=float)
+    member = (
+        frame.get("log1p_member_count_train", pd.Series(0.0, index=frame.index))
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    country = (
+        frame.get("log1p_n_countries_train", pd.Series(0.0, index=frame.index))
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    source = (
+        frame.get("refseq_share_train", pd.Series(0.0, index=frame.index))
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
     return np.column_stack(
         [
             np.ones(len(frame), dtype=float),
@@ -523,29 +265,210 @@ def _fit_knownness_residualizer(
     train: pd.DataFrame,
     columns: list[str],
     *,
-    alpha: float = 1.0,
+    alpha: float | np.ndarray = 1.0,
+    prepared: bool = False,
 ) -> np.ndarray:
     Z = _knownness_design_matrix(train)
-    X = _ensure_feature_columns(train, columns)[columns].fillna(0.0).to_numpy(dtype=float)
-    penalty = np.eye(Z.shape[1], dtype=float) * float(alpha)
-    penalty[0, 0] = 0.0
-    lhs = Z.T @ Z + penalty
-    rhs = Z.T @ X
+    working = train if prepared else _ensure_feature_columns(train, columns)
+    X = working[columns].fillna(0.0).to_numpy(dtype=float)
+    alpha_array = np.asarray(alpha, dtype=float)
+    if alpha_array.ndim == 0 or alpha_array.size == 1:
+        penalty = np.eye(Z.shape[1], dtype=float) * float(alpha_array.reshape(-1)[0])
+        penalty[0, 0] = 0.0
+        lhs = Z.T @ Z + penalty
+        rhs = Z.T @ X
+        try:
+            return np.asarray(np.linalg.solve(lhs, rhs), dtype=float)
+        except np.linalg.LinAlgError:
+            return np.asarray(np.linalg.pinv(lhs) @ rhs, dtype=float)
+
+    if alpha_array.size != len(columns):
+        raise ValueError("Grouped preprocess alpha must match the number of feature columns.")
+    coefficients = np.zeros((Z.shape[1], X.shape[1]), dtype=float)
+    ztz = Z.T @ Z
+    base_penalty = np.eye(Z.shape[1], dtype=float)
+    base_penalty[0, 0] = 0.0
+    for idx, alpha_value in enumerate(alpha_array):
+        lhs = ztz + (base_penalty * float(alpha_value))
+        rhs = Z.T @ X[:, idx]
+        try:
+            coefficients[:, idx] = np.asarray(np.linalg.solve(lhs, rhs), dtype=float)
+        except np.linalg.LinAlgError:
+            coefficients[:, idx] = np.asarray(np.linalg.pinv(lhs) @ rhs, dtype=float)
+    return coefficients
+
+
+def _feature_alpha_group(feature_name: str) -> str:
+    name = str(feature_name)
+    if "H_" in name or "host_" in name:
+        return "H"
+    if name.startswith("A_") or "amr_" in name or "resistance" in name:
+        return "A"
+    if name.startswith("T_") or "orit" in name or "transfer" in name:
+        return "T"
+    return "other"
+
+
+def _resolve_knownness_grouped_alpha(
+    columns: list[str],
+    *,
+    base_alpha: float,
+    fit_kwargs: dict[str, object] | None = None,
+) -> float | np.ndarray:
+    raw_grouped = _fit_kwarg_value(fit_kwargs, "preprocess_alpha_grouped", False)
+    if isinstance(raw_grouped, str):
+        grouped = raw_grouped.strip().lower() in {"1", "true", "yes", "on"}
+    else:
+        grouped = bool(raw_grouped)
+    has_explicit_group_alpha = any(
+        key in (fit_kwargs or {})
+        for key in ("preprocess_alpha_T", "preprocess_alpha_H", "preprocess_alpha_A")
+    )
+    if not grouped and not has_explicit_group_alpha:
+        return float(base_alpha)
+    group_values = {
+        "T": _fit_kwarg_float(fit_kwargs, "preprocess_alpha_T", 0.1),
+        "H": _fit_kwarg_float(fit_kwargs, "preprocess_alpha_H", 2.0),
+        "A": _fit_kwarg_float(fit_kwargs, "preprocess_alpha_A", 1.0),
+        "other": float(base_alpha),
+    }
+    return np.asarray(
+        [group_values[_feature_alpha_group(feature_name)] for feature_name in columns],
+        dtype=float,
+    )
+
+
+def _resolve_knownness_residualizer_alpha(
+    train: pd.DataFrame,
+    columns: list[str],
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+    prepared: bool = False,
+) -> float | np.ndarray:
+    base_alpha = _select_knownness_residualizer_alpha(
+        train,
+        columns,
+        fit_kwargs=fit_kwargs,
+        prepared=prepared,
+    )
+    return _resolve_knownness_grouped_alpha(columns, base_alpha=base_alpha, fit_kwargs=fit_kwargs)
+
+
+def _preprocess_alpha_grid(fit_kwargs: dict[str, object] | None) -> tuple[float, ...]:
+    raw = _fit_kwarg_value(
+        fit_kwargs,
+        "preprocess_alpha_grid",
+        (0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0),
+    )
+    if isinstance(raw, str):
+        candidates: list[object] = [token.strip() for token in raw.split(",") if token.strip()]
+    elif isinstance(raw, (list, tuple)):
+        candidates = list(raw)
+    else:
+        candidates = [raw]
+    resolved: list[float] = []
+    for value in candidates:
+        if isinstance(value, (int, float, str)):
+            try:
+                alpha = float(value)
+            except (TypeError, ValueError):
+                continue
+            if alpha > 0.0:
+                resolved.append(alpha)
+    if not resolved:
+        return (1.0,)
+    return tuple(dict.fromkeys(resolved))
+
+
+def _select_knownness_residualizer_alpha(
+    train: pd.DataFrame,
+    columns: list[str],
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+    prepared: bool = False,
+) -> float:
+    raw_alpha = _fit_kwarg_value(fit_kwargs, "preprocess_alpha", 1.0)
+    if str(raw_alpha).strip().lower() != "auto":
+        return _fit_kwarg_float(fit_kwargs, "preprocess_alpha", 1.0)
+
+    working = train if prepared else _ensure_feature_columns(train, columns)
+    if "spread_label" not in working.columns:
+        return 1.0
+    y = working["spread_label"].fillna(0).astype(int).to_numpy(dtype=int)
+    if len(y) < 8 or len(np.unique(y)) < 2:
+        return 1.0
     try:
-        return np.linalg.solve(lhs, rhs)
-    except np.linalg.LinAlgError:
-        return np.linalg.pinv(lhs) @ rhs
+        fold_groups = _stratified_folds(y, n_splits=3, n_repeats=1, seed=17)
+    except ValueError:
+        return 1.0
+
+    alpha_grid = _preprocess_alpha_grid(fit_kwargs)
+    best_alpha = 1.0 if 1.0 in alpha_grid else alpha_grid[0]
+    best_score = float("-inf")
+    l2_value = _fit_kwarg_float(fit_kwargs, "l2", 1.0)
+    max_iter = _fit_kwarg_int(fit_kwargs, "max_iter", 100)
+    for alpha in alpha_grid:
+        preds = np.zeros(len(working), dtype=float)
+        counts = np.zeros(len(working), dtype=float)
+        for fold_indices in fold_groups:
+            for test_idx in fold_indices:
+                train_mask = np.ones(len(y), dtype=bool)
+                train_mask[test_idx] = False
+                inner_train = working.loc[train_mask]
+                inner_valid = working.iloc[test_idx]
+                coefficients = _fit_knownness_residualizer(
+                    inner_train,
+                    columns,
+                    alpha=alpha,
+                    prepared=True,
+                )
+                X_train = _apply_knownness_residualizer(
+                    inner_train,
+                    columns,
+                    coefficients,
+                    prepared=True,
+                )
+                X_valid = _apply_knownness_residualizer(
+                    inner_valid,
+                    columns,
+                    coefficients,
+                    prepared=True,
+                )
+                train_weight = _compute_sample_weight(inner_train, mode=_fit_kwarg_mode(fit_kwargs))
+                X_train_scaled, mean, std = _standardize_fit(X_train)
+                X_valid_scaled = _standardize_apply(X_valid, mean, std)
+                beta = _fit_logistic_regression(
+                    X_train_scaled,
+                    y[train_mask],
+                    l2=l2_value,
+                    max_iter=max_iter,
+                    sample_weight=train_weight,
+                )
+                preds[test_idx] += _predict_logistic(X_valid_scaled, beta)
+                counts[test_idx] += 1.0
+        valid_mask = counts > 0
+        if not np.any(valid_mask):
+            continue
+        score = roc_auc_score(y[valid_mask], preds[valid_mask] / counts[valid_mask])
+        if np.isnan(score):
+            continue
+        if score > best_score or (score == best_score and alpha < best_alpha):
+            best_alpha = alpha
+            best_score = score
+    return float(best_alpha)
 
 
 def _apply_knownness_residualizer(
     frame: pd.DataFrame,
     columns: list[str],
     coefficients: np.ndarray,
+    *,
+    prepared: bool = False,
 ) -> np.ndarray:
-    working = _ensure_feature_columns(frame, columns)
+    working = frame if prepared else _ensure_feature_columns(frame, columns)
     X = working[columns].fillna(0.0).to_numpy(dtype=float)
     Z = _knownness_design_matrix(working)
-    return X - (Z @ coefficients)
+    return np.asarray(X - (Z @ coefficients), dtype=float)
 
 
 def _prepare_feature_matrices(
@@ -554,30 +477,364 @@ def _prepare_feature_matrices(
     columns: list[str],
     *,
     fit_kwargs: dict[str, object] | None = None,
+    prepared: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     fit_kwargs = fit_kwargs or {}
-    preprocess_mode = str(fit_kwargs.get("preprocess_mode", "none") or "none").strip().lower()
+    train_working = train if prepared else _ensure_feature_columns(train, columns)
+    score_working = score if prepared else _ensure_feature_columns(score, columns)
+    preprocess_mode = _fit_kwarg_str(fit_kwargs, "preprocess_mode", "none").strip().lower()
     if preprocess_mode in ("none", ""):
-        train_raw = _ensure_feature_columns(train, columns)[columns].to_numpy(dtype=float)
-        score_raw = _ensure_feature_columns(score, columns)[columns].to_numpy(dtype=float)
-
-        imputer = SimpleImputer(strategy="median", keep_empty_features=True)
-        train_matrix = imputer.fit_transform(train_raw)
-        score_matrix = imputer.transform(score_raw)
-        train_matrix = np.nan_to_num(train_matrix, nan=0.0)
-        score_matrix = np.nan_to_num(score_matrix, nan=0.0)
+        train_raw = train_working[columns].to_numpy(dtype=float)
+        score_raw = score_working[columns].to_numpy(dtype=float)
+        train_matrix, imputer = _fit_feature_imputer(train_raw)
+        score_matrix = np.nan_to_num(imputer.transform(score_raw), nan=0.0)
         return train_matrix, score_matrix
     if preprocess_mode == "knownness_residualized":
-        coefficients = _fit_knownness_residualizer(
-            train,
+        resolved_alpha = _resolve_knownness_residualizer_alpha(
+            train_working,
             columns,
-            alpha=float(fit_kwargs.get("preprocess_alpha", 1.0)),
+            fit_kwargs=fit_kwargs,
+            prepared=True,
+        )
+        coefficients = _fit_knownness_residualizer(
+            train_working,
+            columns,
+            alpha=resolved_alpha,
+            prepared=True,
         )
         return (
-            _apply_knownness_residualizer(train, columns, coefficients),
-            _apply_knownness_residualizer(score, columns, coefficients),
+            _apply_knownness_residualizer(train_working, columns, coefficients, prepared=True),
+            _apply_knownness_residualizer(score_working, columns, coefficients, prepared=True),
         )
     raise ValueError(f"Unsupported preprocess_mode: {preprocess_mode}")
+
+
+def _fit_hist_gradient_boosting(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+    sample_weight: np.ndarray | None = None,
+) -> HistGradientBoostingClassifier:
+    fit_kwargs = fit_kwargs or {}
+    max_depth = _fit_kwarg_optional_int(fit_kwargs, "nonlinear_max_depth", 3)
+    clf = HistGradientBoostingClassifier(
+        learning_rate=_fit_kwarg_float(fit_kwargs, "nonlinear_learning_rate", 0.05),
+        max_iter=_fit_kwarg_int(fit_kwargs, "nonlinear_max_iter", 200),
+        max_depth=max_depth,
+        min_samples_leaf=_fit_kwarg_int(fit_kwargs, "nonlinear_min_samples_leaf", 5),
+        l2_regularization=_fit_kwarg_float(fit_kwargs, "nonlinear_l2", 0.0),
+        random_state=_fit_kwarg_int(fit_kwargs, "nonlinear_random_state", 42),
+    )
+    clf.fit(X, y, sample_weight=sample_weight)
+    return clf
+
+
+def _predict_hist_gradient_boosting(
+    model: HistGradientBoostingClassifier,
+    X: np.ndarray,
+) -> np.ndarray:
+    return np.asarray(model.predict_proba(X)[:, 1], dtype=float)
+
+
+def _resolve_nonlinear_backend_name(fit_kwargs: dict[str, object] | None = None) -> str:
+    requested = _fit_kwarg_str(fit_kwargs, "nonlinear_backend", "").strip().lower()
+    if requested:
+        if requested == "ebm" and ExplainableBoostingClassifier is None:
+            warnings.warn(
+                (
+                    "nonlinear_backend=ebm requested but interpret is unavailable; "
+                    "falling back to hist_gbm."
+                ),
+                stacklevel=2,
+            )
+            return "hist_gbm"
+        return requested
+    return "ebm" if ExplainableBoostingClassifier is not None else "hist_gbm"
+
+
+def _fit_ebm_classifier(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+    sample_weight: np.ndarray | None = None,
+) -> ExplainableBoostingClassifier:
+    if ExplainableBoostingClassifier is None:  # pragma: no cover - guarded by resolver
+        raise ImportError("interpret is required for nonlinear_backend=ebm")
+    fit_kwargs = fit_kwargs or {}
+    n_rows = max(int(len(X)), 1)
+    interactions = min(10, max(X.shape[1] - 1, 0))
+    model = ExplainableBoostingClassifier(
+        interactions=_fit_kwarg_int(fit_kwargs, "nonlinear_interactions", interactions),
+        outer_bags=_fit_kwarg_int(fit_kwargs, "nonlinear_outer_bags", 8),
+        learning_rate=_fit_kwarg_float(fit_kwargs, "nonlinear_learning_rate", 0.01),
+        max_bins=_fit_kwarg_int(fit_kwargs, "nonlinear_max_bins", 64),
+        min_samples_leaf=_fit_kwarg_int(
+            fit_kwargs,
+            "nonlinear_min_samples_leaf",
+            max(3, int(np.ceil(0.02 * n_rows))),
+        ),
+        max_rounds=_fit_kwarg_int(fit_kwargs, "nonlinear_max_rounds", 500),
+        early_stopping_rounds=_fit_kwarg_int(fit_kwargs, "nonlinear_early_stopping_rounds", 50),
+        random_state=_fit_kwarg_int(fit_kwargs, "nonlinear_random_state", 42),
+    )
+    model.fit(X, y, sample_weight=sample_weight)
+    return model
+
+
+def _fit_nonlinear_model(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+    sample_weight: np.ndarray | None = None,
+) -> object:
+    backend = _resolve_nonlinear_backend_name(fit_kwargs)
+    if backend == "ebm":
+        try:
+            return _fit_ebm_classifier(X, y, fit_kwargs=fit_kwargs, sample_weight=sample_weight)
+        except (OSError, PermissionError) as exc:
+            warnings.warn(
+                f"EBM nonlinear fit failed in this environment ({type(exc).__name__}: {exc}); "
+                "falling back to hist_gbm for the nonlinear branch.",
+                stacklevel=2,
+            )
+            return _fit_hist_gradient_boosting(
+                X,
+                y,
+                fit_kwargs=fit_kwargs,
+                sample_weight=sample_weight,
+            )
+    return _fit_hist_gradient_boosting(X, y, fit_kwargs=fit_kwargs, sample_weight=sample_weight)
+
+
+def _predict_nonlinear_model(model: object, X: np.ndarray) -> np.ndarray:
+    return np.asarray(cast(Any, model).predict_proba(X)[:, 1], dtype=float)
+
+
+def _safe_evaluate_model_name_task(
+    scored: pd.DataFrame,
+    model_name: str,
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+) -> tuple[str, ModelResult]:
+    try:
+        return (
+            model_name,
+            evaluate_model_name(
+                scored,
+                model_name=model_name,
+                n_splits=n_splits,
+                n_repeats=n_repeats,
+                seed=seed,
+            ),
+        )
+    except Exception as exc:
+        error_message = f"{type(exc).__name__}: {exc}"
+        warnings.warn(
+            (
+                f"Module A model '{model_name}' failed; continuing with remaining models. "
+                f"{error_message}"
+            ),
+            stacklevel=2,
+        )
+        return model_name, build_failed_model_result(model_name, error_message)
+
+
+def _fit_hybrid_isotonic_calibrator(
+    train: pd.DataFrame,
+    columns: list[str],
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+) -> IsotonicRegression | None:
+    fit_kwargs = fit_kwargs or {}
+    y = train["spread_label"].fillna(0).astype(int).to_numpy(dtype=int)
+    if len(y) < 8 or len(np.unique(y)) < 2:
+        return None
+    try:
+        fold_groups = _stratified_folds(
+            y,
+            n_splits=_fit_kwarg_int(fit_kwargs, "stack_inner_splits", 3),
+            n_repeats=1,
+            seed=_fit_kwarg_int(fit_kwargs, "stack_seed", 43),
+        )
+    except ValueError:
+        return None
+    preds = np.zeros(len(train), dtype=float)
+    counts = np.zeros(len(train), dtype=float)
+    for fold_indices in fold_groups:
+        for test_idx in fold_indices:
+            train_mask = np.ones(len(y), dtype=bool)
+            train_mask[test_idx] = False
+            inner_train = train.loc[train_mask]
+            inner_valid = train.iloc[test_idx]
+            X_inner_train, X_inner_valid = _prepare_feature_matrices(
+                inner_train,
+                inner_valid,
+                columns,
+                fit_kwargs=fit_kwargs,
+                prepared=True,
+            )
+            inner_weight = _compute_sample_weight(inner_train, mode=_fit_kwarg_mode(fit_kwargs))
+            beta, mean, std = _fit_standardized_model(
+                X_inner_train,
+                y[train_mask],
+                l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+                sample_weight=inner_weight,
+                fit_backend=_fit_backend_name(fit_kwargs),
+            )
+            logistic_valid = _predict_calibrated(_standardize_apply(X_inner_valid, mean, std), beta)
+            nonlinear_model = _fit_nonlinear_model(
+                X_inner_train,
+                y[train_mask],
+                fit_kwargs=fit_kwargs,
+                sample_weight=inner_weight,
+            )
+            nonlinear_valid = _predict_nonlinear_model(nonlinear_model, X_inner_valid)
+            preds[test_idx] += 0.5 * (logistic_valid + nonlinear_valid)
+            counts[test_idx] += 1.0
+    if np.any(counts == 0):
+        return None
+    blend = preds / counts
+    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
+    calibrator = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
+    calibrator.fit(blend, y, sample_weight=sample_weight)
+    return calibrator
+
+
+def _fit_predict_hybrid_stacked(
+    train: pd.DataFrame,
+    score: pd.DataFrame,
+    columns: list[str],
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+    l2: float = 1.0,
+    max_iter: int = 100,
+) -> pd.DataFrame:
+    fit_kwargs = fit_kwargs or {}
+    y_train = train["spread_label"].astype(int).to_numpy(dtype=int)
+    X_train, X_score = _prepare_feature_matrices(
+        train,
+        score,
+        columns,
+        fit_kwargs=fit_kwargs,
+        prepared=True,
+    )
+    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
+    beta, mean, std = _fit_standardized_model(
+        X_train,
+        y_train,
+        l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+        sample_weight=sample_weight,
+        fit_backend=_fit_backend_name(fit_kwargs),
+    )
+    X_score_scaled = _standardize_apply(X_score, mean, std)
+    logistic_prediction = _predict_calibrated(X_score_scaled, beta)
+    nonlinear_model = _fit_nonlinear_model(
+        X_train,
+        y_train,
+        fit_kwargs=fit_kwargs,
+        sample_weight=sample_weight,
+    )
+    nonlinear_prediction = _predict_nonlinear_model(nonlinear_model, X_score)
+    blend_prediction = 0.5 * (logistic_prediction + nonlinear_prediction)
+    calibrator = _fit_hybrid_isotonic_calibrator(train, columns, fit_kwargs=fit_kwargs)
+    final_prediction = (
+        np.asarray(calibrator.predict(blend_prediction), dtype=float)
+        if calibrator is not None
+        else np.asarray(blend_prediction, dtype=float)
+    )
+    agreement_score = np.clip(1.0 - np.abs(logistic_prediction - nonlinear_prediction), 0.0, 1.0)
+    review_threshold = _fit_kwarg_float(fit_kwargs, "agreement_review_threshold", 0.80)
+    result = pd.DataFrame(
+        {
+            "backbone_id": score["backbone_id"].astype(str).tolist(),
+            "prediction": final_prediction.tolist(),
+            "logistic_base_prediction": logistic_prediction.tolist(),
+            "nonlinear_base_prediction": nonlinear_prediction.tolist(),
+            "agreement_score": agreement_score.tolist(),
+            "agreement_review_flag": (agreement_score < review_threshold).tolist(),
+        }
+    )
+    if "spread_label" in score.columns:
+        result["spread_label"] = score["spread_label"].tolist()
+    return result
+
+
+def _oof_hybrid_predictions_from_eligible(
+    eligible: pd.DataFrame,
+    *,
+    columns: list[str],
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+    fit_kwargs: dict[str, object] | None = None,
+    y_override: np.ndarray | None = None,
+    folds_per_repeat: list[list[np.ndarray]] | None = None,
+) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
+    fit_kwargs = fit_kwargs or {}
+    y = (
+        np.asarray(y_override, dtype=int)
+        if y_override is not None
+        else eligible["spread_label"].fillna(0).astype(int).to_numpy(dtype=int)
+    )
+    preds = np.zeros(len(eligible), dtype=float)
+    logistic_base = np.zeros(len(eligible), dtype=float)
+    nonlinear_base = np.zeros(len(eligible), dtype=float)
+    agreement = np.zeros(len(eligible), dtype=float)
+    review = np.zeros(len(eligible), dtype=float)
+    counts = np.zeros(len(eligible), dtype=float)
+    fold_groups = (
+        folds_per_repeat
+        if folds_per_repeat is not None
+        else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
+    )
+    for fold_indices in fold_groups:
+        for test_idx in fold_indices:
+            train_mask = np.ones(len(y), dtype=bool)
+            train_mask[test_idx] = False
+            train = eligible.loc[train_mask]
+            test = eligible.iloc[test_idx]
+            fold_predictions = _fit_predict_hybrid_stacked(
+                train,
+                test,
+                columns,
+                fit_kwargs=fit_kwargs,
+                l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+            )
+            preds[test_idx] += fold_predictions["prediction"].to_numpy(dtype=float)
+            logistic_base[test_idx] += fold_predictions[
+                "logistic_base_prediction"
+            ].to_numpy(dtype=float)
+            nonlinear_base[test_idx] += fold_predictions[
+                "nonlinear_base_prediction"
+            ].to_numpy(dtype=float)
+            agreement[test_idx] += fold_predictions["agreement_score"].to_numpy(dtype=float)
+            review[test_idx] += fold_predictions["agreement_review_flag"].astype(float).to_numpy(
+                dtype=float
+            )
+            counts[test_idx] += 1.0
+    if counts.min() == 0:
+        warnings.warn(
+            f"{int((counts == 0).sum())} sample(s) never appeared in any test fold",
+            stacklevel=2,
+        )
+        counts[counts == 0] = 1.0
+    detail = pd.DataFrame(
+        {
+            "logistic_base_prediction": logistic_base / counts,
+            "nonlinear_base_prediction": nonlinear_base / counts,
+            "agreement_score": agreement / counts,
+            "agreement_review_flag": (review / counts) >= 0.5,
+        },
+        index=eligible.index,
+    )
+    return preds / counts, y, detail
 
 
 def _oof_predictions_from_eligible(
@@ -589,8 +846,21 @@ def _oof_predictions_from_eligible(
     seed: int,
     fit_kwargs: dict[str, object] | None = None,
     y_override: np.ndarray | None = None,
+    folds_per_repeat: list[list[np.ndarray]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     fit_kwargs = fit_kwargs or {}
+    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+        hybrid_preds, hybrid_y, _ = _oof_hybrid_predictions_from_eligible(
+            eligible,
+            columns=columns,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=seed,
+            fit_kwargs=fit_kwargs,
+            y_override=y_override,
+            folds_per_repeat=folds_per_repeat,
+        )
+        return hybrid_preds, hybrid_y
     y = (
         np.asarray(y_override, dtype=int)
         if y_override is not None
@@ -598,27 +868,34 @@ def _oof_predictions_from_eligible(
     )
     preds = np.zeros(len(eligible), dtype=float)
     counts = np.zeros(len(eligible), dtype=float)
-    for fold_indices in _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed):
+    fold_groups = (
+        folds_per_repeat
+        if folds_per_repeat is not None
+        else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
+    )
+    for fold_indices in fold_groups:
         for test_idx in fold_indices:
             train_mask = np.ones(len(y), dtype=bool)
             train_mask[test_idx] = False
-            train = eligible.loc[train_mask].copy()
-            test = eligible.iloc[test_idx].copy()
+            train = eligible.loc[train_mask]
+            test = eligible.iloc[test_idx]
             X_train, X_test = _prepare_feature_matrices(
                 train,
                 test,
                 columns,
                 fit_kwargs=fit_kwargs,
+                prepared=True,
             )
-            train_weight = _compute_sample_weight(train, mode=fit_kwargs.get("sample_weight_mode"))
+            train_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
             X_train_scaled, mean, std = _standardize_fit(X_train)
             X_test_scaled = _standardize_apply(X_test, mean, std)
             beta = _fit_logistic_regression(
                 X_train_scaled,
                 y[train_mask],
-                l2=float(fit_kwargs.get("l2", 1.0)),
-                max_iter=int(fit_kwargs.get("max_iter", 100)),
+                l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
                 sample_weight=train_weight,
+                fit_backend=_fit_backend_name(fit_kwargs),
             )
             preds[test_idx] += _predict_logistic(X_test_scaled, beta)
             counts[test_idx] += 1
@@ -631,6 +908,88 @@ def _oof_predictions_from_eligible(
     return preds / counts, y
 
 
+def _oof_predictions_with_detail_from_eligible(
+    eligible: pd.DataFrame,
+    *,
+    columns: list[str],
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+    fit_kwargs: dict[str, object] | None = None,
+    y_override: np.ndarray | None = None,
+    folds_per_repeat: list[list[np.ndarray]] | None = None,
+) -> tuple[np.ndarray, np.ndarray, pd.DataFrame | None]:
+    fit_kwargs = fit_kwargs or {}
+    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+        return _oof_hybrid_predictions_from_eligible(
+            eligible,
+            columns=columns,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=seed,
+            fit_kwargs=fit_kwargs,
+            y_override=y_override,
+            folds_per_repeat=folds_per_repeat,
+        )
+    preds, y = _oof_predictions_from_eligible(
+        eligible,
+        columns=columns,
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        seed=seed,
+        fit_kwargs=fit_kwargs,
+        y_override=y_override,
+        folds_per_repeat=folds_per_repeat,
+    )
+    return preds, y, None
+
+
+def _evaluate_model_name_task(
+    scored: pd.DataFrame,
+    model_name: str,
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+) -> tuple[str, ModelResult]:
+    return _safe_evaluate_model_name_task(scored, model_name, n_splits, n_repeats, seed)
+
+
+def _build_dropout_feature_row(
+    eligible: pd.DataFrame,
+    *,
+    model_name: str,
+    columns: list[str],
+    feature_name: str,
+    feature_rank: int,
+    y: np.ndarray,
+    fold_groups: list[list[np.ndarray]],
+    fit_kwargs: dict[str, object],
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+) -> dict[str, object]:
+    reduced_columns = [column for column in columns if column != feature_name]
+    reduced_preds, _ = _oof_predictions_from_eligible(
+        eligible,
+        columns=reduced_columns,
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        seed=seed,
+        fit_kwargs=fit_kwargs,
+        folds_per_repeat=fold_groups,
+    )
+    reduced_auc = roc_auc_score(y, reduced_preds)
+    return {
+        "model_name": model_name,
+        "feature_name": feature_name,
+        "feature_rank": feature_rank,
+        "roc_auc_without_feature": reduced_auc,
+        "average_precision_without_feature": average_precision(y, reduced_preds),
+        "brier_without_feature": brier_score(y, reduced_preds),
+        "n_backbones": int(len(eligible)),
+    }
+
+
 def _evaluate_prediction_set(
     name: str,
     y: np.ndarray,
@@ -638,11 +997,15 @@ def _evaluate_prediction_set(
     index: pd.Index,
     *,
     include_ci: bool = True,
+    knownness_score: np.ndarray | None = None,
+    extra_metrics: dict[str, float | int | bool] | None = None,
+    prediction_detail: pd.DataFrame | None = None,
 ) -> ModelResult:
     prevalence = positive_prevalence(y)
     ap = average_precision(y, preds)
     precision_at_10, recall_at_10 = _top_k_precision_recall(y, preds, top_k=10)
     precision_at_25, recall_at_25 = _top_k_precision_recall(y, preds, top_k=25)
+    brier_parts = brier_decomposition(y, preds)
     metrics = {
         "roc_auc": roc_auc_score(y, preds),
         "average_precision": ap,
@@ -650,13 +1013,30 @@ def _evaluate_prediction_set(
         "average_precision_lift": average_precision_lift(y, preds),
         "average_precision_enrichment": average_precision_enrichment(y, preds),
         "brier_score": brier_score(y, preds),
+        "log_loss": log_loss(y, preds),
+        "expected_calibration_error": expected_calibration_error(y, preds),
+        "max_calibration_error": max_calibration_error(y, preds),
+        "ndcg_at_10": ndcg_at_k(y, preds, k=10),
+        "ndcg_at_25": ndcg_at_k(y, preds, k=25),
+        "brier_reliability": brier_parts["reliability"],
+        "brier_resolution": brier_parts["resolution"],
+        "brier_uncertainty": brier_parts["uncertainty"],
         "precision_at_top_10": precision_at_10,
         "recall_at_top_10": recall_at_10,
         "precision_at_top_25": precision_at_25,
         "recall_at_top_25": recall_at_25,
         "n_backbones": int(len(y)),
         "n_positive": int((np.asarray(y, dtype=int) == 1).sum()),
+        "weighted_classification_cost": weighted_classification_cost(y, preds),
     }
+    if knownness_score is not None:
+        metrics["novelty_adjusted_average_precision"] = novelty_adjusted_average_precision(
+            y,
+            preds,
+            knownness_score,
+        )
+    if extra_metrics:
+        metrics.update(extra_metrics)
     if include_ci:
         intervals = bootstrap_intervals(
             y,
@@ -665,6 +1045,7 @@ def _evaluate_prediction_set(
                 "roc_auc": roc_auc_score,
                 "average_precision": average_precision,
                 "brier_score": brier_score,
+                "log_loss": log_loss,
             },
         )
         metrics["roc_auc_ci_lower"] = intervals["roc_auc"]["lower"]
@@ -673,6 +1054,8 @@ def _evaluate_prediction_set(
         metrics["average_precision_ci_upper"] = intervals["average_precision"]["upper"]
         metrics["brier_score_ci_lower"] = intervals["brier_score"]["lower"]
         metrics["brier_score_ci_upper"] = intervals["brier_score"]["upper"]
+        metrics["log_loss_ci_lower"] = intervals["log_loss"]["lower"]
+        metrics["log_loss_ci_upper"] = intervals["log_loss"]["upper"]
     predictions = pd.DataFrame(
         {
             "backbone_id": index.astype(str),
@@ -681,7 +1064,228 @@ def _evaluate_prediction_set(
             "visibility_expansion_label": y,
         }
     )
+    if prediction_detail is not None and not prediction_detail.empty:
+        predictions = pd.concat(
+            [predictions.reset_index(drop=True), prediction_detail.reset_index(drop=True)],
+            axis=1,
+        )
     return ModelResult(name=name, metrics=metrics, predictions=predictions)
+
+
+def _discrete_entropy(codes: np.ndarray) -> float:
+    valid = np.asarray(codes, dtype=int)
+    valid = valid[valid >= 0]
+    if valid.size == 0:
+        return 0.0
+    _, counts = np.unique(valid, return_counts=True)
+    probabilities = counts.astype(float) / float(valid.size)
+    return float(-(probabilities * np.log2(np.clip(probabilities, 1e-15, 1.0))).sum())
+
+
+def _mutual_information_discrete(feature_codes: np.ndarray, target_codes: np.ndarray) -> float:
+    feature_codes = np.asarray(feature_codes, dtype=int)
+    target_codes = np.asarray(target_codes, dtype=int)
+    valid_mask = (feature_codes >= 0) & (target_codes >= 0)
+    if not np.any(valid_mask):
+        return 0.0
+    x = feature_codes[valid_mask]
+    y = target_codes[valid_mask]
+    h_x = _discrete_entropy(x)
+    h_y = _discrete_entropy(y)
+    joint_codes = np.column_stack([x, y])
+    _, joint_counts = np.unique(joint_codes, axis=0, return_counts=True)
+    joint_probabilities = joint_counts.astype(float) / float(len(x))
+    h_xy = float(-(joint_probabilities * np.log2(np.clip(joint_probabilities, 1e-15, 1.0))).sum())
+    return float(max(h_x + h_y - h_xy, 0.0))
+
+
+def _conditional_mutual_information_discrete(
+    feature_codes: np.ndarray,
+    target_codes: np.ndarray,
+    condition_codes: np.ndarray,
+) -> float:
+    feature_codes = np.asarray(feature_codes, dtype=int)
+    target_codes = np.asarray(target_codes, dtype=int)
+    condition_codes = np.asarray(condition_codes, dtype=int)
+    valid_mask = (feature_codes >= 0) & (target_codes >= 0) & (condition_codes >= 0)
+    if not np.any(valid_mask):
+        return 0.0
+    x = feature_codes[valid_mask]
+    y = target_codes[valid_mask]
+    z = condition_codes[valid_mask]
+    total = float(len(x))
+    score = 0.0
+    for code in np.unique(z):
+        z_mask = z == code
+        if int(z_mask.sum()) < 2:
+            continue
+        score += float(z_mask.sum() / total) * _mutual_information_discrete(x[z_mask], y[z_mask])
+    return float(max(score, 0.0))
+
+
+def _quantile_binned_codes(values: pd.Series, *, n_bins: int) -> np.ndarray:
+    numeric = pd.to_numeric(values, errors="coerce")
+    result = np.full(len(numeric), -1, dtype=int)
+    valid_mask = numeric.notna().to_numpy()
+    if not np.any(valid_mask):
+        return result
+    valid = numeric.loc[numeric.notna()]
+    if valid.nunique() < 2:
+        result[valid_mask] = 0
+        return result
+    if int(valid.nunique()) <= max(int(n_bins), 2):
+        unique_values = sorted(valid.astype(float).unique().tolist())
+        category_map = {float(value): idx for idx, value in enumerate(unique_values)}
+        result[valid_mask] = valid.astype(float).map(category_map).fillna(0).astype(int).to_numpy(
+            dtype=int
+        )
+        return result
+    ranked = valid.rank(method="average")
+    try:
+        codes = pd.qcut(
+            ranked,
+            q=min(max(int(n_bins), 2), int(valid.nunique())),
+            labels=False,
+            duplicates="drop",
+        )
+    except ValueError:
+        result[valid_mask] = 0
+        return result
+    result[valid_mask] = pd.Series(codes, index=valid.index).fillna(0).astype(int).to_numpy(
+        dtype=int
+    )
+    return result
+
+
+def select_cmim_features(
+    scored: pd.DataFrame,
+    *,
+    columns: list[str] | tuple[str, ...] | None = None,
+    top_n: int = 12,
+    n_bins: int = 5,
+) -> list[str]:
+    return cast(
+        list[str],
+        build_cmim_feature_selection_table(
+            scored,
+            columns=columns,
+            top_n=top_n,
+            n_bins=n_bins,
+        )["feature_name"]
+        .astype(str)
+        .tolist()
+    )
+
+
+def build_cmim_feature_selection_table(
+    scored: pd.DataFrame,
+    *,
+    columns: list[str] | tuple[str, ...] | None = None,
+    top_n: int = 12,
+    n_bins: int = 5,
+) -> pd.DataFrame:
+    """Greedy CMIM ranking over candidate features for the spread label."""
+    candidate_features = {
+        feature
+        for feature_set in MODULE_A_FEATURE_SETS.values()
+        for feature in feature_set
+    }
+    candidate_columns = (
+        list(dict.fromkeys(str(column) for column in columns))
+        if columns is not None
+        else sorted(candidate_features)
+    )
+    if not candidate_columns:
+        return pd.DataFrame(
+            columns=[
+                "rank",
+                "feature_name",
+                "mutual_information",
+                "cmim_score",
+                "min_conditional_mutual_information",
+                "n_unique_bins",
+            ]
+        )
+    eligible = (
+        _ensure_feature_columns(scored, candidate_columns)
+        .loc[scored["spread_label"].notna()]
+        .copy()
+    )
+    if eligible.empty:
+        return pd.DataFrame(
+            columns=[
+                "rank",
+                "feature_name",
+                "mutual_information",
+                "cmim_score",
+                "min_conditional_mutual_information",
+                "n_unique_bins",
+            ]
+        )
+    y_codes = eligible["spread_label"].fillna(0).astype(int).to_numpy(dtype=int)
+    feature_codes = {
+        feature_name: _quantile_binned_codes(eligible[feature_name], n_bins=n_bins)
+        for feature_name in candidate_columns
+    }
+    mutual_information = {
+        feature_name: _mutual_information_discrete(codes, y_codes)
+        for feature_name, codes in feature_codes.items()
+    }
+    remaining = list(candidate_columns)
+    selected: list[str] = []
+    rows: list[dict[str, object]] = []
+    for rank in range(1, min(max(int(top_n), 1), len(remaining)) + 1):
+        best_feature: str | None = None
+        best_score = float("-inf")
+        best_min_conditional = float("nan")
+        best_mi = float("-inf")
+        for feature_name in remaining:
+            base_mi = float(mutual_information[feature_name])
+            if selected:
+                conditional_values = [
+                    _conditional_mutual_information_discrete(
+                        feature_codes[feature_name],
+                        y_codes,
+                        feature_codes[selected_feature],
+                    )
+                    for selected_feature in selected
+                ]
+                min_conditional = float(min(conditional_values)) if conditional_values else base_mi
+                cmim_score = min(base_mi, min_conditional)
+            else:
+                min_conditional = float("nan")
+                cmim_score = base_mi
+            if (
+                cmim_score > best_score
+                or (cmim_score == best_score and base_mi > best_mi)
+                or (
+                    cmim_score == best_score
+                    and base_mi == best_mi
+                    and (best_feature is None or feature_name < best_feature)
+                )
+            ):
+                best_feature = feature_name
+                best_score = cmim_score
+                best_min_conditional = min_conditional
+                best_mi = base_mi
+        if best_feature is None:
+            break
+        selected.append(best_feature)
+        remaining.remove(best_feature)
+        codes = feature_codes[best_feature]
+        rows.append(
+            {
+                "rank": int(rank),
+                "feature_name": best_feature,
+                "mutual_information": float(mutual_information[best_feature]),
+                "cmim_score": float(best_score),
+                "min_conditional_mutual_information": float(best_min_conditional)
+                if np.isfinite(best_min_conditional)
+                else float("nan"),
+                "n_unique_bins": int(len(np.unique(codes[codes >= 0]))),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def get_primary_model_name(model_names: list[str] | pd.Series | set[str] | tuple[str, ...]) -> str:
@@ -694,7 +1298,9 @@ def get_primary_model_name(model_names: list[str] | pd.Series | set[str] | tuple
     return sorted(names)[0]
 
 
-def get_conservative_model_name(model_names: list[str] | pd.Series | set[str] | tuple[str, ...]) -> str:
+def get_conservative_model_name(
+    model_names: list[str] | pd.Series | set[str] | tuple[str, ...],
+) -> str:
     """Resolve the most conservative feature-light benchmark model."""
     names = {str(name) for name in model_names}
     if CONSERVATIVE_MODEL_NAME in names:
@@ -704,8 +1310,84 @@ def get_conservative_model_name(model_names: list[str] | pd.Series | set[str] | 
     return get_primary_model_name(names)
 
 
+def get_governance_model_name(
+    model_names: list[str] | pd.Series | set[str] | tuple[str, ...],
+) -> str:
+    """Resolve the governance benchmark while preserving backward compatibility."""
+    names = {str(name) for name in model_names}
+    if GOVERNANCE_MODEL_NAME in names:
+        return GOVERNANCE_MODEL_NAME
+    if GOVERNANCE_MODEL_FALLBACK in names:
+        return GOVERNANCE_MODEL_FALLBACK
+    if PRIMARY_MODEL_FALLBACK in names:
+        return PRIMARY_MODEL_FALLBACK
+    return get_primary_model_name(names)
+
+
+def get_official_model_names(
+    model_names: list[str] | pd.Series | set[str] | tuple[str, ...],
+) -> tuple[str, ...]:
+    """Resolve the jury-facing official model surface: discovery, governance, baseline."""
+    names = {str(name) for name in model_names}
+    official: list[str] = []
+    if names:
+        official.append(get_primary_model_name(names))
+        official.append(get_governance_model_name(names))
+        if "baseline_both" in names:
+            official.append("baseline_both")
+    return tuple(dict.fromkeys(name for name in official if name))
+
+
+def get_model_track(model_name: str) -> str:
+    """Return the admissibility track for a configured Module A model."""
+    return MODULE_A_MODEL_TRACKS[str(model_name)]
+
+
+def get_feature_track(feature_name: str) -> str:
+    """Return the provenance track for a configured Module A feature."""
+    return FEATURE_PROVENANCE_REGISTRY[str(feature_name)].track
+
+
 def _ensure_feature_columns(scored: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     working = scored.copy()
+    needs_h_obs_norm = any(
+        column in columns
+        for column in (
+            "H_obs_norm",
+            "H_obs_specialization_norm",
+            "T_H_obs_synergy_norm",
+            "A_H_obs_synergy_norm",
+        )
+    )
+    if needs_h_obs_norm and "H_obs_norm" not in working.columns:
+        if "H_phylogenetic_norm" in working.columns:
+            working["H_obs_norm"] = (
+                pd.to_numeric(working["H_phylogenetic_norm"], errors="coerce").fillna(0.0)
+            ).clip(lower=0.0, upper=1.0)
+        elif "H_breadth_norm" in working.columns:
+            working["H_obs_norm"] = (
+                pd.to_numeric(working["H_breadth_norm"], errors="coerce").fillna(0.0)
+            ).clip(lower=0.0, upper=1.0)
+        else:
+            working["H_obs_norm"] = 0.0
+    if (
+        "H_obs_specialization_norm" in columns
+        and "H_obs_specialization_norm" not in working.columns
+    ):
+        if "H_obs_norm" in working.columns:
+            working["H_obs_specialization_norm"] = (
+                1.0 - pd.to_numeric(working["H_obs_norm"], errors="coerce").fillna(0.0)
+            ).clip(lower=0.0, upper=1.0)
+        elif "H_phylogenetic_norm" in working.columns:
+            working["H_obs_specialization_norm"] = (
+                1.0 - pd.to_numeric(working["H_phylogenetic_norm"], errors="coerce").fillna(0.0)
+            ).clip(lower=0.0, upper=1.0)
+        elif "H_breadth_norm" in working.columns:
+            working["H_obs_specialization_norm"] = (
+                1.0 - pd.to_numeric(working["H_breadth_norm"], errors="coerce").fillna(0.0)
+            ).clip(lower=0.0, upper=1.0)
+        else:
+            working["H_obs_specialization_norm"] = 0.0
     if "H_specialization_norm" in columns and "H_specialization_norm" not in working.columns:
         if "H_breadth_norm" in working.columns:
             working["H_specialization_norm"] = (
@@ -713,20 +1395,47 @@ def _ensure_feature_columns(scored: pd.DataFrame, columns: list[str]) -> pd.Data
             ).clip(lower=0.0, upper=1.0)
         else:
             working["H_specialization_norm"] = 0.0
-    if "H_augmented_specialization_norm" in columns and "H_augmented_specialization_norm" not in working.columns:
+    if (
+        "H_augmented_specialization_norm" in columns
+        and "H_augmented_specialization_norm" not in working.columns
+    ):
         if "H_augmented_norm" in working.columns:
             working["H_augmented_specialization_norm"] = (
                 1.0 - pd.to_numeric(working["H_augmented_norm"], errors="coerce").fillna(0.0)
             ).clip(lower=0.0, upper=1.0)
         else:
             working["H_augmented_specialization_norm"] = 0.0
-    if "H_phylogenetic_specialization_norm" in columns and "H_phylogenetic_specialization_norm" not in working.columns:
+    if (
+        "H_phylogenetic_specialization_norm" in columns
+        and "H_phylogenetic_specialization_norm" not in working.columns
+    ):
         if "H_phylogenetic_norm" in working.columns:
             working["H_phylogenetic_specialization_norm"] = (
                 1.0 - pd.to_numeric(working["H_phylogenetic_norm"], errors="coerce").fillna(0.0)
             ).clip(lower=0.0, upper=1.0)
         else:
             working["H_phylogenetic_specialization_norm"] = 0.0
+    if "T_H_obs_synergy_norm" in columns and "T_H_obs_synergy_norm" not in working.columns:
+        working["T_H_obs_synergy_norm"] = np.clip(
+            pd.to_numeric(working.get("T_eff_norm", 0.0), errors="coerce").fillna(0.0)
+            * pd.to_numeric(working.get("H_obs_norm", 0.0), errors="coerce").fillna(0.0),
+            0.0,
+            1.0,
+        )
+    if "A_H_obs_synergy_norm" in columns and "A_H_obs_synergy_norm" not in working.columns:
+        working["A_H_obs_synergy_norm"] = np.clip(
+            pd.to_numeric(working.get("A_eff_norm", 0.0), errors="coerce").fillna(0.0)
+            * pd.to_numeric(working.get("H_obs_norm", 0.0), errors="coerce").fillna(0.0),
+            0.0,
+            1.0,
+        )
+    if "T_coherence_synergy_norm" in columns and "T_coherence_synergy_norm" not in working.columns:
+        working["T_coherence_synergy_norm"] = np.clip(
+            pd.to_numeric(working.get("T_eff_norm", 0.0), errors="coerce").fillna(0.0)
+            * pd.to_numeric(working.get("coherence_score", 0.0), errors="coerce").fillna(0.0),
+            0.0,
+            1.0,
+        )
     for column in columns:
         if column not in working.columns:
             working[column] = 0.0
@@ -741,17 +1450,36 @@ def assert_feature_columns_present(
 ) -> None:
     """Fail loudly when engineered score columns are stale or missing."""
     available = set(scored.columns.astype(str))
-    derivable_sources = {
-        "H_specialization_norm": "H_breadth_norm",
-        "H_augmented_specialization_norm": "H_augmented_norm",
-        "H_phylogenetic_specialization_norm": "H_phylogenetic_norm",
+    derivable_sources: dict[str, tuple[tuple[str, ...], ...]] = {
+        "H_obs_norm": (("H_phylogenetic_norm",), ("H_breadth_norm",)),
+        "H_obs_specialization_norm": (
+            ("H_obs_norm",),
+            ("H_phylogenetic_norm",),
+            ("H_breadth_norm",),
+        ),
+        "H_specialization_norm": (("H_breadth_norm",),),
+        "H_augmented_specialization_norm": (("H_augmented_norm",),),
+        "H_phylogenetic_specialization_norm": (("H_phylogenetic_norm",),),
+        "T_H_obs_synergy_norm": (
+            ("T_eff_norm", "H_obs_norm"),
+            ("T_eff_norm", "H_phylogenetic_norm"),
+            ("T_eff_norm", "H_breadth_norm"),
+        ),
+        "A_H_obs_synergy_norm": (
+            ("A_eff_norm", "H_obs_norm"),
+            ("A_eff_norm", "H_phylogenetic_norm"),
+            ("A_eff_norm", "H_breadth_norm"),
+        ),
+        "T_coherence_synergy_norm": (("T_eff_norm", "coherence_score"),),
     }
     missing: list[str] = []
     for column in dict.fromkeys(str(column) for column in columns):
         if column in available:
             continue
-        source = derivable_sources.get(column)
-        if source is not None and source in available:
+        source_sets = derivable_sources.get(column)
+        if source_sets is not None and any(
+            all(candidate in available for candidate in source_set) for source_set in source_sets
+        ):
             continue
         missing.append(column)
     if missing:
@@ -773,9 +1501,15 @@ def annotate_knownness_metadata(scored: pd.DataFrame) -> pd.DataFrame:
         if "spread_label" in working.columns
         else pd.Series(True, index=working.index, dtype=bool)
     )
-    working["member_rank_norm"] = _masked_percentile_rank(working["log1p_member_count_train"], cohort_mask=cohort_mask)
-    working["country_rank_norm"] = _masked_percentile_rank(working["log1p_n_countries_train"], cohort_mask=cohort_mask)
-    working["source_rank_norm"] = _masked_percentile_rank(working["refseq_share_train"], cohort_mask=cohort_mask)
+    working["member_rank_norm"] = _masked_percentile_rank(
+        working["log1p_member_count_train"], cohort_mask=cohort_mask
+    )
+    working["country_rank_norm"] = _masked_percentile_rank(
+        working["log1p_n_countries_train"], cohort_mask=cohort_mask
+    )
+    working["source_rank_norm"] = _masked_percentile_rank(
+        working["refseq_share_train"], cohort_mask=cohort_mask
+    )
     working["knownness_score"] = _knownness_score_series(working, cohort_mask=cohort_mask)
     if not working.empty:
         working["knownness_half"] = pd.Series("out_of_scope", index=working.index, dtype=object)
@@ -844,8 +1578,16 @@ def fit_predict_model_holdout(
     """Fit a named model on one cohort and predict on a disjoint holdout cohort."""
     _ensure_config_loaded()
     columns = MODULE_A_FEATURE_SETS[model_name]
-    train = _ensure_feature_columns(scored_train, columns).loc[scored_train["spread_label"].notna()].copy()
-    test = _ensure_feature_columns(scored_test, columns).loc[scored_test["spread_label"].notna()].copy()
+    train = (
+        _ensure_feature_columns(scored_train, columns)
+        .loc[scored_train["spread_label"].notna()]
+        .copy()
+    )
+    test = (
+        _ensure_feature_columns(scored_test, columns)
+        .loc[scored_test["spread_label"].notna()]
+        .copy()
+    )
     if train.empty or test.empty:
         return pd.DataFrame(columns=["backbone_id", "spread_label", "prediction"])
 
@@ -856,21 +1598,51 @@ def fit_predict_model_holdout(
 
     y_train = train["spread_label"].to_numpy(dtype=int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    X_train, X_test = _prepare_feature_matrices(train, test, columns, fit_kwargs=fit_kwargs)
-    sample_weight = _compute_sample_weight(train, mode=fit_kwargs.get("sample_weight_mode"))
-    beta, mean, std, calibrator = _fit_standardized_model(
+    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+        return _fit_predict_hybrid_stacked(
+            train,
+            test,
+            columns,
+            fit_kwargs=fit_kwargs,
+            l2=l2,
+            max_iter=max_iter,
+        )
+    X_train, X_test = _prepare_feature_matrices(
+        train,
+        test,
+        columns,
+        fit_kwargs=fit_kwargs,
+        prepared=True,
+    )
+    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
+    beta, mean, std = _fit_standardized_model(
         X_train,
         y_train,
-        l2=float(fit_kwargs.get("l2", l2)),
-        max_iter=int(fit_kwargs.get("max_iter", max_iter)),
+        l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+        sample_weight=sample_weight,
+        fit_backend=_fit_backend_name(fit_kwargs),
+    )
+    effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", l2)
+    X_train_scaled = _standardize_apply(X_train, mean, std)
+    X_test_scaled = _standardize_apply(X_test, mean, std)
+    posterior_covariance = _logistic_posterior_covariance(
+        X_train_scaled,
+        beta,
+        l2=effective_l2,
         sample_weight=sample_weight,
     )
-    preds = _predict_calibrated(_standardize_apply(X_test, mean, std), beta, calibrator)
+    posterior_summary = _bayesian_prediction_summary(X_test_scaled, beta, posterior_covariance)
+    preds = _predict_calibrated(X_test_scaled, beta)
     return pd.DataFrame(
         {
             "backbone_id": test["backbone_id"].astype(str).tolist(),
             "spread_label": test["spread_label"].astype(int).tolist(),
             "prediction": preds.tolist(),
+            "prediction_posterior_mean": posterior_summary["mean"].tolist(),
+            "prediction_std": posterior_summary["std"].tolist(),
+            "prediction_ci_lower": posterior_summary["q05"].tolist(),
+            "prediction_ci_upper": posterior_summary["q95"].tolist(),
         }
     )
 
@@ -902,20 +1674,50 @@ def fit_full_model_predictions(
 
     y_train = train["spread_label"].to_numpy(dtype=int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    X_train, X_all = _prepare_feature_matrices(train, all_rows, columns, fit_kwargs=fit_kwargs)
-    sample_weight = _compute_sample_weight(train, mode=fit_kwargs.get("sample_weight_mode"))
-    beta, mean, std, calibrator = _fit_standardized_model(
+    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+        return _fit_predict_hybrid_stacked(
+            train,
+            all_rows,
+            columns,
+            fit_kwargs=fit_kwargs,
+            l2=l2,
+            max_iter=max_iter,
+        )
+    X_train, X_all = _prepare_feature_matrices(
+        train,
+        all_rows,
+        columns,
+        fit_kwargs=fit_kwargs,
+        prepared=True,
+    )
+    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
+    beta, mean, std = _fit_standardized_model(
         X_train,
         y_train,
-        l2=float(fit_kwargs.get("l2", l2)),
-        max_iter=int(fit_kwargs.get("max_iter", max_iter)),
+        l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+        sample_weight=sample_weight,
+        fit_backend=_fit_backend_name(fit_kwargs),
+    )
+    effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", l2)
+    X_train_scaled = _standardize_apply(X_train, mean, std)
+    X_all_scaled = _standardize_apply(X_all, mean, std)
+    posterior_covariance = _logistic_posterior_covariance(
+        X_train_scaled,
+        beta,
+        l2=effective_l2,
         sample_weight=sample_weight,
     )
-    preds = _predict_calibrated(_standardize_apply(X_all, mean, std), beta, calibrator)
+    posterior_summary = _bayesian_prediction_summary(X_all_scaled, beta, posterior_covariance)
+    preds = _predict_calibrated(X_all_scaled, beta)
     return pd.DataFrame(
         {
             "backbone_id": all_rows["backbone_id"].astype(str).tolist(),
             "prediction": preds.tolist(),
+            "prediction_posterior_mean": posterior_summary["mean"].tolist(),
+            "prediction_std": posterior_summary["std"].tolist(),
+            "prediction_ci_lower": posterior_summary["q05"].tolist(),
+            "prediction_ci_upper": posterior_summary["q95"].tolist(),
         }
     )
 
@@ -936,7 +1738,7 @@ def evaluate_model_name(
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    preds, y = _oof_predictions_from_eligible(
+    preds, y, prediction_detail = _oof_predictions_with_detail_from_eligible(
         eligible,
         columns=columns,
         n_splits=n_splits,
@@ -944,12 +1746,30 @@ def evaluate_model_name(
         seed=seed,
         fit_kwargs=fit_kwargs,
     )
+    extra_metrics: dict[str, float | int | bool] | None = None
+    if prediction_detail is not None and not prediction_detail.empty:
+        agreement_delta = np.abs(
+            prediction_detail["logistic_base_prediction"].to_numpy(dtype=float)
+            - prediction_detail["nonlinear_base_prediction"].to_numpy(dtype=float)
+        )
+        extra_metrics = {
+            "mean_agreement_score": float(
+                prediction_detail["agreement_score"].astype(float).mean()
+            ),
+            "review_fraction": float(
+                prediction_detail["agreement_review_flag"].astype(float).mean()
+            ),
+            "mean_logistic_nonlinear_delta": float(np.mean(agreement_delta)),
+        }
     return _evaluate_prediction_set(
         model_name,
         y,
         preds,
         eligible["backbone_id"],
         include_ci=include_ci,
+        knownness_score=_knownness_score_series(eligible).to_numpy(dtype=float),
+        extra_metrics=extra_metrics,
+        prediction_detail=prediction_detail,
     )
 
 
@@ -965,12 +1785,12 @@ def evaluate_feature_columns(
     include_ci: bool = True,
 ) -> ModelResult:
     """Evaluate an arbitrary feature set without registering a named pipeline model."""
-    fit_kwargs = {"l2": 1.0, "max_iter": 100, "sample_weight_mode": None}
+    fit_kwargs: dict[str, object] = {"l2": 1.0, "max_iter": 100, "sample_weight_mode": None}
     if fit_config:
         fit_kwargs.update(fit_config)
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
-    preds, y = _oof_predictions_from_eligible(
+    preds, y, prediction_detail = _oof_predictions_with_detail_from_eligible(
         eligible,
         columns=columns,
         n_splits=n_splits,
@@ -978,12 +1798,30 @@ def evaluate_feature_columns(
         seed=seed,
         fit_kwargs=fit_kwargs,
     )
+    extra_metrics: dict[str, float | int | bool] | None = None
+    if prediction_detail is not None and not prediction_detail.empty:
+        agreement_delta = np.abs(
+            prediction_detail["logistic_base_prediction"].to_numpy(dtype=float)
+            - prediction_detail["nonlinear_base_prediction"].to_numpy(dtype=float)
+        )
+        extra_metrics = {
+            "mean_agreement_score": float(
+                prediction_detail["agreement_score"].astype(float).mean()
+            ),
+            "review_fraction": float(
+                prediction_detail["agreement_review_flag"].astype(float).mean()
+            ),
+            "mean_logistic_nonlinear_delta": float(np.mean(agreement_delta)),
+        }
     return _evaluate_prediction_set(
         label,
         y,
         preds,
         eligible["backbone_id"],
         include_ci=include_ci,
+        knownness_score=_knownness_score_series(eligible).to_numpy(dtype=float),
+        extra_metrics=extra_metrics,
+        prediction_detail=prediction_detail,
     )
 
 
@@ -995,7 +1833,11 @@ def fit_feature_columns_predictions(
     fit_config: dict[str, object] | None = None,
 ) -> pd.DataFrame:
     """Fit an arbitrary feature set on one cohort and score another cohort."""
-    train = _ensure_feature_columns(scored_train, columns).loc[scored_train["spread_label"].notna()].copy()
+    train = (
+        _ensure_feature_columns(scored_train, columns)
+        .loc[scored_train["spread_label"].notna()]
+        .copy()
+    )
     score = _ensure_feature_columns(scored_score, columns).copy()
     if train.empty or score.empty:
         return pd.DataFrame(columns=["backbone_id", "prediction"])
@@ -1004,23 +1846,46 @@ def fit_feature_columns_predictions(
         return pd.DataFrame(columns=["backbone_id", "prediction"])
 
     y_train = train["spread_label"].to_numpy(dtype=int)
-    fit_kwargs = {"l2": 1.0, "max_iter": 100, "sample_weight_mode": None}
+    fit_kwargs: dict[str, object] = {"l2": 1.0, "max_iter": 100, "sample_weight_mode": None}
     if fit_config:
         fit_kwargs.update(fit_config)
-    X_train, X_score = _prepare_feature_matrices(train, score, columns, fit_kwargs=fit_kwargs)
-    sample_weight = _compute_sample_weight(train, mode=fit_kwargs.get("sample_weight_mode"))
-    beta, mean, std, calibrator = _fit_standardized_model(
+    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+        return _fit_predict_hybrid_stacked(train, score, columns, fit_kwargs=fit_kwargs)
+    X_train, X_score = _prepare_feature_matrices(
+        train,
+        score,
+        columns,
+        fit_kwargs=fit_kwargs,
+        prepared=True,
+    )
+    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
+    beta, mean, std = _fit_standardized_model(
         X_train,
         y_train,
-        l2=float(fit_kwargs.get("l2", 1.0)),
-        max_iter=int(fit_kwargs.get("max_iter", 100)),
+        l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+        sample_weight=sample_weight,
+        fit_backend=_fit_backend_name(fit_kwargs),
+    )
+    effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", 1.0)
+    X_train_scaled = _standardize_apply(X_train, mean, std)
+    X_score_scaled = _standardize_apply(X_score, mean, std)
+    posterior_covariance = _logistic_posterior_covariance(
+        X_train_scaled,
+        beta,
+        l2=effective_l2,
         sample_weight=sample_weight,
     )
-    preds = _predict_calibrated(_standardize_apply(X_score, mean, std), beta, calibrator)
+    posterior_summary = _bayesian_prediction_summary(X_score_scaled, beta, posterior_covariance)
+    preds = _predict_calibrated(X_score_scaled, beta)
     return pd.DataFrame(
         {
             "backbone_id": score["backbone_id"].astype(str).tolist(),
             "prediction": preds.tolist(),
+            "prediction_posterior_mean": posterior_summary["mean"].tolist(),
+            "prediction_std": posterior_summary["std"].tolist(),
+            "prediction_ci_lower": posterior_summary["q05"].tolist(),
+            "prediction_ci_upper": posterior_summary["q95"].tolist(),
         }
     )
 
@@ -1034,11 +1899,18 @@ def build_feature_dropout_audit(
     n_repeats: int = 5,
     seed: int = 42,
     fit_config: dict[str, object] | None = None,
+    n_jobs: int | None = 1,
 ) -> pd.DataFrame:
     """Measure how much OOF AUC drops when each feature is removed from a model."""
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
+    fold_groups = _stratified_folds(
+        eligible["spread_label"].to_numpy(dtype=int),
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        seed=seed,
+    )
     full_preds, y = _oof_predictions_from_eligible(
         eligible,
         columns=columns,
@@ -1046,6 +1918,7 @@ def build_feature_dropout_audit(
         n_repeats=n_repeats,
         seed=seed,
         fit_kwargs=fit_kwargs,
+        folds_per_repeat=fold_groups,
     )
     full_auc = roc_auc_score(y, full_preds)
 
@@ -1062,34 +1935,77 @@ def build_feature_dropout_audit(
         }
     ]
 
-    for feature_rank, feature_name in enumerate(columns, start=1):
-        reduced_columns = [column for column in columns if column != feature_name]
-        reduced_preds, _ = _oof_predictions_from_eligible(
-            eligible,
-            columns=reduced_columns,
-            n_splits=n_splits,
-            n_repeats=n_repeats,
-            seed=seed,
-            fit_kwargs=fit_kwargs,
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(columns))
+    feature_payload = [
+        (
+            feature_rank,
+            feature_name,
         )
-        reduced_auc = roc_auc_score(y, reduced_preds)
+        for feature_rank, feature_name in enumerate(columns, start=1)
+    ]
+    if jobs > 1:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                feature_rows = list(
+                    executor.map(
+                        lambda payload: _build_dropout_feature_row(
+                            eligible,
+                            model_name=model_name,
+                            columns=columns,
+                            feature_name=payload[1],
+                            feature_rank=payload[0],
+                            y=y,
+                            fold_groups=fold_groups,
+                            fit_kwargs=fit_kwargs,
+                            n_splits=n_splits,
+                            n_repeats=n_repeats,
+                            seed=seed,
+                        ),
+                        feature_payload,
+                    )
+                )
+    else:
+        feature_rows = [
+            _build_dropout_feature_row(
+                eligible,
+                model_name=model_name,
+                columns=columns,
+                feature_name=feature_name,
+                feature_rank=feature_rank,
+                y=y,
+                fold_groups=fold_groups,
+                fit_kwargs=fit_kwargs,
+                n_splits=n_splits,
+                n_repeats=n_repeats,
+                seed=seed,
+            )
+            for feature_rank, feature_name in feature_payload
+        ]
+    for feature_row in feature_rows:
+        reduced_auc = float(cast(float, feature_row["roc_auc_without_feature"]))
         rows.append(
             {
                 "model_name": model_name,
-                "feature_name": feature_name,
-                "feature_rank": feature_rank,
+                "feature_name": feature_row["feature_name"],
+                "feature_rank": feature_row["feature_rank"],
                 "roc_auc_without_feature": reduced_auc,
                 "roc_auc_drop_vs_full": full_auc - reduced_auc,
-                "average_precision_without_feature": average_precision(y, reduced_preds),
-                "brier_without_feature": brier_score(y, reduced_preds),
-                "n_backbones": int(len(eligible)),
+                "average_precision_without_feature": feature_row[
+                    "average_precision_without_feature"
+                ],
+                "brier_without_feature": feature_row["brier_without_feature"],
+                "n_backbones": feature_row["n_backbones"],
             }
         )
 
-    return pd.DataFrame(rows).sort_values(
-        ["roc_auc_drop_vs_full", "feature_name"],
-        ascending=[False, True],
-    ).reset_index(drop=True)
+    return (
+        pd.DataFrame(rows)
+        .sort_values(
+            ["roc_auc_drop_vs_full", "feature_name"],
+            ascending=[False, True],
+        )
+        .reset_index(drop=True)
+    )
 
 
 def build_standardized_coefficient_table(
@@ -1106,21 +2022,40 @@ def build_standardized_coefficient_table(
     eligible["spread_label"] = eligible["spread_label"].astype(int)
     y = eligible["spread_label"].to_numpy(dtype=int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    X, _ = _prepare_feature_matrices(eligible, eligible, columns, fit_kwargs=fit_kwargs)
-    sample_weight = _compute_sample_weight(eligible, mode=fit_kwargs.get("sample_weight_mode"))
-    beta, _, _, _ = _fit_standardized_model(
+    X, _ = _prepare_feature_matrices(
+        eligible,
+        eligible,
+        columns,
+        fit_kwargs=fit_kwargs,
+        prepared=True,
+    )
+    sample_weight = _compute_sample_weight(eligible, mode=_fit_kwarg_mode(fit_kwargs))
+    beta, _, _ = _fit_standardized_model(
         X,
         y,
-        l2=float(fit_kwargs.get("l2", l2)),
-        max_iter=int(fit_kwargs.get("max_iter", max_iter)),
+        l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+        sample_weight=sample_weight,
+        fit_backend=_fit_backend_name(fit_kwargs),
+    )
+    effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", l2)
+    X_scaled, _, _ = _standardize_fit(X)
+    posterior_covariance = _logistic_posterior_covariance(
+        X_scaled,
+        beta,
+        l2=effective_l2,
         sample_weight=sample_weight,
     )
+    coefficient_summary = _bayesian_coefficient_summary(beta, posterior_covariance)
     coefficients = beta[1:]
     frame = pd.DataFrame(
         {
             "model_name": model_name,
             "feature_name": columns,
             "coefficient": coefficients,
+            "standard_error": coefficient_summary["standard_error"][1:],
+            "coefficient_ci_lower": coefficient_summary["ci_lower"][1:],
+            "coefficient_ci_upper": coefficient_summary["ci_upper"][1:],
             "abs_coefficient": np.abs(coefficients),
             "direction": np.where(coefficients >= 0, "positive", "negative"),
             "n_backbones": int(len(eligible)),
@@ -1140,57 +2075,132 @@ def build_coefficient_stability_table(
     l2: float = 1.0,
     max_iter: int = 100,
     fit_config: dict[str, object] | None = None,
+    n_jobs: int | None = None,
+    include_fold_coefficients: bool = False,
 ) -> pd.DataFrame:
     """Estimate coefficient stability across repeated stratified training folds."""
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
     y = eligible["spread_label"].to_numpy(dtype=int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    sample_weight = _compute_sample_weight(eligible, mode=fit_kwargs.get("sample_weight_mode"))
-    rows = []
-    for repeat_index, fold_indices in enumerate(
-        _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed),
-        start=1,
-    ):
-        for fold_index, test_idx in enumerate(fold_indices, start=1):
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            train_weight = sample_weight[train_mask] if sample_weight is not None else None
-            train = eligible.loc[train_mask].copy()
-            X_train, _ = _prepare_feature_matrices(train, train, columns, fit_kwargs=fit_kwargs)
-            beta, _, _, _ = _fit_standardized_model(
-                X_train,
-                y[train_mask],
-                l2=float(fit_kwargs.get("l2", l2)),
-                max_iter=int(fit_kwargs.get("max_iter", max_iter)),
-                sample_weight=train_weight,
-            )
-            for feature_name, coefficient in zip(columns, beta[1:]):
-                rows.append(
-                    {
-                        "model_name": model_name,
-                        "repeat_index": repeat_index,
-                        "fold_index": fold_index,
-                        "feature_name": feature_name,
-                        "coefficient": float(coefficient),
-                    }
-                )
-    frame = pd.DataFrame(rows)
-    summary = (
-        frame.groupby(["model_name", "feature_name"], as_index=False)
-        .agg(
-            mean_coefficient=("coefficient", "mean"),
-            std_coefficient=("coefficient", "std"),
-            min_coefficient=("coefficient", "min"),
-            max_coefficient=("coefficient", "max"),
-            n_fits=("coefficient", "size"),
-            positive_fraction=("coefficient", lambda values: float((values > 0).mean())),
+    sample_weight = _compute_sample_weight(eligible, mode=_fit_kwarg_mode(fit_kwargs))
+    tasks = [
+        (repeat_index, fold_index, test_idx)
+        for repeat_index, fold_indices in enumerate(
+            _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed),
+            start=1,
         )
+        for fold_index, test_idx in enumerate(fold_indices, start=1)
+    ]
+
+    def _coefficient_rows(task: tuple[int, int, np.ndarray]) -> list[dict[str, object]]:
+        repeat_index, fold_index, test_idx = task
+        train_mask = np.ones(len(y), dtype=bool)
+        train_mask[test_idx] = False
+        train_weight = sample_weight[train_mask] if sample_weight is not None else None
+        train = eligible.loc[train_mask]
+        X_train, _ = _prepare_feature_matrices(
+            train,
+            train,
+            columns,
+            fit_kwargs=fit_kwargs,
+            prepared=True,
+        )
+        beta, _, _ = _fit_standardized_model(
+            X_train,
+            y[train_mask],
+            l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+            sample_weight=train_weight,
+            fit_backend=_fit_backend_name(fit_kwargs),
+        )
+        return [
+            {
+                "model_name": model_name,
+                "repeat_index": repeat_index,
+                "fold_index": fold_index,
+                "feature_name": feature_name,
+                "coefficient": float(coefficient),
+            }
+            for feature_name, coefficient in zip(columns, beta[1:])
+        ]
+
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(tasks))
+    if jobs > 1 and tasks:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                row_groups = list(executor.map(_coefficient_rows, tasks))
+        rows = [row for group in row_groups for row in group]
+    else:
+        rows = [row for task in tasks for row in _coefficient_rows(task)]
+    frame = pd.DataFrame(rows)
+    summary = frame.groupby(["model_name", "feature_name"], as_index=False).agg(
+        mean_coefficient=("coefficient", "mean"),
+        std_coefficient=("coefficient", "std"),
+        min_coefficient=("coefficient", "min"),
+        max_coefficient=("coefficient", "max"),
+        n_fits=("coefficient", "size"),
+        positive_fraction=("coefficient", lambda values: float((values > 0).mean())),
     )
     summary["sign_stability"] = summary["positive_fraction"].map(
         lambda value: "positive" if value >= 0.9 else ("negative" if value <= 0.1 else "mixed")
     )
     summary["abs_mean_coefficient"] = summary["mean_coefficient"].abs()
+    if include_fold_coefficients and n_repeats == 1 and not frame.empty:
+        fold_wide = (
+            frame.assign(
+                fold_label=frame["fold_index"].map(lambda value: f"fold_{int(value)}_coef")
+            )
+            .pivot_table(
+                index=["model_name", "feature_name"],
+                columns="fold_label",
+                values="coefficient",
+                aggfunc="first",
+            )
+            .reset_index()
+        )
+        fold_columns = [column for column in fold_wide.columns if str(column).startswith("fold_")]
+        if fold_columns:
+            ordered_fold_columns = sorted(
+                fold_columns,
+                key=lambda value: int(str(value).split("_", 2)[1]),
+            )
+            fold_wide = fold_wide[["model_name", "feature_name", *ordered_fold_columns]]
+            summary = summary.merge(fold_wide, on=["model_name", "feature_name"], how="left")
+            summary["cv_of_coef"] = np.where(
+                summary["mean_coefficient"].abs() > 1e-12,
+                summary["std_coefficient"] / summary["mean_coefficient"].abs(),
+                np.nan,
+            )
+            summary["sign_stable"] = summary["sign_stability"].isin({"positive", "negative"})
+            summary = summary.rename(
+                columns={
+                    "feature_name": "feature",
+                    "mean_coefficient": "mean_coef",
+                    "std_coefficient": "std_coef",
+                }
+            )
+            preferred = [
+                "model_name",
+                "feature",
+                "mean_coef",
+                "std_coef",
+                "cv_of_coef",
+                "sign_stable",
+                *ordered_fold_columns,
+                "min_coefficient",
+                "max_coefficient",
+                "n_fits",
+                "positive_fraction",
+                "sign_stability",
+                "abs_mean_coefficient",
+            ]
+            available = [column for column in preferred if column in summary.columns]
+            return (
+                summary[available]
+                .sort_values("abs_mean_coefficient", ascending=False)
+                .reset_index(drop=True)
+            )
     return summary.sort_values("abs_mean_coefficient", ascending=False).reset_index(drop=True)
 
 
@@ -1202,17 +2212,20 @@ def build_logistic_convergence_audit(
     n_repeats: int = 5,
     seed: int = 42,
     min_rows: int = 20,
+    n_jobs: int | None = None,
 ) -> pd.DataFrame:
     """Record convergence diagnostics for repeated CV fits across selected models."""
     _ensure_config_loaded()
-    rows: list[dict[str, object]] = []
-    for model_name in model_names:
+
+    def _audit_model(model_name: str) -> list[dict[str, object]]:
         columns = MODULE_A_FEATURE_SETS[model_name]
-        eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
+        eligible = (
+            _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
+        )
         eligible["spread_label"] = eligible["spread_label"].astype(int)
         y = eligible["spread_label"].to_numpy(dtype=int)
         if len(eligible) < min_rows or len(np.unique(y)) < 2:
-            rows.append(
+            return [
                 {
                     "model_name": model_name,
                     "repeat_index": pd.NA,
@@ -1225,11 +2238,11 @@ def build_logistic_convergence_audit(
                     "max_abs_delta": pd.NA,
                     "status": "skipped_insufficient_label_variation",
                 }
-            )
-            continue
+            ]
 
         fit_kwargs = _model_fit_kwargs(model_name)
-        sample_weight = _compute_sample_weight(eligible, mode=fit_kwargs.get("sample_weight_mode"))
+        sample_weight = _compute_sample_weight(eligible, mode=_fit_kwarg_mode(fit_kwargs))
+        model_rows: list[dict[str, object]] = []
         for repeat_index, fold_indices in enumerate(
             _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed),
             start=1,
@@ -1238,17 +2251,24 @@ def build_logistic_convergence_audit(
                 train_mask = np.ones(len(y), dtype=bool)
                 train_mask[test_idx] = False
                 train_weight = sample_weight[train_mask] if sample_weight is not None else None
-                train = eligible.loc[train_mask].copy()
-                X_train, _ = _prepare_feature_matrices(train, train, columns, fit_kwargs=fit_kwargs)
+                train = eligible.loc[train_mask]
+                X_train, _ = _prepare_feature_matrices(
+                    train,
+                    train,
+                    columns,
+                    fit_kwargs=fit_kwargs,
+                    prepared=True,
+                )
                 X_train_scaled, _, _ = _standardize_fit(X_train)
                 _, diagnostics = _fit_logistic_regression_with_diagnostics(
                     X_train_scaled,
                     y[train_mask],
-                    l2=float(fit_kwargs.get("l2", 1.0)),
-                    max_iter=int(fit_kwargs.get("max_iter", 100)),
+                    l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                    max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
                     sample_weight=train_weight,
+                    fit_backend=_fit_backend_name(fit_kwargs),
                 )
-                rows.append(
+                model_rows.append(
                     {
                         "model_name": model_name,
                         "repeat_index": repeat_index,
@@ -1262,6 +2282,16 @@ def build_logistic_convergence_audit(
                         "status": "ok",
                     }
                 )
+        return model_rows
+
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(model_names))
+    if jobs > 1 and model_names:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                row_groups = list(executor.map(_audit_model, model_names))
+        rows = [row for group in row_groups for row in group]
+    else:
+        rows = [row for model_name in model_names for row in _audit_model(model_name)]
     if not rows:
         return pd.DataFrame()
     return pd.DataFrame(rows)
@@ -1274,6 +2304,7 @@ def run_module_a(
     n_splits: int = 5,
     n_repeats: int = 5,
     seed: int = 42,
+    n_jobs: int | None = 1,
 ) -> dict[str, ModelResult]:
     """Run the main retrospective modeling stack on the eligible backbone cohort."""
     _ensure_config_loaded()
@@ -1292,14 +2323,89 @@ def run_module_a(
         missing = ", ".join(missing_model_names)
         raise KeyError(f"Unknown Module A model(s): {missing}")
 
-    for name in selected_model_names:
-        results[name] = evaluate_model_name(
-            scored,
-            model_name=name,
-            n_splits=n_splits,
-            n_repeats=n_repeats,
-            seed=seed,
-        )
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(selected_model_names))
+    if jobs > 1:
+        completed: dict[str, ModelResult] = {}
+        try:
+            with ProcessPoolExecutor(max_workers=jobs) as executor:
+                future_to_name = {
+                    executor.submit(
+                        _evaluate_model_name_task,
+                        scored,
+                        name,
+                        n_splits,
+                        n_repeats,
+                        seed,
+                    ): name
+                    for name in selected_model_names
+                }
+                for future, name in future_to_name.items():
+                    try:
+                        resolved_name, result = future.result()
+                    except Exception as exc:
+                        error_message = f"{type(exc).__name__}: {exc}"
+                        warnings.warn(
+                            (
+                                f"Module A model '{name}' failed in the worker path; "
+                                "continuing with remaining models."
+                            ),
+                            stacklevel=2,
+                        )
+                        resolved_name, result = name, build_failed_model_result(
+                            name,
+                            error_message,
+                        )
+                    completed[resolved_name] = result
+        except (OSError, PermissionError):
+            warnings.warn(
+                (
+                    "ProcessPoolExecutor unavailable in this environment; "
+                    "falling back to threaded model evaluation."
+                ),
+                stacklevel=2,
+            )
+            with limit_native_threads(1):
+                with ThreadPoolExecutor(max_workers=jobs) as executor:
+                    future_to_name = {
+                        executor.submit(
+                            _evaluate_model_name_task,
+                            scored,
+                            name,
+                            n_splits,
+                            n_repeats,
+                            seed,
+                        ): name
+                        for name in selected_model_names
+                    }
+                    for future, name in future_to_name.items():
+                        try:
+                            resolved_name, result = future.result()
+                        except Exception as exc:
+                            error_message = f"{type(exc).__name__}: {exc}"
+                            warnings.warn(
+                                (
+                                    f"Module A model '{name}' failed in the worker path; "
+                                    "continuing with remaining models."
+                                ),
+                                stacklevel=2,
+                            )
+                            resolved_name, result = name, build_failed_model_result(
+                                name,
+                                error_message,
+                            )
+                        completed[resolved_name] = result
+        for name in selected_model_names:
+            results[name] = completed[name]
+    else:
+        for name in selected_model_names:
+            resolved_name, result = _safe_evaluate_model_name_task(
+                scored,
+                name,
+                n_splits,
+                n_repeats,
+                seed,
+            )
+            results[resolved_name] = result
 
     # Label-permutation null: use the primary model's full feature set and
     # identical fit parameters (L2, sample weights) so the null distribution
@@ -1308,7 +2414,9 @@ def run_module_a(
     primary_name = get_primary_model_name(MODULE_A_FEATURE_SETS.keys())
     primary_columns = MODULE_A_FEATURE_SETS[primary_name]
     primary_fit_kwargs = _model_fit_kwargs(primary_name)
-    primary_eligible = _ensure_feature_columns(scored, primary_columns).loc[scored["spread_label"].notna()].copy()
+    primary_eligible = (
+        _ensure_feature_columns(scored, primary_columns).loc[scored["spread_label"].notna()].copy()
+    )
     primary_eligible["spread_label"] = primary_eligible["spread_label"].astype(int)
     permuted_y = rng.permutation(y)
     permuted_preds, _ = _oof_predictions_from_eligible(

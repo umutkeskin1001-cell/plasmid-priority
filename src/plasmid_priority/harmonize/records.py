@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import re
 import unicodedata
+from functools import lru_cache
+from pathlib import Path
 
 import pandas as pd
 
 from plasmid_priority.utils.dataframe import read_tsv
-
 
 COUNTRY_ALIAS_GROUPS: dict[str, set[str]] = {
     "Afghanistan": {"AFGHANISTAN"},
@@ -50,7 +50,13 @@ COUNTRY_ALIAS_GROUPS: dict[str, set[str]] = {
     "Central African Republic": {"CENTRAL AFRICAN REPUBLIC"},
     "Chad": {"CHAD"},
     "Chile": {"CHILE"},
-    "China": {"CHINA", "PEOPLES REPUBLIC OF CHINA", "PEOPLE S REPUBLIC OF CHINA", "PR CHINA", "P R CHINA"},
+    "China": {
+        "CHINA",
+        "PEOPLES REPUBLIC OF CHINA",
+        "PEOPLE S REPUBLIC OF CHINA",
+        "PR CHINA",
+        "P R CHINA",
+    },
     "Colombia": {"COLOMBIA"},
     "Comoros": {"COMOROS"},
     "Costa Rica": {"COSTA RICA"},
@@ -250,6 +256,7 @@ COUNTRY_ALIAS_GROUPS: dict[str, set[str]] = {
 LOCATION_SEGMENT_SPLIT = re.compile(r"[,;:/|()\[\]]+")
 
 
+@lru_cache(maxsize=16384)
 def _normalize_location_key(value: object) -> str:
     if pd.isna(value):
         return ""
@@ -272,6 +279,25 @@ COUNTRY_LOOKUP = _build_country_lookup()
 COUNTRY_MAX_TOKEN_LENGTH = max(len(alias.split()) for alias in COUNTRY_LOOKUP)
 
 
+@lru_cache(maxsize=16384)
+def _resolve_country_from_segment(segment: str) -> str:
+    normalized = _normalize_location_key(segment)
+    if not normalized:
+        return ""
+    direct = COUNTRY_LOOKUP.get(normalized)
+    if direct is not None:
+        return direct
+    tokens = normalized.split()
+    max_length = min(COUNTRY_MAX_TOKEN_LENGTH, len(tokens))
+    for length in range(max_length, 0, -1):
+        for start in range(len(tokens) - length, -1, -1):
+            candidate = " ".join(tokens[start : start + length])
+            resolved = COUNTRY_LOOKUP.get(candidate)
+            if resolved is not None:
+                return resolved
+    return ""
+
+
 def _clean_marker_list(value: object) -> str:
     if pd.isna(value):
         return ""
@@ -282,6 +308,84 @@ def _clean_marker_list(value: object) -> str:
 def _marker_count(value: object) -> int:
     cleaned = _clean_marker_list(value)
     return 0 if not cleaned else len(cleaned.split(","))
+
+
+def _sorted_unique_markers(values: pd.Series) -> str:
+    cleaned = sorted(
+        {str(value).strip() for value in values if pd.notna(value) and str(value).strip()}
+    )
+    return ",".join(cleaned)
+
+
+def _dominant_non_empty(values: pd.Series) -> str:
+    cleaned = [str(value).strip() for value in values if pd.notna(value) and str(value).strip()]
+    if not cleaned:
+        return ""
+    return str(pd.Series(cleaned).value_counts().idxmax())
+
+
+def _dominant_share(values: pd.Series) -> float:
+    cleaned = [str(value).strip() for value in values if pd.notna(value) and str(value).strip()]
+    if not cleaned:
+        return 0.0
+    counts = pd.Series(cleaned).value_counts()
+    return float(counts.iloc[0] / counts.sum())
+
+
+def _summarize_plasmidfinder_hits(plasmidfinder_path: Path) -> pd.DataFrame:
+    plasmidfinder = pd.read_csv(
+        plasmidfinder_path,
+        usecols=["NUCCORE_ACC", "typing", "identity", "coverage"],
+    ).rename(columns={"NUCCORE_ACC": "sequence_accession"})
+    if plasmidfinder.empty:
+        return pd.DataFrame(
+            columns=[
+                "sequence_accession",
+                "plasmidfinder_types",
+                "plasmidfinder_dominant_type",
+                "plasmidfinder_hit_count",
+                "plasmidfinder_type_count",
+                "plasmidfinder_dominant_type_share",
+                "plasmidfinder_max_identity",
+                "plasmidfinder_mean_identity",
+                "plasmidfinder_mean_coverage",
+            ]
+        )
+
+    plasmidfinder["typing"] = plasmidfinder["typing"].fillna("").astype(str).str.strip()
+    plasmidfinder["identity"] = pd.to_numeric(plasmidfinder["identity"], errors="coerce").fillna(
+        0.0
+    )
+    plasmidfinder["coverage"] = pd.to_numeric(plasmidfinder["coverage"], errors="coerce").fillna(
+        0.0
+    )
+    plasmidfinder = plasmidfinder.loc[plasmidfinder["typing"].ne("")].copy()
+    if plasmidfinder.empty:
+        return pd.DataFrame(
+            columns=[
+                "sequence_accession",
+                "plasmidfinder_types",
+                "plasmidfinder_dominant_type",
+                "plasmidfinder_hit_count",
+                "plasmidfinder_type_count",
+                "plasmidfinder_dominant_type_share",
+                "plasmidfinder_max_identity",
+                "plasmidfinder_mean_identity",
+                "plasmidfinder_mean_coverage",
+            ]
+        )
+
+    grouped = plasmidfinder.groupby("sequence_accession", sort=False)
+    return grouped.agg(
+        plasmidfinder_types=("typing", _sorted_unique_markers),
+        plasmidfinder_dominant_type=("typing", _dominant_non_empty),
+        plasmidfinder_hit_count=("typing", "size"),
+        plasmidfinder_type_count=("typing", "nunique"),
+        plasmidfinder_dominant_type_share=("typing", _dominant_share),
+        plasmidfinder_max_identity=("identity", "max"),
+        plasmidfinder_mean_identity=("identity", "mean"),
+        plasmidfinder_mean_coverage=("coverage", "mean"),
+    ).reset_index()
 
 
 def normalize_country(value: object) -> str:
@@ -298,24 +402,16 @@ def normalize_country(value: object) -> str:
     if not text:
         return ""
 
-    segments = [segment.strip() for segment in LOCATION_SEGMENT_SPLIT.split(text) if segment.strip()]
+    segments = [
+        segment.strip() for segment in LOCATION_SEGMENT_SPLIT.split(text) if segment.strip()
+    ]
     if not segments:
         segments = [text]
 
     for segment in reversed(segments):
-        normalized = _normalize_location_key(segment)
-        if not normalized:
-            continue
-        if normalized in COUNTRY_LOOKUP:
-            return COUNTRY_LOOKUP[normalized]
-
-        tokens = normalized.split()
-        max_length = min(COUNTRY_MAX_TOKEN_LENGTH, len(tokens))
-        for length in range(max_length, 0, -1):
-            for start in range(len(tokens) - length, -1, -1):
-                candidate = " ".join(tokens[start : start + length])
-                if candidate in COUNTRY_LOOKUP:
-                    return COUNTRY_LOOKUP[candidate]
+        resolved = _resolve_country_from_segment(segment)
+        if resolved:
+            return resolved
     return ""
 
 
@@ -323,6 +419,7 @@ def build_harmonized_plasmid_table(
     inventory_path: Path,
     typing_path: Path,
     biosample_path: Path,
+    plasmidfinder_path: Path | None = None,
 ) -> pd.DataFrame:
     """Merge inventory metadata, typing annotations, and biosample location fields."""
     canonical = read_tsv(inventory_path)
@@ -371,6 +468,11 @@ def build_harmonized_plasmid_table(
 
     harmonized = canonical.merge(typing, on="sequence_accession", how="left", validate="m:1")
     harmonized = harmonized.merge(biosample, on="biosample_uid", how="left", validate="m:1")
+    if plasmidfinder_path is not None:
+        plasmidfinder = _summarize_plasmidfinder_hits(plasmidfinder_path)
+        harmonized = harmonized.merge(
+            plasmidfinder, on="sequence_accession", how="left", validate="m:1"
+        )
 
     harmonized["country"] = (
         harmonized["LOCATION_name"].fillna(harmonized["LOCATION_query"]).map(normalize_country)
@@ -382,12 +484,35 @@ def build_harmonized_plasmid_table(
     harmonized["n_relaxase_types"] = harmonized["relaxase_types"].map(_marker_count)
     harmonized["n_orit_types"] = harmonized["orit_types"].map(_marker_count)
     harmonized["primary_replicon"] = harmonized["replicon_types"].str.split(",").str[0].fillna("")
-    harmonized["predicted_mobility"] = harmonized["predicted_mobility"].fillna("unknown").astype(str)
+    harmonized["predicted_mobility"] = (
+        harmonized["predicted_mobility"].fillna("unknown").astype(str)
+    )
     harmonized["primary_cluster_id"] = harmonized["primary_cluster_id"].fillna("").astype(str)
     harmonized["mash_neighbor_distance"] = pd.to_numeric(
         harmonized.get("mash_neighbor_distance"),
         errors="coerce",
     ).fillna(0.0)
+    harmonized["plasmidfinder_types"] = (
+        harmonized.get("plasmidfinder_types", pd.Series("", index=harmonized.index))
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    harmonized["plasmidfinder_dominant_type"] = (
+        harmonized.get("plasmidfinder_dominant_type", pd.Series("", index=harmonized.index))
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    for column in (
+        "plasmidfinder_hit_count",
+        "plasmidfinder_type_count",
+        "plasmidfinder_dominant_type_share",
+        "plasmidfinder_max_identity",
+        "plasmidfinder_mean_identity",
+        "plasmidfinder_mean_coverage",
+    ):
+        harmonized[column] = pd.to_numeric(harmonized.get(column), errors="coerce").fillna(0.0)
     harmonized["predicted_host_range_overall_rank"] = (
         harmonized.get("predicted_host_range_overall_rank", pd.Series("", index=harmonized.index))
         .fillna("")
@@ -458,13 +583,17 @@ def build_harmonized_plasmid_table(
     )
     harmonized["typing_gc"] = pd.to_numeric(harmonized.get("gc"), errors="coerce").fillna(0.0)
     harmonized["typing_size"] = pd.to_numeric(harmonized.get("size"), errors="coerce").fillna(0.0)
-    harmonized["typing_num_contigs"] = pd.to_numeric(harmonized.get("num_contigs"), errors="coerce").fillna(0.0)
+    harmonized["typing_num_contigs"] = pd.to_numeric(
+        harmonized.get("num_contigs"), errors="coerce"
+    ).fillna(0.0)
 
     harmonized["has_country"] = harmonized["country"].astype(str).str.len() > 0
     harmonized["has_relaxase"] = harmonized["n_relaxase_types"] > 0
     harmonized["has_mpf"] = harmonized["mpf_type"].fillna("").astype(str).str.len() > 0
     harmonized["has_orit"] = harmonized["n_orit_types"] > 0
-    harmonized["is_mobilizable"] = harmonized["predicted_mobility"].isin(["mobilizable", "conjugative"])
+    harmonized["is_mobilizable"] = harmonized["predicted_mobility"].isin(
+        ["mobilizable", "conjugative"]
+    )
     harmonized["is_conjugative"] = harmonized["predicted_mobility"].eq("conjugative")
 
     return harmonized

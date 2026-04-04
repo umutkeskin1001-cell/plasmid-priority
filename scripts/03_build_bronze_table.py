@@ -49,7 +49,9 @@ def _path_signature(path: Path) -> dict[str, object]:
     }
 
 
-def _load_cached_manifest(manifest_path: Path, input_paths: list[Path], *, refseq_limit: int | None) -> dict[str, object] | None:
+def _load_cached_manifest(
+    manifest_path: Path, input_paths: list[Path], *, refseq_limit: int | None
+) -> dict[str, object] | None:
     if not manifest_path.exists():
         return None
     try:
@@ -94,7 +96,9 @@ def main() -> int:
             refseq_limit=args.refseq_limit,
         )
         if cached is not None and canonical_output.exists() and inventory_output.exists():
-            run.note("Bronze metadata inputs unchanged; reusing existing canonical and inventory tables.")
+            run.note(
+                "Bronze metadata inputs unchanged; reusing existing canonical and inventory tables."
+            )
             plsdb_rows = int(cached.get("plsdb_canonical_metadata_rows", 0))
             inventory_rows = int(cached.get("bronze_inventory_rows", 0))
         else:
@@ -108,7 +112,10 @@ def main() -> int:
                 manifest_path,
                 {
                     "refseq_limit": args.refseq_limit,
-                    "input_signatures": [_path_signature(path) for path in [plsdb_metadata, taxonomy_csv, refseq_fasta]],
+                    "input_signatures": [
+                        _path_signature(path)
+                        for path in [plsdb_metadata, taxonomy_csv, refseq_fasta]
+                    ],
                     "plsdb_canonical_metadata_rows": plsdb_rows,
                     "bronze_inventory_rows": int(inventory_rows),
                 },

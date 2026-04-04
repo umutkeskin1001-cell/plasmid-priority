@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 from plasmid_priority.io.tabular import peek_table_columns, read_ncbi_assembly_summary_columns
 
@@ -29,4 +28,3 @@ class TabularTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

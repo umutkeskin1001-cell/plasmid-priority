@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import unittest
 
 import pandas as pd
-
 
 from plasmid_priority.reporting.enrichment import (
     build_candidate_signature_context,
@@ -27,7 +25,9 @@ class EnrichmentTests(unittest.TestCase):
             }
         )
         enrichment = build_module_f_enrichment_table(identity, min_backbones=5)
-        top_hits = build_module_f_top_hits(enrichment, q_threshold=1.0, max_per_group=2, max_total=10)
+        top_hits = build_module_f_top_hits(
+            enrichment, q_threshold=1.0, max_per_group=2, max_total=10
+        )
         self.assertFalse(enrichment.empty)
         self.assertIn("q_value", enrichment.columns)
         self.assertFalse(top_hits.empty)
@@ -54,7 +54,9 @@ class EnrichmentTests(unittest.TestCase):
                 "enriched_in_positive": [True, True, True],
             }
         )
-        context = build_candidate_signature_context(candidates, identity, enrichment, q_threshold=0.05)
+        context = build_candidate_signature_context(
+            candidates, identity, enrichment, q_threshold=0.05
+        )
         self.assertEqual(len(context), 2)
         self.assertIn("module_f_enriched_signatures", context.columns)
         bb1 = context.loc[context["backbone_id"] == "bb1"].iloc[0]

@@ -1,3 +1,2 @@
 assignment_confidence_tier	n_backbones	n_eligible_backbones	mean_assignment_confidence	mean_member_count_train	mean_n_countries_train	positive_prevalence
-fallback_leaning	218	0	0.5	322.3256880733945	0.0	0.0
-primary_cluster_leaning	6627	989	1.0	7.448921080428549	0.1866606307529802	0.3660262891809909
+fallback_leaning	6841	989	0.5	0.7862885543049262	0.18082151732202895	0.3660262891809909

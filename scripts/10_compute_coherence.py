@@ -5,8 +5,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 from plasmid_priority.backbone import compute_backbone_coherence
@@ -25,8 +23,9 @@ def main() -> int:
     with ManagedScriptRun(context, "10_compute_coherence") as run:
         run.record_input(backbones_path)
         run.record_output(output_path)
+        pipeline = context.pipeline_settings
         records = read_tsv(backbones_path)
-        coherence = compute_backbone_coherence(records)
+        coherence = compute_backbone_coherence(records, split_year=pipeline.split_year)
         coherence.to_csv(output_path, sep="\t", index=False)
         run.set_rows_out("backbone_coherence_rows", int(len(coherence)))
     return 0

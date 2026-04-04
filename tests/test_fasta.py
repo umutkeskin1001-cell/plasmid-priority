@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
 import unittest
-
+from pathlib import Path
 
 from plasmid_priority.io.fasta import concatenate_fastas, iter_fasta_summaries
 
@@ -38,4 +37,3 @@ class FastaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

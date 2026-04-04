@@ -15,4 +15,3 @@ __all__ = [
     "compute_feature_h",
     "compute_feature_t",
 ]
-

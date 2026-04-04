@@ -5,13 +5,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+from plasmid_priority.config import build_context
 from plasmid_priority.features import build_training_canonical_table, compute_feature_t
 from plasmid_priority.reporting import ManagedScriptRun
-from plasmid_priority.config import build_context
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import ensure_directory
 
@@ -30,9 +28,14 @@ def main() -> int:
         run.record_output(canonical_output)
         run.record_output(feature_output)
 
+        pipeline = context.pipeline_settings
         records = read_tsv(backbones_path)
         amr_consensus = read_tsv(amr_consensus_path)
-        training_canonical = build_training_canonical_table(records, amr_consensus)
+        training_canonical = build_training_canonical_table(
+            records,
+            amr_consensus,
+            split_year=pipeline.split_year,
+        )
         feature_t = compute_feature_t(training_canonical)
         training_canonical.to_csv(canonical_output, sep="\t", index=False)
         feature_t.to_csv(feature_output, sep="\t", index=False)

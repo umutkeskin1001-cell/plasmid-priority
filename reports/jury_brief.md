@@ -2,92 +2,79 @@
 
 ## Core Claim
 
-This framework retrospectively prioritizes plasmid backbone surveillance units using training-period genomic and ecological features, then asks whether those same backbones later show new-country visibility increase.
+This framework retrospectively prioritizes plasmid backbone surveillance units using pre-2016 genomic and ecological features, then tests whether those same backbone classes later show multi-country visibility increase.
 
 ## Formal Hypotheses
 
-- **H0 (null)**: A <=2015 T/H/A-derived priority signal has no discriminative association with post-2015 multi-country visibility expansion (ROC AUC = 0.50).
-- **H1 (alternative)**: The same priority signal is positively associated with post-2015 multi-country visibility expansion (ROC AUC > 0.50).
-- **Significance criterion**: empirical permutation p-value < 0.01, using the current primary model's feature set and the same L2 / weighting configuration as the headline evaluation.
+- **H0 (null)**: A <=2015 T/H/A-derived priority signal has no discriminative association with post-2015 multi-country visibility expansion.
+- **H1 (alternative)**: The same priority signal is positively associated with post-2015 multi-country visibility expansion.
+- **Significance criterion**: empirical permutation p-value below the predeclared threshold for the current headline model.
 
-## Current Benchmark and Audit Context
+## Current Benchmark
 
-- Current primary benchmark: `support-synergy biological model` with ROC AUC `0.814` and AP `0.737`.
-- Strongest audited metric model: `support-synergy biological model` with ROC AUC `0.814` and AP `0.737`.
-- Conservative benchmark: `bio-clean model` with ROC AUC `0.761` and AP `0.668`.
-- Counts-only baseline: `baseline_both` with ROC AUC `0.723` and AP `0.648`.
-- Source-only control: `source_only` with ROC AUC `0.452`.
-- Primary-model selection rationale: current primary is also the strongest current single-model benchmark, so the headline and strongest audited metric model now coincide
+- Discovery benchmark: `bio-clean model` | ROC AUC `0.747` | AP `0.660`.
+- Counts-only baseline: `baseline_both` | ROC AUC `0.722` | AP `0.647`.
+- Conservative benchmark: `parsimonious_priority` | ROC AUC `0.752` | AP `0.664`.
+- Source-only control: `source_only` | ROC AUC `0.452`.
+- Strongest audited metric model: `phylo-support fusion model` | ROC AUC `0.827` | AP `0.766`.
+- Governance watch-only: `phylo-support fusion model` | ROC AUC `0.827` | AP `0.766` | strict `fail`.
+- Selection-adjusted official-model permutation audit for the headline ROC AUC: `p 0.005`; the older fixed-score label-permutation entry is retained only as an exploratory appendix diagnostic.
+- Delta vs counts-only baseline: `0.024, 95% CI [-0.019, 0.065]`.
 
-## Decision-Support Readout
+## Primary Model Selection Rationale
 
-- Reviewer shortlist size: `10` established high-risk + `10` novel-signal candidates in `candidate_portfolio.tsv`.
-- Read candidate outputs in this order: `candidate_portfolio.tsv` -> `candidate_evidence_matrix.tsv` -> `candidate_threshold_flip.tsv`.
-- Main outcome threshold: `3` later new countries; use `candidate_threshold_flip.tsv` to see which candidates are definition-sensitive.
-- In the multi-objective selection scorecard, the primary model ranks `1/18` after combining overall AUC, AP, lower-half/q1 knownness, matched-knownness, source holdout, and a knownness-dependence penalty.
-- Augmented biological audit model: `natural_auc_priority` with ROC AUC `0.786` and AP `0.697`; this model adds external host-range, backbone purity, assignment confidence, mash-based novelty, and replicon architecture without changing the current headline benchmark.
-- Knownness-robust biological audit model: `knownness_robust_priority` with ROC AUC `0.804` and AP `0.713`; this variant keeps the biological core but replaces external host-range with recurrent AMR structure, pMLST coherence, and eco-clinical context under class+knownness balancing.
-- Support-calibrated biological model: `support_calibrated_priority` with ROC AUC `0.808` and AP `0.725`; this variant keeps the knownness-robust biological core but makes annotation support explicit through host-range support, pMLST presence, and AMR support depth.
-- Support-synergy biological model: `support_synergy_priority` with ROC AUC `0.814` and AP `0.737`; this variant keeps the support-calibrated core but adds metadata support depth, external host-range magnitude, and host-range x transfer synergy to recover sparse-support errors without adding count proxies.
-- Error-focused host-transfer synergy model: `host_transfer_synergy_priority` with ROC AUC `0.804` and AP `0.714`; this variant adds explicit host-range x transfer coupling to recover sparse-backbone mistakes without introducing direct knownness counts.
-- Threat-architecture audit model: `threat_architecture_priority` with ROC AUC `0.804` and AP `0.713`; this variant keeps the host-transfer coupling but adds AMR clinical-threat burden plus replicon multiplicity to recover sparse-backbone misses with biologically interpretable structure.
-- Taxonomy-aware H audit model: `phylogeny_aware_priority` with ROC AUC `0.779` and AP `0.697`; this variant preserves the augmented biological core but swaps the H axis for a lineage-aware host specialization signal.
-- Structure-aware biological audit model: `structured_signal_priority` with ROC AUC `0.784` and AP `0.681`; this variant keeps the taxonomy-aware H axis and adds host evenness plus recurrent AMR structure.
-- Current primary top-10 yield: precision `1.000`, recall `0.028`.
-- Conservative top-10 yield: precision `0.900`, recall `0.025`.
-- Counts-only baseline top-10 yield: precision `0.900`, recall `0.025`.
-- Current-primary vs strongest-metric top-10 overlap: `10/10` candidates; top-25 overlap: `25/25`; top-50 overlap: `50/50`.
-- Top-25 is the more decision-relevant cut: current primary precision `1.000`, recall `0.069`.
-- Published-primary top-25 contains `0` lower-knownness candidates, so the `novel_signal` track should be read as a separate exploratory watchlist rather than as the same shortlist.
-- Lowest-knownness quartile performance is weaker (primary ROC AUC `0.979`), so early-signal claims should stay conservative.
-- A knownness-gated audit model (`adaptive_natural_priority`) keeps `natural_auc_priority` in the upper-knownness half and uses leakage-free OOF base plus OOF specialist scoring in the lower-knownness half, reaching ROC AUC `0.867` with AP `0.779`.
-- The strongest knownness-gated audit model (`adaptive_support_synergy_blend_priority`) uses `support-synergy biological model` as the base score and applies specialist weight `0.50` within the lower-knownness half, reaching ROC AUC `0.934` with AP `0.890`; this remains a routing audit rather than a replacement headline benchmark.
-- Gate consistency audit: for `adaptive_support_synergy_blend_priority`, the `99` backbones closest to the active routing boundary showed mean |Δscore| `0.071`, p90 |Δscore| `0.149`, and route Spearman `0.948` under counterfactual route switching; this gate is currently tiered `moderate`.
-- Source-balanced reruns average ROC AUC `0.889`, so source composition remains a real robustness caveat rather than a fully neutral nuisance factor.
-- Within matched visibility/source strata, the current primary model still exceeds the counts-only baseline (`0.698` vs `0.691` weighted ROC AUC).
-- Secondary outcome auditing now includes macro-region jumps; the strongest audited model reaches ROC AUC `0.910` on that harder geographic expansion endpoint.
-- Ranking scores are also compared against upload-weighted new-country burden; the best audited Spearman correlation is `0.848`.
-- The same ranking family is now also audited against the raw later new-country count; the strongest Spearman alignment is `0.878`.
-- Backbone-level metadata quality is quantified directly (mean score `0.574`) and reused in the false-negative audit instead of being left as an informal caveat.
+Model selection was not driven by a single metric. We jointly considered ROC AUC, average precision, lower-knownness behavior, matched-knownness/source performance, source holdout robustness, and practical shortlist yield. In the current scorecard, the headline model ranks `13/21` overall; `2` within the discovery track.
 
-## Interpretation Guardrails
+Operationally, the headline model is preferred because it keeps the strongest balance between discrimination and shortlist usefulness. In this refresh, the primary model also preserves a top-10 precision of 1.0 while remaining clearly above the counts-only baseline in matched-knownness auditing.
+Governance track logic is kept separate from discovery-track optimization even when the shortlisted candidates partially overlap.
 
-- T, H, A, coherence, and mobility-support features are computed only from `resolved_year <= 2015` rows.
-- The outcome uses only later-period country visibility (`2016-2023`), not training-period feature inputs.
-- Supportive WHO/Pathogen Detection/CARD/MOB-suite layers are descriptive context only; AMRFinder is optional and not required for the headline benchmark or its main claims.
-- This is a shortlist-prioritization benchmark, not an exhaustive detection system for every later positive backbone.
-- Source-only performance is weak, but source-balanced reruns still matter, so source composition should be treated as a real robustness caveat.
-- Observed host-diversity terms should not be read as direct biological host range; in practice they partly behave like sampling saturation / knownness signals.
-- Additional biological audit tables now report external host-range support, backbone purity, assignment confidence, replicon architecture, and training-only mash novelty so AUC gains can be inspected mechanistically rather than treated as a black-box metric jump.
-- The `adaptive_*` family changes only how the pre-2015 low-knownness cohort receives the specialist score, using either a hard switch or a partial blend; it does not relax the temporal split or alter the outcome definition.
-- Primary-model choice is not driven by a single headline metric; overall discrimination, low-knownness behaviour, matched-strata behaviour, and source robustness are read together.
-- Candidate interpretation is explicitly multi-table: portfolio + evidence matrix + threshold flips + consensus/risk context, not a single raw score rank.
-- Only the current primary benchmark and the conservative benchmark should be treated as headline models; the rest of the model zoo is exploratory audit context, not multiple-comparison-free confirmatory evidence.
-- Bootstrap intervals resample the analysis unit itself (backbone rows), so the uncertainty intervals are already computed at backbone granularity rather than at raw-sequence granularity.
-- Spatial generalization is now audited separately via strict `dominant_region_train` holdouts, complementing the temporal split with an explicit out-of-distribution check.
-- Opportunity bias is not fully removable in a retrospective archive: backbones first seen earlier have longer time-at-risk for later new-country visibility. This remains a declared limitation.
-- Eligibility is intentionally restricted to backbones with 1-3 training countries; the system is meant for early-stage surveillance triage, not for all already-global backbones.
-- Country metadata completeness is reported separately in `country_quality_summary.tsv`; missing countries must not be over-interpreted as true geographic narrowness.
-- The project uses two permutation paradigms on purpose: the headline null asks whether the observed signal exceeds randomized labels, whereas model-comparison nulls ask whether one score family truly beats another.
-- Ethical scope: only public genome and country metadata are used; the framework does not infer patient identity and is not a clinical diagnostic tool.
+## Strict Test Interpretation
 
-## Feature-Interpretation Note
+The strict matched-knownness/source-holdout test isolates the hardest low-knownness and low-support slice of the dataset. No current model fully passes this acceptance rule.
 
-- Highest dropout impact: `metadata_support_depth_norm` with ROC AUC drop `0.054` when removed.
-- Highest ablation impact and strongest directional coefficient need not be the same signal; T-ablation and host-diversity interpretation answer different questions.
+This should be interpreted as a data-limited regime, not as evidence that the entire methodology collapses. The primary dataset contains 989 eligible backbone classes, but the strict slice is materially smaller and therefore noisier. We report this limitation explicitly instead of hiding it behind the stronger overall metrics.
 
-## Boundary Conditions
+## Decision Readout
 
-- This is a retrospective association framework, not a causal, mechanistic, or clinical prediction system.
-- The outcome is later visibility increase, not direct proof of transmission fitness or public-health impact.
-- Backbone definitions are operational surveillance units and should not be presented as biological truth claims.
-- The current primary benchmark is the official headline ranking, but adaptive and exploratory audits remain useful for stress-testing its behavior.
-- Current scored backbone count: `6841`.
+- Outcome definition: later visibility in at least `3` new countries.
+- Operational watchlist mix: `22` action + `18` review + `10` abstain rows.
+- False-negative audit: `50` later positives remain outside the practical shortlist; dominant miss drivers are `low_assignment_confidence, low_training_members, low_knownness`.
+- `operational_risk_watchlist.tsv` is the calibrated deployment-facing table for the current shortlist.
+- Current operational watchlist mix: `22` action + `18` review + `10` abstain rows.
+- This remains a shortlist-prioritization benchmark rather than an exhaustive detector for every later positive backbone.
+- Matched knownness/source strata: primary `0.701` vs baseline `0.594` weighted ROC AUC.
+- Raw later new-country count alignment: Spearman ρ `0.624` [0.580, 0.662].
+- Weighted new-country burden alignment: Spearman ρ `0.620`.
+- Spatial holdout audit: weighted ROC AUC `0.735` across `5` held-out dominant regions; hardest region `Asia` at ROC AUC `0.697`.
+- Discovery shortlist agreement with the strongest audited metric model: top-25 overlap: `8/25`; top-50 overlap: `22/50`.
+- A knownness-gated audit model (`adaptive_natural_priority`) remains useful for lower-knownness stress testing but is not the headline benchmark.
+- Observed host-diversity terms should be interpreted cautiously because they partly behave like sampling saturation / knownness signals.
+- Supportive external layers are descriptive context only; AMRFinder is optional and not required for the headline benchmark.
+- Only three models are official in the jury-facing narrative: discovery, governance watch-only, and baseline.
 
 ## Zero-Floor Component Behavior
 
-- When a raw T/H/A component is genuinely zero, its normalized counterpart remains 0.0. The arithmetic headline score therefore behaves like an average across only the active evidence axes for many backbones; this is deliberate and should not be narrated as if every backbone carries three equally active signals.
+When a backbone lacks direct evidence for a component, the normalized contribution is explicitly allowed to stay at zero rather than being imputed upward by unrelated metadata support.
 
 ## OLS Residual Approach
 
-- `H_support_norm_residual` is computed with ordinary least squares against visibility/knownness proxies. The goal is deterministic proxy-subtraction for audit purposes, not a causal robust-regression claim.
+Knownness-sensitive H-support terms are residualized against knownness proxies so that the retained signal is not a disguised count effect.
+
+## Turkey Context
+
+WHO's 2025 GLASS summary highlights a high antibiotic-resistance burden in the Eastern Mediterranean region. For Türkiye, this makes Enterobacterales-focused genomic surveillance directly relevant.
+
+Within the ECDC/WHO Europe surveillance framing, carbapenem-resistant *Klebsiella pneumoniae* and ESBL-producing *Escherichia coli* remain core public-health concerns. A backbone-level prioritization system is therefore operationally meaningful for Turkish genomic AMR surveillance, even though this project does not claim clinical decision support.
+
+## Interpretation Guardrails
+
+- No external validation claim is made.
+- T, H and A features are computed only from `resolved_year <= 2015` rows.
+- The outcome is later country visibility increase, not direct biological fitness or transmission proof.
+- Opportunity bias is a declared limitation: backbones seen earlier have longer time-at-risk.
+
+## Release Surface
+
+- `blocked_holdout_summary.tsv` records the blocked source/region stress test used for the internal audit layer.
+- `calibration_threshold_summary.png` captures the compact calibration/threshold view used in slide decks.
+- `reports/core_figures/` contains the rest of the presentation-ready figure pack.

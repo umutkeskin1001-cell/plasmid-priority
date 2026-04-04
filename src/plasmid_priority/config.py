@@ -6,14 +6,89 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from plasmid_priority.schemas import DataContract, DataAssetSpec
+from plasmid_priority.schemas import DataAssetSpec, DataContract
 
 DEFAULT_CONTRACT_PATH = Path("data/manifests/data_contract.json")
+DEFAULT_PIPELINE_SPLIT_YEAR = 2015
 DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD = 3
+DEFAULT_HOST_EVENNESS_BIAS_POWER = 0.5
+DEFAULT_HOST_PHYLO_BREADTH_WEIGHT = 0.65
+DEFAULT_HOST_PHYLO_DISPERSION_WEIGHT = 0.35
 ROOT_MARKERS = (
     Path("pyproject.toml"),
     Path("data/manifests/data_contract.json"),
 )
+
+
+@dataclass(frozen=True)
+class PipelineSettings:
+    """Canonical pipeline parameters loaded from config.yaml."""
+
+    split_year: int
+    min_new_countries_for_spread: int
+    host_evenness_bias_power: float
+    host_phylo_breadth_weight: float
+    host_phylo_dispersion_weight: float
+
+
+def _coerce_int(value: object, *, default: int) -> int:
+    if value is None or value == "":
+        return default
+    if isinstance(value, (int, float, str)):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def _coerce_float(value: object, *, default: float) -> float:
+    if value is None or value == "":
+        return default
+    if isinstance(value, (int, float, str)):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def _pipeline_settings_from_config(config: dict | None) -> PipelineSettings:
+    pipeline = config.get("pipeline", {}) if isinstance(config, dict) else {}
+    if not isinstance(pipeline, dict):
+        pipeline = {}
+    host_phylo_breadth_weight = _coerce_float(
+        pipeline.get("host_phylo_breadth_weight"),
+        default=DEFAULT_HOST_PHYLO_BREADTH_WEIGHT,
+    )
+    host_phylo_dispersion_weight = _coerce_float(
+        pipeline.get("host_phylo_dispersion_weight"),
+        default=DEFAULT_HOST_PHYLO_DISPERSION_WEIGHT,
+    )
+    total_host_phylo_weight = host_phylo_breadth_weight + host_phylo_dispersion_weight
+    if not total_host_phylo_weight > 0.0:
+        host_phylo_breadth_weight = DEFAULT_HOST_PHYLO_BREADTH_WEIGHT
+        host_phylo_dispersion_weight = DEFAULT_HOST_PHYLO_DISPERSION_WEIGHT
+        total_host_phylo_weight = (
+            DEFAULT_HOST_PHYLO_BREADTH_WEIGHT + DEFAULT_HOST_PHYLO_DISPERSION_WEIGHT
+        )
+    host_phylo_breadth_weight /= total_host_phylo_weight
+    host_phylo_dispersion_weight /= total_host_phylo_weight
+    return PipelineSettings(
+        split_year=_coerce_int(
+            pipeline.get("split_year"), default=DEFAULT_PIPELINE_SPLIT_YEAR
+        ),
+        min_new_countries_for_spread=_coerce_int(
+            pipeline.get("min_new_countries_for_spread"),
+            default=DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD,
+        ),
+        host_evenness_bias_power=_coerce_float(
+            pipeline.get("host_evenness_bias_power"),
+            default=DEFAULT_HOST_EVENNESS_BIAS_POWER,
+        ),
+        host_phylo_breadth_weight=host_phylo_breadth_weight,
+        host_phylo_dispersion_weight=host_phylo_dispersion_weight,
+    )
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -56,12 +131,17 @@ class ProjectContext:
 
     @property
     def config(self) -> dict:
-        import yaml
+        import yaml  # type: ignore[import-untyped]
+
         config_path = self.root / "config.yaml"
         if not config_path.exists():
             return {}
         with config_path.open("r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
+
+    @property
+    def pipeline_settings(self) -> PipelineSettings:
+        return _pipeline_settings_from_config(self.config)
 
     @property
     def reports_dir(self) -> Path:

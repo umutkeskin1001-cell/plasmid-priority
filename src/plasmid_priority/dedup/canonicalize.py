@@ -49,9 +49,21 @@ def annotate_canonical_ids(records: pd.DataFrame, identical_map: pd.DataFrame) -
     for accession in accessions:
         union_find.find(accession)
 
-    for _, row in identical_map.iterrows():
-        accession = str(row["NUCCORE_ACC"]).strip()
-        identical = str(row["NUCCORE_Identical"]).strip()
+    identical_accessions = (
+        identical_map.get("NUCCORE_ACC", pd.Series("", index=identical_map.index))
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    identical_targets = (
+        identical_map.get("NUCCORE_Identical", pd.Series("", index=identical_map.index))
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+    for accession, identical in zip(
+        identical_accessions.to_numpy(), identical_targets.to_numpy(), strict=False
+    ):
         if accession and identical and accession.lower() != "nan" and identical.lower() != "nan":
             union_find.union(accession, identical)
 
@@ -74,6 +86,7 @@ def annotate_canonical_ids(records: pd.DataFrame, identical_map: pd.DataFrame) -
     annotated["duplicate_group_size"] = annotated["sequence_accession"].map(
         lambda accession: canonical_lookup.get(str(accession), (str(accession), 1))[1]
     )
-    annotated["is_canonical_representative"] = annotated["sequence_accession"].eq(annotated["canonical_id"])
+    annotated["is_canonical_representative"] = annotated["sequence_accession"].eq(
+        annotated["canonical_id"]
+    )
     return annotated
-
