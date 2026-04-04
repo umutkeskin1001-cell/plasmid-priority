@@ -31,10 +31,7 @@ Thumbs.db
 # ==========================================
 # 📊 Veri (Data) - Sadece Tanımları Tutalım
 # ==========================================
-# Tüm veri klasörlerini kapat
 data/*/
-
-# Ama manifests ve experiments içindeki kodları aç
 !data/manifests/
 !data/manifests/data_locations.md
 !data/manifests/data_contract.json
@@ -43,18 +40,23 @@ data/*/
 !data/experiments/*.py
 
 # ==========================================
-# 📝 Raporlar ve Çıktılar (Outputs)
+# 📝 Raporlar ve Çıktılar (Testler İçin Açıldı)
 # ==========================================
-# Klasörleri kapat
-reports/*/
+# Sadece bu üç klasörün gitmesine izin veriyoruz (Testler ve jüri için)
+!reports/core_tables/
+!reports/core_figures/
+!reports/release/
 
-# Ama rapor şablonlarını ve markdown dosyalarını gönderelim
-!reports/
-!reports/*.md
+# Ama bu klasörler içindeki büyük geçici dosyalar (varsa) yine de gitmesin
+reports/**/*.log
+reports/**/*.tmp
+
+# Jürinin okuyacağı markdown ve küçük tabloları açalım
 !reports/**/*.md
+!reports/**/*.tsv
+!reports/**/*.png
 
-# Büyük figür ve tablo çıktılarını tekrar yasakla (garantiye alalım)
-reports/**/*.pdf
-reports/**/*.png
-reports/**/*.tsv
+# Sadece çok büyük veya projeye özel olmayanları yasaklayalım
+reports/diagnostic_tables/
+reports/tubitak_final_metrics.txt
 *.manifest.json
