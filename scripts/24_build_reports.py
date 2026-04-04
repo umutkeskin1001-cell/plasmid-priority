@@ -354,6 +354,55 @@ def _country_missingness_summary_text(
     return f"{text}."
 
 
+def _candidate_stability_summary_text(
+    frame: pd.DataFrame,
+    *,
+    file_name: str,
+    frequency_column: str,
+    language: str = "en",
+) -> str:
+    if frame.empty or frequency_column not in frame.columns:
+        return ""
+    working = frame.loc[
+        frame.get("backbone_id", pd.Series(dtype=str)).astype(str).ne("")
+    ].copy()
+    if working.empty:
+        return ""
+    sort_columns = [frequency_column]
+    if frequency_column != "bootstrap_top_10_frequency" and "bootstrap_top_10_frequency" in working.columns:
+        sort_columns.append("bootstrap_top_10_frequency")
+    if frequency_column != "variant_top_10_frequency" and "variant_top_10_frequency" in working.columns:
+        sort_columns.append("variant_top_10_frequency")
+    working = working.sort_values(sort_columns, ascending=[False] * len(sort_columns))
+    row = working.iloc[0]
+    backbone_id = str(row.get("backbone_id", "") or "").strip()
+    top_k = pd.to_numeric(pd.Series([row.get("top_k", np.nan)]), errors="coerce").iloc[0]
+    frequency = pd.to_numeric(pd.Series([row.get(frequency_column, np.nan)]), errors="coerce").iloc[0]
+    if language == "tr":
+        intro = f"`{file_name}` aday siralama kararliligini raporlar"
+        if backbone_id and pd.notna(frequency):
+            if pd.notna(top_k):
+                return (
+                    f"{intro}; en kararlı örnek `{backbone_id}` için ilk `{int(top_k)}` içinde kalma sıklığı "
+                    f"`{float(frequency):.2f}`."
+                )
+            return f"{intro}; en kararlı örnek `{backbone_id}` için sıklık `{float(frequency):.2f}`."
+        return f"{intro}."
+    intro = f"`{file_name}` records candidate rank stability"
+    if frequency_column == "bootstrap_top_k_frequency":
+        intro += " across bootstrap resamples"
+    else:
+        intro += " across model variants"
+    if backbone_id and pd.notna(frequency):
+        if pd.notna(top_k):
+            return (
+                f"{intro}; the strongest stable backbone `{backbone_id}` remains in the top-`{int(top_k)}` "
+                f"set at frequency `{float(frequency):.2f}`."
+            )
+        return f"{intro}; the strongest stable backbone `{backbone_id}` has frequency `{float(frequency):.2f}`."
+    return f"{intro}."
+
+
 def _build_report_model_metrics(
     model_metrics: pd.DataFrame,
     *,
@@ -1142,6 +1191,9 @@ def _build_candidate_brief_table(
 ) -> pd.DataFrame:
     if candidate_portfolio.empty or backbones.empty:
         return pd.DataFrame()
+    candidate_portfolio = candidate_portfolio.loc[
+        :, ~candidate_portfolio.columns.duplicated()
+    ].copy()
     merged = (
         backbones.merge(
             amr_consensus[["sequence_accession", "amr_gene_symbols", "amr_drug_classes"]],
@@ -1212,6 +1264,20 @@ def _build_candidate_brief_table(
             pd.Series([row.get("risk_uncertainty", np.nan)]), errors="coerce"
         ).iloc[0]
         risk_decision_tier = str(row.get("risk_decision_tier", "") or "").strip()
+        candidate_confidence_score = pd.to_numeric(
+            pd.Series([row.get("candidate_confidence_score", np.nan)]), errors="coerce"
+        ).iloc[0]
+        candidate_explanation_summary = str(row.get("candidate_explanation_summary", "") or "")
+        multiverse_stability_score = pd.to_numeric(
+            pd.Series([row.get("multiverse_stability_score", np.nan)]), errors="coerce"
+        ).iloc[0]
+        multiverse_stability_tier = str(row.get("multiverse_stability_tier", "") or "").strip()
+        bootstrap_top10_value = pd.to_numeric(
+            pd.Series([row.get("bootstrap_top_10_frequency", np.nan)]), errors="coerce"
+        ).iloc[0]
+        variant_top10_value = pd.to_numeric(
+            pd.Series([row.get("variant_top_10_frequency", np.nan)]), errors="coerce"
+        ).iloc[0]
         track_value = str(row.get("portfolio_track", "") or "")
         track_en = _humanize_portfolio_track(track_value, language="en") or "candidate context"
         track_tr = _humanize_portfolio_track(track_value, language="tr") or "aday baglami"
@@ -1302,17 +1368,55 @@ def _build_candidate_brief_table(
         uncertainty_review_note_tr = (
             f" Belirsizlik inceleme seviyesi: {uncertainty_review_labels_tr.get(uncertainty_review_tier, uncertainty_review_tier)}."
         )
+        confidence_note_en = (
+            f" Confidence score: {float(candidate_confidence_score):.2f}."
+            if pd.notna(candidate_confidence_score)
+            else ""
+        )
+        confidence_note_tr = (
+            f" Guven skoru: {float(candidate_confidence_score):.2f}."
+            if pd.notna(candidate_confidence_score)
+            else ""
+        )
+        if pd.notna(multiverse_stability_score):
+            stability_note_en = (
+                f" Rank stability: {multiverse_stability_tier or 'multiverse'} "
+                f"{float(multiverse_stability_score):.2f}."
+            )
+            stability_note_tr = (
+                f" Sira kararliligi: {multiverse_stability_tier or 'multiverse'} "
+                f"{float(multiverse_stability_score):.2f}."
+            )
+        else:
+            stability_bits_en: list[str] = []
+            stability_bits_tr: list[str] = []
+            if pd.notna(bootstrap_top10_value):
+                stability_bits_en.append(f"bootstrap top-10 {float(bootstrap_top10_value):.2f}")
+                stability_bits_tr.append(f"bootstrap top-10 {float(bootstrap_top10_value):.2f}")
+            if pd.notna(variant_top10_value):
+                stability_bits_en.append(f"variant top-10 {float(variant_top10_value):.2f}")
+                stability_bits_tr.append(f"varyant top-10 {float(variant_top10_value):.2f}")
+            stability_note_en = (
+                f" Rank stability: {', '.join(stability_bits_en)}." if stability_bits_en else ""
+            )
+            stability_note_tr = (
+                f" Sira kararliligi: {', '.join(stability_bits_tr)}." if stability_bits_tr else ""
+        )
         summary_en = (
             f"{backbone_id} is dominated by {species_or_genus}; training-period support is {int(row.get('member_count_train', 0) or 0)} records across "
             f"{int(row.get('n_countries_train', 0) or 0)} countries, and after 2015 it appears in {new_country_count} new countries. "
             f"For review, treat it as {track_en}. Evidence tier: {evidence_tier_en}; monitoring tier: {action_tier_en}; multi-model consensus top-50: {consensus_en}."
-            f"{novelty_note_en}{mechanistic_note_en} {monitoring_note_en}{risk_note_en}{uncertainty_review_note_en} Main public-health AMR classes: {top_amr_classes or 'none detected'}."
+            f"{novelty_note_en}{mechanistic_note_en} {monitoring_note_en}{risk_note_en}{uncertainty_review_note_en}{confidence_note_en}{stability_note_en}"
+            f"{' Case summary: ' + candidate_explanation_summary + '.' if candidate_explanation_summary else ''}"
+            f" Main public-health AMR classes: {top_amr_classes or 'none detected'}."
         )
         summary_tr = (
             f"{backbone_id} omurgasi agirlikli olarak {species_or_genus} ile iliskilidir; egitim doneminde {int(row.get('member_count_train', 0) or 0)} kayit ve "
             f"{int(row.get('n_countries_train', 0) or 0)} ulke destegi vardir, 2015 sonrasinda ise {new_country_count} yeni ulkede gorulmustur. "
             f"Juri yorumu icin bu aday {track_tr} olarak ele alinmalidir. Kanit seviyesi {evidence_tier_tr}; izlem duzeyi {action_tier_tr}; coklu model uzlasi top-50 durumu: {consensus_tr}."
-            f"{novelty_note_tr}{mechanistic_note_tr} {monitoring_note_tr}{risk_note_tr}{uncertainty_review_note_tr} Baskin halk sagligi odakli AMR siniflari: {top_amr_classes or 'tespit edilmedi'}."
+            f"{novelty_note_tr}{mechanistic_note_tr} {monitoring_note_tr}{risk_note_tr}{uncertainty_review_note_tr}{confidence_note_tr}{stability_note_tr}"
+            f"{' Vaka ozeti: ' + candidate_explanation_summary + '.' if candidate_explanation_summary else ''}"
+            f" Baskin halk sagligi odakli AMR siniflari: {top_amr_classes or 'tespit edilmedi'}."
         )
         rows.append(
             {
@@ -1328,6 +1432,8 @@ def _build_candidate_brief_table(
                 "training_country_examples": ",".join(training_countries[:5]),
                 "new_country_count_post_2015": int(len(new_countries)),
                 "new_country_examples_post_2015": ",".join(new_countries[:5]),
+                "bootstrap_top_10_frequency": bootstrap_top10_value,
+                "variant_top_10_frequency": variant_top10_value,
                 "first_year_observed": int(
                     frame["resolved_year_int"].loc[frame["resolved_year_int"] > 0].min()
                 )
@@ -1345,6 +1451,13 @@ def _build_candidate_brief_table(
                 "secondary_driver_axis": row.get("secondary_driver_axis", ""),
                 "mechanistic_rationale": row.get("mechanistic_rationale", ""),
                 "monitoring_rationale": row.get("monitoring_rationale", ""),
+                "candidate_confidence_score": candidate_confidence_score,
+                "multiverse_stability_score": multiverse_stability_score,
+                "multiverse_stability_tier": multiverse_stability_tier,
+                "candidate_explanation_summary": candidate_explanation_summary,
+                "low_candidate_confidence_risk": bool(
+                    row.get("low_candidate_confidence_risk", False)
+                ),
                 "operational_risk_score": operational_risk_score,
                 "risk_macro_region_jump_3y": macro_jump_risk,
                 "risk_event_within_3y": event_within_3y_risk,
@@ -1434,6 +1547,11 @@ def _build_candidate_evidence_matrix(
         "consensus_rank",
         "consensus_support_count",
         "rank_disagreement_primary_vs_conservative",
+        "candidate_confidence_score",
+        "candidate_explanation_summary",
+        "low_candidate_confidence_risk",
+        "multiverse_stability_score",
+        "multiverse_stability_tier",
         "primary_model_candidate_score",
         "conservative_model_candidate_score",
         "baseline_both_candidate_score",
@@ -1929,6 +2047,13 @@ def _build_candidate_case_studies(
         "secondary_driver_axis",
         "mechanistic_rationale",
         "monitoring_rationale",
+        "candidate_confidence_score",
+        "candidate_explanation_summary",
+        "low_candidate_confidence_risk",
+        "bootstrap_top_10_frequency",
+        "variant_top_10_frequency",
+        "multiverse_stability_score",
+        "multiverse_stability_tier",
         "operational_risk_score",
         "risk_macro_region_jump_3y",
         "risk_event_within_3y",
@@ -2041,6 +2166,8 @@ def _write_headline_validation_summary(
     blocked_holdout_summary: pd.DataFrame | None = None,
     country_missingness_bounds: pd.DataFrame | None = None,
     country_missingness_sensitivity: pd.DataFrame | None = None,
+    rank_stability: pd.DataFrame | None = None,
+    variant_consistency: pd.DataFrame | None = None,
 ) -> None:
     blocked_holdout_summary = (
         blocked_holdout_summary if blocked_holdout_summary is not None else pd.DataFrame()
@@ -2054,6 +2181,10 @@ def _write_headline_validation_summary(
         country_missingness_sensitivity
         if country_missingness_sensitivity is not None
         else pd.DataFrame()
+    )
+    rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
+    variant_consistency = (
+        variant_consistency if variant_consistency is not None else pd.DataFrame()
     )
     lines = [
         "# Headline Validation Summary",
@@ -2158,6 +2289,18 @@ def _write_headline_validation_summary(
         country_missingness_sensitivity,
         model_name=primary_model_name,
     )
+    rank_stability_text = _candidate_stability_summary_text(
+        rank_stability,
+        file_name="candidate_rank_stability.tsv",
+        frequency_column="bootstrap_top_k_frequency",
+        language="en",
+    )
+    variant_consistency_text = _candidate_stability_summary_text(
+        variant_consistency,
+        file_name="candidate_variant_consistency.tsv",
+        frequency_column="variant_top_k_frequency",
+        language="en",
+    )
     if country_missingness_text:
         lines.extend(
             [
@@ -2167,6 +2310,18 @@ def _write_headline_validation_summary(
                 f"- {country_missingness_text}",
             ]
         )
+    if rank_stability_text or variant_consistency_text:
+        lines.extend(
+            [
+                "",
+                "## Ranking Stability",
+                "",
+            ]
+        )
+        if rank_stability_text:
+            lines.append(f"- {rank_stability_text}")
+        if variant_consistency_text:
+            lines.append(f"- {variant_consistency_text}")
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -2184,6 +2339,8 @@ def _write_executive_summary(
     rolling_temporal: pd.DataFrame | None = None,
     country_missingness_bounds: pd.DataFrame | None = None,
     country_missingness_sensitivity: pd.DataFrame | None = None,
+    rank_stability: pd.DataFrame | None = None,
+    variant_consistency: pd.DataFrame | None = None,
 ) -> None:
     metrics = model_metrics.set_index("model_name", drop=False)
     primary = metrics.loc[str(primary_model_name)]
@@ -2214,6 +2371,10 @@ def _write_executive_summary(
         country_missingness_sensitivity
         if country_missingness_sensitivity is not None
         else pd.DataFrame()
+    )
+    rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
+    variant_consistency = (
+        variant_consistency if variant_consistency is not None else pd.DataFrame()
     )
     false_negative_count, top_drivers = _summarize_false_negative_audit(false_negative_audit)
     blocked_holdout_text = _blocked_holdout_summary_text(
@@ -2287,6 +2448,30 @@ def _write_executive_summary(
                 f"- {country_missingness_text}",
             ]
         )
+    rank_stability_text = _candidate_stability_summary_text(
+        rank_stability,
+        file_name="candidate_rank_stability.tsv",
+        frequency_column="bootstrap_top_k_frequency",
+        language="en",
+    )
+    variant_consistency_text = _candidate_stability_summary_text(
+        variant_consistency,
+        file_name="candidate_variant_consistency.tsv",
+        frequency_column="variant_top_k_frequency",
+        language="en",
+    )
+    if rank_stability_text or variant_consistency_text:
+        lines.extend(
+            [
+                "",
+                "## Ranking Stability",
+                "",
+            ]
+        )
+        if rank_stability_text:
+            lines.append(f"- {rank_stability_text}")
+        if variant_consistency_text:
+            lines.append(f"- {variant_consistency_text}")
     lines.extend(
         [
             "",
@@ -2295,6 +2480,7 @@ def _write_executive_summary(
             f"- `{int(len(candidate_case_studies))}` case studies are exported in `candidate_case_studies.tsv`.",
             "- Jury-facing narrative lives in `jury_brief.md` and `ozet_tr.md`.",
             f"- Blocked holdout audit is exported in `blocked_holdout_summary.tsv`{f': {blocked_holdout_text}' if blocked_holdout_text else ''}.",
+            "- Candidate rank stability is exported in `candidate_rank_stability.tsv` and model-variant consistency is exported in `candidate_variant_consistency.tsv`.",
             "- `calibration_threshold_summary.png` is exported as a compact calibration/threshold diagnostic when threshold-sensitivity data are available.",
             "- Figures in `reports/core_figures/` are presentation-ready.",
         ]
@@ -2466,6 +2652,8 @@ def _write_turkish_summary(
     blocked_holdout_summary: pd.DataFrame | None = None,
     country_missingness_bounds: pd.DataFrame | None = None,
     country_missingness_sensitivity: pd.DataFrame | None = None,
+    rank_stability: pd.DataFrame | None = None,
+    variant_consistency: pd.DataFrame | None = None,
     outcome_threshold: int,
 ) -> None:
     knownness_matched_validation = (
@@ -2496,6 +2684,10 @@ def _write_turkish_summary(
         country_missingness_sensitivity
         if country_missingness_sensitivity is not None
         else pd.DataFrame()
+    )
+    rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
+    variant_consistency = (
+        variant_consistency if variant_consistency is not None else pd.DataFrame()
     )
     primary = model_metrics.loc[
         model_metrics["model_name"].astype(str) == str(primary_model_name)
@@ -2623,6 +2815,30 @@ def _write_turkish_summary(
     ).iloc[0]
     if pd.notna(spatial_auc):
         lines.append(f"- Mekânsal holdout denetimi: ağırlıklı ROC AUC `{float(spatial_auc):.3f}`.")
+    rank_stability_text = _candidate_stability_summary_text(
+        rank_stability,
+        file_name="candidate_rank_stability.tsv",
+        frequency_column="bootstrap_top_k_frequency",
+        language="tr",
+    )
+    variant_consistency_text = _candidate_stability_summary_text(
+        variant_consistency,
+        file_name="candidate_variant_consistency.tsv",
+        frequency_column="variant_top_k_frequency",
+        language="tr",
+    )
+    if rank_stability_text or variant_consistency_text:
+        lines.extend(
+            [
+                "",
+                "## Sıralama Kararlılığı",
+                "",
+            ]
+        )
+        if rank_stability_text:
+            lines.append(f"- {rank_stability_text}")
+        if variant_consistency_text:
+            lines.append(f"- {variant_consistency_text}")
     lines.extend(
         [
             "",
@@ -2699,6 +2915,7 @@ def _write_turkish_summary(
             "",
             f"- `blocked_holdout_summary.tsv`: {blocked_holdout_text or 'iç kaynak/bölge stres testi olarak raporlanır.'}",
             "- `country_missingness_bounds.tsv` ve `country_missingness_sensitivity.tsv`: ülke eksikliği varsayımlarına göre etiket ve performans duyarlılığını raporlar.",
+            "- `candidate_rank_stability.tsv` ve `candidate_variant_consistency.tsv`: aday sıralama kararlılığını ve model-varyant tutarlılığını raporlar.",
             "- `calibration_threshold_summary.png`: kalibrasyon ve eşik duyarlılığı için kompakt tanı grafiğidir.",
             "- `jury_brief.md` ve `ozet_tr.md`: jüriye dönük anlatının dağıtım yüzeyleri.",
         ]
@@ -3265,6 +3482,7 @@ def _write_turkish_summary(
             "## Sürüm Yüzeyi",
             "",
             f"- `blocked_holdout_summary.tsv`: {blocked_holdout_text or 'iç kaynak/bölge stres testi olarak raporlanır.'}",
+            "- `candidate_rank_stability.tsv` ve `candidate_variant_consistency.tsv`: aday sıralama kararlılığını ve model-varyant tutarlılığını raporlar.",
             "- `calibration_threshold_summary.png`: kalibrasyon ve eşik duyarlılığı için kompakt tanı grafiğidir.",
             "- `jury_brief.md` ve `ozet_tr.md`: jüriye dönük anlatının dağıtım yüzeyleri.",
         ]
@@ -3315,6 +3533,8 @@ def _write_jury_brief(
     blocked_holdout_summary: pd.DataFrame | None = None,
     country_missingness_bounds: pd.DataFrame | None = None,
     country_missingness_sensitivity: pd.DataFrame | None = None,
+    rank_stability: pd.DataFrame | None = None,
+    variant_consistency: pd.DataFrame | None = None,
     outcome_threshold: int,
 ) -> None:
     knownness_matched_validation = (
@@ -3345,6 +3565,10 @@ def _write_jury_brief(
         country_missingness_sensitivity
         if country_missingness_sensitivity is not None
         else pd.DataFrame()
+    )
+    rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
+    variant_consistency = (
+        variant_consistency if variant_consistency is not None else pd.DataFrame()
     )
     primary = model_metrics.loc[
         model_metrics["model_name"].astype(str) == str(primary_model_name)
@@ -3589,6 +3813,30 @@ def _write_jury_brief(
                 f"- {country_missingness_text}",
             ]
         )
+    rank_stability_text = _candidate_stability_summary_text(
+        rank_stability,
+        file_name="candidate_rank_stability.tsv",
+        frequency_column="bootstrap_top_k_frequency",
+        language="en",
+    )
+    variant_consistency_text = _candidate_stability_summary_text(
+        variant_consistency,
+        file_name="candidate_variant_consistency.tsv",
+        frequency_column="variant_top_k_frequency",
+        language="en",
+    )
+    if rank_stability_text or variant_consistency_text:
+        lines.extend(
+            [
+                "",
+                "## Ranking Stability",
+                "",
+            ]
+        )
+        if rank_stability_text:
+            lines.append(f"- {rank_stability_text}")
+        if variant_consistency_text:
+            lines.append(f"- {variant_consistency_text}")
     if pd.notna(primary_vs_strongest_overlap_25) or pd.notna(primary_vs_strongest_overlap_50):
         overlap_bits: list[str] = []
         if pd.notna(primary_vs_strongest_overlap_25):
@@ -3633,6 +3881,7 @@ def _write_jury_brief(
             "## Release Surface",
             "",
             "- `blocked_holdout_summary.tsv` records the blocked source/region stress test used for the internal audit layer.",
+            "- `candidate_rank_stability.tsv` and `candidate_variant_consistency.tsv` record backbone-level ranking stability across bootstrap and model-variant audits.",
             "- `calibration_threshold_summary.png` captures the compact calibration/threshold view used in slide decks.",
             "- `reports/core_figures/` contains the rest of the presentation-ready figure pack.",
         ]
@@ -6385,6 +6634,8 @@ def main() -> int:
             false_negative_audit=false_negative_audit,
             country_missingness_bounds=country_missingness_bounds,
             country_missingness_sensitivity=country_missingness_sensitivity,
+            rank_stability=rank_stability,
+            variant_consistency=variant_consistency,
             outcome_threshold=pipeline.min_new_countries_for_spread,
         )
         _write_executive_summary(
@@ -6399,6 +6650,8 @@ def main() -> int:
             rolling_temporal=rolling_temporal,
             country_missingness_bounds=country_missingness_bounds,
             country_missingness_sensitivity=country_missingness_sensitivity,
+            rank_stability=rank_stability,
+            variant_consistency=variant_consistency,
         )
         _write_pitch_notes(
             pitch_notes_path,
@@ -6419,6 +6672,8 @@ def main() -> int:
             blocked_holdout_summary=blocked_holdout_summary,
             country_missingness_bounds=country_missingness_bounds,
             country_missingness_sensitivity=country_missingness_sensitivity,
+            rank_stability=rank_stability,
+            variant_consistency=variant_consistency,
         )
         legacy_detailed_summary = context.root / "reports/tubitak_detayli_proje_ozeti_tr.txt"
         if legacy_detailed_summary.exists():
@@ -6476,6 +6731,8 @@ def main() -> int:
             blocked_holdout_summary=blocked_holdout_summary,
             country_missingness_bounds=country_missingness_bounds,
             country_missingness_sensitivity=country_missingness_sensitivity,
+            rank_stability=rank_stability,
+            variant_consistency=variant_consistency,
             outcome_threshold=pipeline.min_new_countries_for_spread,
         )
         run.set_rows_out("top_backbones_rows", int(len(top)))

@@ -463,6 +463,9 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "false_positive_risk_tier"], "high")
         self.assertIn("weak_external_support_risk", result.loc[0, "risk_flags"])
         self.assertIn("proxy_gap_risk", result.loc[0, "risk_flags"])
+        self.assertIn("candidate_confidence_score", result.columns)
+        self.assertIn("low_candidate_confidence_risk", result.columns)
+        self.assertTrue(bool(result.loc[0, "low_candidate_confidence_risk"]))
 
     def test_candidate_tick_label_accepts_namedtuple_rows(self) -> None:
         from collections import namedtuple
@@ -478,12 +481,18 @@ class ReportingTests(unittest.TestCase):
             [
                 {
                     "portfolio_track": "novel_signal",
-                "track_rank": 1,
-                "backbone_id": "AA276",
-                "uncertainty_review_tier": "review",
-                "member_count_train": 1,
-                "n_countries_train": 1,
-                "n_new_countries": 4,
+                    "track_rank": 1,
+                    "backbone_id": "AA276",
+                    "uncertainty_review_tier": "review",
+                    "member_count_train": 1,
+                    "n_countries_train": 1,
+                    "n_new_countries": 4,
+                    "candidate_confidence_score": 0.63,
+                    "candidate_explanation_summary": "Confidence 0.63; primary mobility; review review.",
+                    "bootstrap_top_10_frequency": 0.68,
+                    "variant_top_10_frequency": 0.63,
+                    "multiverse_stability_score": 0.66,
+                    "multiverse_stability_tier": "moderately_stable",
                     "source_support_tier": "refseq_dominant",
                     "evidence_tier": "novelty_watchlist",
                     "action_tier": "low_confidence_backlog",
@@ -530,16 +539,32 @@ class ReportingTests(unittest.TestCase):
             candidate_portfolio, backbones, amr_consensus
         )
         case_studies = build_reports_script._build_candidate_case_studies(result, per_track=1)
+        summary_en = str(result.loc[0, "candidate_summary_en"])
         summary_tr = str(result.loc[0, "candidate_summary_tr"])
 
+        self.assertIn("Confidence score", summary_en)
+        self.assertIn("Rank stability", summary_en)
+        self.assertIn("Case summary", summary_en)
         self.assertIn("coklu model uzlasi top-50", summary_tr)
         self.assertIn("ayri erken sinyal izleme hatti", summary_tr)
         self.assertNotIn("Consensus kisa listesinde", summary_tr)
         self.assertIn("uncertainty_review_tier", result.columns)
         self.assertEqual(str(result.loc[0, "uncertainty_review_tier"]), "review")
+        self.assertIn("candidate_confidence_score", result.columns)
+        self.assertIn("candidate_explanation_summary", result.columns)
+        self.assertIn("low_candidate_confidence_risk", result.columns)
+        self.assertIn("bootstrap_top_10_frequency", case_studies.columns)
+        self.assertIn("variant_top_10_frequency", case_studies.columns)
+        self.assertIn("multiverse_stability_score", case_studies.columns)
+        self.assertIn("multiverse_stability_tier", case_studies.columns)
         self.assertIn("uncertainty_review_tier", case_studies.columns)
         self.assertEqual(str(case_studies.loc[0, "uncertainty_review_tier"]), "review")
+        self.assertIn("candidate_confidence_score", case_studies.columns)
+        self.assertIn("candidate_explanation_summary", case_studies.columns)
+        self.assertIn("low_candidate_confidence_risk", case_studies.columns)
         self.assertIn("Belirsizlik inceleme seviyesi", str(result.loc[0, "candidate_summary_tr"]))
+        self.assertIn("Guven skoru", str(result.loc[0, "candidate_summary_tr"]))
+        self.assertIn("Vaka ozeti", str(result.loc[0, "candidate_summary_tr"]))
 
     def test_plot_calibration_threshold_summary_writes_compact_figure(self) -> None:
         import pandas as pd
@@ -601,6 +626,8 @@ class ReportingTests(unittest.TestCase):
                     "backbone_id": "AA001",
                     "portfolio_track": "established_high_risk",
                     "track_rank": 1,
+                    "candidate_confidence_score": 0.86,
+                    "candidate_explanation_summary": "Confidence 0.86; primary mobility; review clear.",
                     "candidate_confidence_tier": "tier_a",
                     "evidence_tier": "tier_a",
                     "action_tier": "core_surveillance",
@@ -663,6 +690,8 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(int(matrix.loc[0, "threshold_flip_count"]), 2)
         self.assertEqual(matrix.loc[0, "dominant_species"], "Escherichia coli")
         self.assertEqual(matrix.loc[0, "top_amr_classes"], "BETA-LACTAM")
+        self.assertIn("candidate_confidence_score", matrix.columns)
+        self.assertIn("candidate_explanation_summary", matrix.columns)
 
     def test_jury_brief_uses_guardrail_language_for_knownness_and_model_choice(self) -> None:
         import pandas as pd
@@ -841,6 +870,26 @@ class ReportingTests(unittest.TestCase):
                 }
             ]
         )
+        rank_stability = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "top_k": 10,
+                    "bootstrap_top_k_frequency": 0.92,
+                    "bootstrap_top_10_frequency": 0.94,
+                }
+            ]
+        )
+        variant_consistency = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "top_k": 10,
+                    "variant_top_k_frequency": 0.89,
+                    "variant_top_10_frequency": 0.91,
+                }
+            ]
+        )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_path = Path(tmp_dir) / "jury_brief.md"
@@ -865,6 +914,8 @@ class ReportingTests(unittest.TestCase):
                 country_missingness_bounds=country_missingness_bounds,
                 country_missingness_sensitivity=country_missingness_sensitivity,
                 blocked_holdout_summary=blocked_holdout,
+                rank_stability=rank_stability,
+                variant_consistency=variant_consistency,
             )
             content = output_path.read_text(encoding="utf-8")
 
@@ -889,8 +940,13 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Blocked Holdout Audit", content)
         self.assertIn("dominant_source + dominant_region_train", content)
         self.assertIn("internal source/region stress test", content)
+        self.assertIn("## Ranking Stability", content)
+        self.assertIn("candidate_rank_stability.tsv", content)
+        self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("## Release Surface", content)
         self.assertIn("blocked_holdout_summary.tsv", content)
+        self.assertIn("candidate_rank_stability.tsv", content)
+        self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("calibration_threshold_summary.png", content)
         self.assertIn("Country Missingness", content)
         self.assertIn("country_missingness_bounds.tsv", content)
@@ -901,6 +957,8 @@ class ReportingTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("## Release Surface", bundle_jury_brief)
         self.assertIn("blocked_holdout_summary.tsv", bundle_jury_brief)
+        self.assertIn("candidate_rank_stability.tsv", bundle_jury_brief)
+        self.assertIn("candidate_variant_consistency.tsv", bundle_jury_brief)
         self.assertIn("calibration_threshold_summary.png", bundle_jury_brief)
         self.assertIn("Country Missingness", bundle_jury_brief)
         self.assertIn("country_missingness_bounds.tsv", bundle_jury_brief)
@@ -961,6 +1019,26 @@ class ReportingTests(unittest.TestCase):
             [{"backbone_id": "bb1", "miss_driver_flags": "low_knownness,threshold_fragile"}]
         )
         case_studies = pd.DataFrame([{"backbone_id": "bb1"}])
+        rank_stability = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "top_k": 10,
+                    "bootstrap_top_k_frequency": 0.91,
+                    "bootstrap_top_10_frequency": 0.93,
+                }
+            ]
+        )
+        variant_consistency = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "top_k": 10,
+                    "variant_top_k_frequency": 0.88,
+                    "variant_top_10_frequency": 0.90,
+                }
+            ]
+        )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_path = Path(tmp_dir) / "executive_summary.md"
@@ -987,6 +1065,8 @@ class ReportingTests(unittest.TestCase):
                         }
                     ]
                 ),
+                rank_stability=rank_stability,
+                variant_consistency=variant_consistency,
             )
             content = output_path.read_text(encoding="utf-8")
 
@@ -994,7 +1074,12 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("The Guard", content)
         self.assertIn("No external validation claim is made", content)
         self.assertIn("Internal high-integrity subset audit", content)
+        self.assertIn("## Ranking Stability", content)
+        self.assertIn("candidate_rank_stability.tsv", content)
+        self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("candidate_case_studies.tsv", content)
+        self.assertIn("candidate_rank_stability.tsv", content)
+        self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("blocked_holdout_summary.tsv", content)
         self.assertIn("calibration_threshold_summary.png", content)
         self.assertIn("Country Missingness", content)
@@ -1066,6 +1151,26 @@ class ReportingTests(unittest.TestCase):
                 }
             ]
         )
+        rank_stability = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "top_k": 10,
+                    "bootstrap_top_k_frequency": 0.91,
+                    "bootstrap_top_10_frequency": 0.93,
+                }
+            ]
+        )
+        variant_consistency = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "bb1",
+                    "top_k": 10,
+                    "variant_top_k_frequency": 0.88,
+                    "variant_top_10_frequency": 0.90,
+                }
+            ]
+        )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             output_path = Path(tmp_dir) / "ozet_tr.md"
@@ -1086,11 +1191,16 @@ class ReportingTests(unittest.TestCase):
                 blocked_holdout_summary=blocked_holdout,
                 country_missingness_bounds=country_missingness_bounds,
                 country_missingness_sensitivity=country_missingness_sensitivity,
+                rank_stability=rank_stability,
+                variant_consistency=variant_consistency,
             )
             content = output_path.read_text(encoding="utf-8")
 
         self.assertIn("## Sürüm Yüzeyi", content)
+        self.assertIn("## Sıralama Kararlılığı", content)
         self.assertIn("blocked_holdout_summary.tsv", content)
+        self.assertIn("candidate_rank_stability.tsv", content)
+        self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("calibration_threshold_summary.png", content)
         self.assertIn("bloke edilmiş holdout denetimi", content)
         self.assertIn("dominant_source + dominant_region_train", content)

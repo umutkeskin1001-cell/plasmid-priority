@@ -46,6 +46,11 @@ Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal ge
 - Ham yeni ülke sayısı ile ilişki: Spearman ρ `0.624` [0.580, 0.662].
 - Mekânsal holdout denetimi: ağırlıklı ROC AUC `0.735`.
 
+## Sıralama Kararlılığı
+
+- `candidate_rank_stability.tsv` aday siralama kararliligini raporlar; en kararlı örnek `AA175` için ilk `25` içinde kalma sıklığı `1.00`.
+- `candidate_variant_consistency.tsv` aday siralama kararliligini raporlar; en kararlı örnek `AA324` için ilk `25` içinde kalma sıklığı `0.88`.
+
 ## Sınırlılıklar
 
 - Bu çalışma retrospektiftir; prospektif erken uyarı sistemi iddiası taşımaz.
@@ -58,11 +63,13 @@ Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal ge
 
 - `AA282`: baskın tür `Escherichia coli`, baskın replikon `IncI-gamma/K1`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.81`, belirsizlik `0.28`. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,BETA-LACTAM,SULFONAMIDE,CEPHALOSPORIN,MONOBACTAM.
 - `AC030`: baskın tür `Escherichia coli`, baskın replikon `IncFIA`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.79`, belirsizlik `0.34`. Öne çıkan AMR sınıfları: belirgin AMR sınıfı sinyali yok.
-- `AA324`: baskın tür `Escherichia coli`, baskın replikon `IncFIA`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.82`, belirsizlik `0.23`. Öne çıkan AMR sınıfları: MACROLIDE,PHENICOL,TETRACYCLINE,AMINOGLYCOSIDE,SULFONAMIDE.
+- `AC301`: baskın tür `Enterobacter hormaechei`, baskın replikon `IncR`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.82`, belirsizlik `0.24`. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,PHENICOL,BETA-LACTAM,SULFONAMIDE,TETRACYCLINE.
 - `AA859`: baskın tür `Salmonella enterica`, baskın replikon `IncC`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.80`, belirsizlik `0.31`. Öne çıkan AMR sınıfları: SULFONAMIDE,TETRACYCLINE.
 
 ## Sürüm Yüzeyi
 
-- `blocked_holdout_summary.tsv`: iç kaynak/bölge stres testini raporlar; bloklanmış holdout denetimi `bio_clean model` için ağırlıklı ROC AUC `0.735` ve en zor grup `dominant_region_train:Europe` değerini içerir.
+- `blocked_holdout_summary.tsv`: iç kaynak/bölge stres testi olarak raporlanır.
+- `country_missingness_bounds.tsv` ve `country_missingness_sensitivity.tsv`: ülke eksikliği varsayımlarına göre etiket ve performans duyarlılığını raporlar.
+- `candidate_rank_stability.tsv` ve `candidate_variant_consistency.tsv`: aday sıralama kararlılığını ve model-varyant tutarlılığını raporlar.
 - `calibration_threshold_summary.png`: kalibrasyon ve eşik duyarlılığı için kompakt tanı grafiğidir.
-- `jury_brief.md` ve `ozet_tr.md`: jüriye dönük anlatının dağıtım yüzeyleridir.
+- `jury_brief.md` ve `ozet_tr.md`: jüriye dönük anlatının dağıtım yüzeyleri.

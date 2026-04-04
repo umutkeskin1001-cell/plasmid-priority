@@ -46,6 +46,19 @@ This should be interpreted as a data-limited regime, not as evidence that the en
 - Raw later new-country count alignment: Spearman ρ `0.624` [0.580, 0.662].
 - Weighted new-country burden alignment: Spearman ρ `0.620`.
 - Spatial holdout audit: weighted ROC AUC `0.735` across `5` held-out dominant regions; hardest region `Asia` at ROC AUC `0.697`.
+
+## Blocked Holdout Audit
+
+- bio-clean model blocked holdout audit (dominant_region_train + dominant_source): weighted ROC AUC `0.720` across `7` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.617`. This is an internal source/region stress test, not external validation.
+
+## Country Missingness
+
+- bio-clean model country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.744 to 0.757 and AP 0.660 to 0.732..
+
+## Ranking Stability
+
+- `candidate_rank_stability.tsv` records candidate rank stability across bootstrap resamples; the strongest stable backbone `AA175` remains in the top-`25` set at frequency `1.00`.
+- `candidate_variant_consistency.tsv` records candidate rank stability across model variants; the strongest stable backbone `AA324` remains in the top-`25` set at frequency `0.88`.
 - Discovery shortlist agreement with the strongest audited metric model: top-25 overlap: `8/25`; top-50 overlap: `22/50`.
 - A knownness-gated audit model (`adaptive_natural_priority`) remains useful for lower-knownness stress testing but is not the headline benchmark.
 - Observed host-diversity terms should be interpreted cautiously because they partly behave like sampling saturation / knownness signals.
@@ -76,5 +89,6 @@ Within the ECDC/WHO Europe surveillance framing, carbapenem-resistant *Klebsiell
 ## Release Surface
 
 - `blocked_holdout_summary.tsv` records the blocked source/region stress test used for the internal audit layer.
+- `candidate_rank_stability.tsv` and `candidate_variant_consistency.tsv` record backbone-level ranking stability across bootstrap and model-variant audits.
 - `calibration_threshold_summary.png` captures the compact calibration/threshold view used in slide decks.
 - `reports/core_figures/` contains the rest of the presentation-ready figure pack.

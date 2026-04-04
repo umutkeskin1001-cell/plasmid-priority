@@ -162,6 +162,102 @@ def _uncertainty_review_tier(frame: pd.DataFrame) -> pd.Series:
     )
 
 
+def _candidate_confidence_score(frame: pd.DataFrame) -> pd.Series:
+    if frame.empty:
+        return pd.Series(dtype=float)
+    confidence_tier = (
+        frame.get("candidate_confidence_tier", pd.Series("", index=frame.index))
+        .fillna("")
+        .astype(str)
+    )
+    tier_score = confidence_tier.map(
+        {
+            "tier_a": 0.92,
+            "tier_b": 0.78,
+            "watchlist": 0.52,
+            "novelty_watchlist": 0.56,
+        }
+    ).fillna(0.60)
+    bootstrap_top10 = pd.to_numeric(
+        frame.get("bootstrap_top_10_frequency", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    )
+    variant_top10 = pd.to_numeric(
+        frame.get("variant_top_10_frequency", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    )
+    stability_score = pd.concat([bootstrap_top10, variant_top10], axis=1).mean(axis=1).fillna(0.5)
+    assignment_confidence = pd.to_numeric(
+        frame.get("assignment_confidence_score", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    ).fillna(0.5)
+    amr_agreement = pd.to_numeric(
+        frame.get("amr_agreement_score", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    ).fillna(0.5)
+    risk_uncertainty = pd.to_numeric(
+        frame.get("risk_uncertainty", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    )
+    uncertainty_score = (1.0 - risk_uncertainty.clip(lower=0.0, upper=1.0)).fillna(0.5)
+    false_positive_risk = (
+        frame.get("false_positive_risk_tier", pd.Series("", index=frame.index))
+        .fillna("")
+        .astype(str)
+    )
+    risk_bonus = false_positive_risk.map({"low": 0.05, "medium": 0.0, "high": -0.10}).fillna(0.0)
+    score = (
+        0.30 * tier_score
+        + 0.20 * stability_score
+        + 0.20 * assignment_confidence
+        + 0.15 * amr_agreement
+        + 0.15 * uncertainty_score
+        + risk_bonus
+    )
+    return score.clip(0.0, 1.0)
+
+
+def _candidate_stability_phrase(frame: pd.DataFrame, *, idx: object) -> str:
+    bootstrap_top10 = pd.to_numeric(
+        frame.get("bootstrap_top_10_frequency", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    )
+    variant_top10 = pd.to_numeric(
+        frame.get("variant_top_10_frequency", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    )
+    bootstrap_value = bootstrap_top10.loc[idx] if idx in bootstrap_top10.index else np.nan
+    variant_value = variant_top10.loc[idx] if idx in variant_top10.index else np.nan
+    if pd.isna(bootstrap_value) and pd.isna(variant_value):
+        return "stability unavailable"
+    if pd.notna(bootstrap_value) and pd.notna(variant_value) and min(
+        float(bootstrap_value),
+        float(variant_value),
+    ) >= 0.75:
+        return "multiverse stable"
+    if pd.notna(bootstrap_value) and pd.notna(variant_value) and max(
+        float(bootstrap_value),
+        float(variant_value),
+    ) >= 0.60:
+        return "multiverse moderate"
+    return "multiverse mixed"
+
+
+def _confidence_label_from_score(score: float | None, tier: str) -> str:
+    if score is not None and not np.isnan(score):
+        if score >= 0.75:
+            return "high-confidence"
+        if score >= 0.60:
+            return "moderate-confidence"
+        return "low-confidence"
+    return {
+        "tier_a": "high-confidence",
+        "tier_b": "moderate-confidence",
+        "watchlist": "low-confidence",
+        "novelty_watchlist": "low-confidence",
+    }.get(tier, "mixed-confidence")
+
+
 def _ensure_low_knownness_coverage(
     selected: pd.DataFrame,
     pool: pd.DataFrame,
@@ -518,11 +614,24 @@ def build_candidate_portfolio_table(
         [combined.drop(columns=list(combined_updates.columns), errors="ignore"), combined_updates],
         axis=1,
     )
+    combined["low_candidate_confidence_risk"] = (
+        pd.to_numeric(
+            combined.get(
+                "candidate_confidence_score", pd.Series(np.nan, index=combined.index)
+            ),
+            errors="coerce",
+        )
+        .fillna(1.0)
+        .astype(float)
+        <= 0.55
+    )
     keep_columns = [
         "portfolio_track",
         "track_rank",
         "backbone_id",
         "candidate_confidence_tier",
+        "candidate_confidence_score",
+        "low_candidate_confidence_risk",
         "evidence_tier",
         "recommended_monitoring_tier",
         "action_tier",
@@ -566,6 +675,7 @@ def build_candidate_portfolio_table(
         "risk_abstain_flag",
         "risk_decision_tier",
         "uncertainty_review_tier",
+        "candidate_explanation_summary",
         "candidate_prediction_source",
         "eligible_for_oof",
         "knownness_score",
@@ -574,9 +684,12 @@ def build_candidate_portfolio_table(
         "bootstrap_top_k_frequency",
         "bootstrap_top_10_frequency",
         "variant_top_k_frequency",
+        "multiverse_stability_score",
+        "multiverse_stability_tier",
         "false_positive_risk_tier",
         "risk_flag_count",
         "risk_flags",
+        "low_candidate_confidence_risk",
         "member_count_train",
         "n_countries_train",
         "n_new_countries",
@@ -937,6 +1050,7 @@ def annotate_candidate_explanation_fields(frame: pd.DataFrame) -> pd.DataFrame:
         working.get("operational_risk_score", pd.Series(np.nan, index=working.index)),
         errors="coerce",
     )
+    candidate_confidence_score = _candidate_confidence_score(working)
     macro_jump_risk = pd.to_numeric(
         working.get("risk_macro_region_jump_3y", pd.Series(np.nan, index=working.index)),
         errors="coerce",
@@ -963,6 +1077,7 @@ def annotate_candidate_explanation_fields(frame: pd.DataFrame) -> pd.DataFrame:
         signal_counts.append(len(ranked_signals))
 
         monitoring_flags: list[str] = []
+        candidate_confidence_value = candidate_confidence_score.loc[idx]
         assignment_confidence_value = assignment_confidence.loc[idx]
         amr_agreement_value = amr_agreement.loc[idx]
         mash_graph_novelty_value = mash_graph_novelty.loc[idx]
@@ -985,6 +1100,10 @@ def annotate_candidate_explanation_fields(frame: pd.DataFrame) -> pd.DataFrame:
             monitoring_flags.append("graph_novelty_high")
         if pd.notna(mash_graph_bridge_value) and float(mash_graph_bridge_value) >= 0.50:
             monitoring_flags.append("graph_bridge_pattern")
+        if pd.notna(candidate_confidence_value) and float(candidate_confidence_value) >= 0.80:
+            monitoring_flags.append("candidate_confidence_high")
+        if pd.notna(candidate_confidence_value) and float(candidate_confidence_value) <= 0.65:
+            monitoring_flags.append("candidate_confidence_low")
         if false_positive_risk.loc[idx] == "low":
             monitoring_flags.append("manageable_false_positive_risk")
         if prediction_source.loc[idx] == "oof":
@@ -1014,6 +1133,26 @@ def annotate_candidate_explanation_fields(frame: pd.DataFrame) -> pd.DataFrame:
     working["secondary_driver_axis"] = secondary_axes
     working["mechanistic_rationale"] = rationale_text
     working["mechanistic_signal_count"] = pd.Series(signal_counts, index=working.index, dtype=int)
+    working["candidate_confidence_score"] = candidate_confidence_score
+    working["low_candidate_confidence_risk"] = (
+        pd.to_numeric(candidate_confidence_score, errors="coerce").fillna(0.0) <= 0.55
+    )
+    explanation_summary: list[str] = []
+    for position, idx in enumerate(working.index):
+        parts = [
+            f"Confidence {float(candidate_confidence_score.loc[idx]):.2f}",
+            f"primary {working.loc[idx, 'primary_driver_axis'] or 'mixed'}",
+        ]
+        if working.loc[idx, "secondary_driver_axis"]:
+            parts.append(f"secondary {working.loc[idx, 'secondary_driver_axis']}")
+        parts.append(_candidate_stability_phrase(working, idx=idx))
+        if pd.notna(candidate_confidence_score.loc[idx]) and float(
+            candidate_confidence_score.loc[idx]
+        ) <= 0.55:
+            parts.append("low-confidence risk")
+        parts.append(f"review {uncertainty_review_tier.loc[idx]}")
+        explanation_summary.append("; ".join(parts) + ".")
+    working["candidate_explanation_summary"] = explanation_summary
     working["monitoring_rationale"] = monitoring_text
     return working
 
@@ -1102,6 +1241,10 @@ def build_candidate_risk_table(dossier: pd.DataFrame) -> pd.DataFrame:
         .fillna(False)
         .astype(bool)
     )
+    working["candidate_confidence_score"] = _candidate_confidence_score(working)
+    working["low_candidate_confidence_risk"] = (
+        pd.to_numeric(working["candidate_confidence_score"], errors="coerce").fillna(0.0) <= 0.65
+    )
 
     risk_columns = [
         "low_coherence_risk",
@@ -1115,6 +1258,7 @@ def build_candidate_risk_table(dossier: pd.DataFrame) -> pd.DataFrame:
         "stability_risk",
         "proxy_gap_risk",
         "uncertainty_abstain_risk",
+        "low_candidate_confidence_risk",
     ]
     working["risk_flag_count"] = working[risk_columns].sum(axis=1).astype(int)
     working["false_positive_risk_tier"] = np.select(
@@ -1131,6 +1275,7 @@ def build_candidate_risk_table(dossier: pd.DataFrame) -> pd.DataFrame:
         "backbone_id",
         "freeze_rank",
         "candidate_confidence_tier",
+        "candidate_confidence_score",
         "false_positive_risk_tier",
         "risk_flag_count",
         "risk_flags",

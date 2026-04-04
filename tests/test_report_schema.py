@@ -52,6 +52,10 @@ class ReportSchemaTests(unittest.TestCase):
             "backbone_id",
             "portfolio_track",
             "candidate_confidence_tier",
+            "candidate_confidence_score",
+            "candidate_explanation_summary",
+            "multiverse_stability_score",
+            "multiverse_stability_tier",
             "recommended_monitoring_tier",
         }
         self.assertTrue(required.issubset(frame.columns))
@@ -126,6 +130,12 @@ class ReportSchemaTests(unittest.TestCase):
             "backbone_id",
             "candidate_summary_en",
             "candidate_summary_tr",
+            "candidate_confidence_score",
+            "candidate_explanation_summary",
+            "bootstrap_top_10_frequency",
+            "variant_top_10_frequency",
+            "multiverse_stability_score",
+            "multiverse_stability_tier",
         }
         self.assertTrue(required.issubset(frame.columns))
 

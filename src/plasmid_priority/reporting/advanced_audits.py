@@ -1538,6 +1538,11 @@ def build_consensus_shortlist(
     frames: list[pd.DataFrame] = []
     selected_ids: set[str] = set()
 
+    def _dedupe_columns(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame.columns.is_unique:
+            return frame
+        return frame.loc[:, ~frame.columns.duplicated()].copy()
+
     if not candidate_portfolio.empty:
         portfolio = candidate_portfolio.copy()
         portfolio["portfolio_track"] = (
@@ -1570,6 +1575,7 @@ def build_consensus_shortlist(
             ascending.append(False if column == "primary_model_candidate_score" else True)
         portfolio = portfolio.sort_values(sort_columns, ascending=ascending, na_position="last")
         portfolio = portfolio.drop_duplicates("backbone_id").head(top_k).copy()
+        portfolio = _dedupe_columns(portfolio)
         selected_ids.update(portfolio["backbone_id"].astype(str))
         frames.append(portfolio)
 
@@ -1585,6 +1591,7 @@ def build_consensus_shortlist(
                 ascending=[True, False, False],
                 na_position="last",
             ).head(top_k - len(selected_ids))
+            remaining = _dedupe_columns(remaining)
             frames.append(remaining)
 
     shortlist = pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
@@ -1607,6 +1614,7 @@ def build_consensus_shortlist(
         )
 
     shortlist = shortlist.copy()
+    shortlist = _dedupe_columns(shortlist)
     shortlist = shortlist.sort_values(
         [
             column

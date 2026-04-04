@@ -1493,7 +1493,7 @@ class ModelAuditTests(unittest.TestCase):
                 "backbone_id": ["bb1", "bb2"],
                 "bootstrap_top_k_frequency": [0.9, 0.72],
                 "variant_top_k_frequency": [0.8, 0.7],
-                "primary_model_full_fit_prediction_std": [0.18, 0.05],
+                "primary_model_full_fit_prediction_std": [0.18, 0.60],
                 "assignment_confidence_score": [0.92, 0.55],
                 "mash_graph_novelty_score": [0.18, 0.84],
                 "mash_graph_bridge_fraction": [0.12, 0.78],
@@ -1566,6 +1566,9 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("primary_driver_axis", dossier.columns)
         self.assertIn("mechanistic_rationale", dossier.columns)
         self.assertIn("monitoring_rationale", dossier.columns)
+        self.assertIn("candidate_confidence_score", dossier.columns)
+        self.assertIn("candidate_explanation_summary", dossier.columns)
+        self.assertIn("low_candidate_confidence_risk", dossier.columns)
         self.assertIn("model_prediction_uncertainty", dossier.columns)
         self.assertIn("uncertainty_review_tier", dossier.columns)
         self.assertIn("assignment_confidence_score", dossier.columns)
@@ -1583,8 +1586,12 @@ class ModelAuditTests(unittest.TestCase):
             4,
         )
         self.assertGreater(
-            float(dossier.loc[dossier["backbone_id"] == "bb1", "risk_uncertainty"].iloc[0]),
             float(dossier.loc[dossier["backbone_id"] == "bb2", "risk_uncertainty"].iloc[0]),
+            float(dossier.loc[dossier["backbone_id"] == "bb1", "risk_uncertainty"].iloc[0]),
+        )
+        self.assertGreater(
+            float(dossier.loc[dossier["backbone_id"] == "bb1", "candidate_confidence_score"].iloc[0]),
+            0.80,
         )
         self.assertEqual(
             str(dossier.loc[dossier["backbone_id"] == "bb1", "uncertainty_review_tier"].iloc[0]),
@@ -1592,7 +1599,7 @@ class ModelAuditTests(unittest.TestCase):
         )
         self.assertEqual(
             str(dossier.loc[dossier["backbone_id"] == "bb2", "uncertainty_review_tier"].iloc[0]),
-            "clear",
+            "abstain",
         )
         self.assertIn(
             "assignment_confidence_high",
@@ -1615,9 +1622,11 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("low_assignment_confidence_risk", risk.columns)
         self.assertIn("graph_novelty_risk", risk.columns)
         self.assertIn("amr_uncertainty_risk", risk.columns)
+        self.assertIn("low_candidate_confidence_risk", risk.columns)
         self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "low_assignment_confidence_risk"].iloc[0]))
         self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "graph_novelty_risk"].iloc[0]))
         self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "amr_uncertainty_risk"].iloc[0]))
+        self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "low_candidate_confidence_risk"].iloc[0]))
 
     def test_build_consensus_candidate_ranking_prefers_cross_model_agreement(self) -> None:
         candidate_context = pd.DataFrame(
@@ -1648,6 +1657,11 @@ class ModelAuditTests(unittest.TestCase):
             {
                 "backbone_id": ["bb1", "bb2"],
                 "candidate_confidence_tier": ["tier_a", "tier_b"],
+                "candidate_confidence_score": [0.88, 0.63],
+                "candidate_explanation_summary": [
+                    "Confidence 0.88; primary mobility; review clear.",
+                    "Confidence 0.63; primary graph_novelty; review review.",
+                ],
                 "priority_index": [0.9, 0.8],
                 "primary_model_candidate_score": [0.92, 0.83],
                 "baseline_both_candidate_score": [0.71, 0.62],
@@ -1699,6 +1713,9 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("recommended_monitoring_tier", portfolio.columns)
         self.assertIn("source_support_tier", portfolio.columns)
         self.assertIn("uncertainty_review_tier", portfolio.columns)
+        self.assertIn("candidate_confidence_score", portfolio.columns)
+        self.assertIn("candidate_explanation_summary", portfolio.columns)
+        self.assertIn("low_candidate_confidence_risk", portfolio.columns)
         self.assertEqual(
             int(
                 portfolio.loc[
@@ -1706,6 +1723,10 @@ class ModelAuditTests(unittest.TestCase):
                 ].iloc[0]
             ),
             2,
+        )
+        self.assertGreater(
+            float(portfolio.loc[portfolio["backbone_id"] == "bb1", "candidate_confidence_score"].iloc[0]),
+            0.80,
         )
         self.assertEqual(
             str(portfolio.loc[portfolio["backbone_id"] == "bb1", "uncertainty_review_tier"].iloc[0]),
