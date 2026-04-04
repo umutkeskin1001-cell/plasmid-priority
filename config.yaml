@@ -46,6 +46,10 @@ models:
     - "evidence_aware_priority"
     - "proxy_light_priority"
     - "enhanced_priority"
+    - "pairwise_rank_priority"
+    - "label_noise_aware_priority"
+    - "graph_evidence_priority"
+    - "nonlinear_deconfounded_priority"
 
   ablation_model_names:
     - "T_only"
@@ -85,6 +89,10 @@ models:
     evidence_aware_priority: ["T_raw_norm", "support_shrinkage_norm", "amr_support_norm", "coherence_score", "orit_support"]
     proxy_light_priority: ["T_eff_norm", "H_eff_norm", "A_eff_norm", "coherence_score", "orit_support"]
     enhanced_priority: ["log1p_member_count_train", "log1p_n_countries_train", "T_eff_norm", "H_eff_norm", "A_eff_norm", "coherence_score", "orit_support"]
+    pairwise_rank_priority: ["T_eff_norm", "H_obs_norm", "A_eff_norm", "coherence_score", "orit_support", "T_H_obs_synergy_norm", "A_H_obs_synergy_norm", "T_coherence_synergy_norm", "T_A_synergy_norm"]
+    label_noise_aware_priority: ["T_eff_norm", "H_specialization_norm", "A_eff_norm", "coherence_score", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "A_recurrence_norm", "pmlst_coherence_norm", "ecology_context_diversity_norm"]
+    graph_evidence_priority: ["T_eff_norm", "H_specialization_norm", "A_eff_norm", "coherence_score", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "A_recurrence_norm", "pmlst_coherence_norm", "ecology_context_diversity_norm", "mash_graph_novelty_score", "mash_graph_bridge_fraction", "amr_agreement_score", "mean_amr_uncertainty_score"]
+    nonlinear_deconfounded_priority: ["T_eff_norm", "H_specialization_norm", "A_eff_norm", "coherence_score", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "A_recurrence_norm", "pmlst_coherence_norm", "ecology_context_diversity_norm"]
     T_only: ["T_eff_norm"]
     H_only: ["H_eff_norm"]
     A_only: ["A_eff_norm"]
@@ -116,6 +124,10 @@ models:
     bio_residual_synergy_priority: {l2: 4.0, sample_weight_mode: "source_balanced"}
     hybrid_agreement_priority: {l2: 4.0, sample_weight_mode: "source_balanced", model_type: "hybrid_stacked", nonlinear_backend: "ebm", nonlinear_learning_rate: 0.01, nonlinear_interactions: 6, nonlinear_outer_bags: 8, nonlinear_max_bins: 64, nonlinear_max_rounds: 500, nonlinear_early_stopping_rounds: 50, nonlinear_min_samples_leaf: 5, agreement_review_threshold: 0.8}
     firth_parsimonious_priority: {l2: 0.0, sample_weight_mode: null, fit_backend: "firthlogist", max_iter: 400}
+    pairwise_rank_priority: {l2: 3.0, sample_weight_mode: "source_balanced", model_type: "pairwise_rank_logistic", pairwise_max_pairs: 6000, pairwise_random_state: 42}
+    label_noise_aware_priority: {l2: 5.0, sample_weight_mode: "class_balanced+knownness_balanced+pu_negative_downweight", pu_negative_min_weight: 0.25, pu_negative_power: 1.5}
+    graph_evidence_priority: {l2: 5.0, sample_weight_mode: "class_balanced+knownness_balanced"}
+    nonlinear_deconfounded_priority: {l2: 4.0, sample_weight_mode: "class_balanced+knownness_balanced", preprocess_mode: "knownness_residualized", preprocess_alpha: "auto", preprocess_alpha_grid: [0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0], preprocess_alpha_grouped: true, preprocess_alpha_T: 0.1, preprocess_alpha_H: 2.0, preprocess_alpha_A: 1.0}
 
   novelty_specialist:
     features: ["T_eff_norm", "A_raw_norm", "A_eff_norm", "orit_support", "H_specialization_norm", "replicon_architecture_norm", "mash_neighbor_distance_train_norm", "clinical_context_sparse_penalty_norm", "external_t_synergy_norm"]

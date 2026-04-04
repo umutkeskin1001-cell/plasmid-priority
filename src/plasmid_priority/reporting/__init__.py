@@ -1,6 +1,7 @@
 """Reporting helpers for script-level metadata."""
 
 from plasmid_priority.reporting.advanced_audits import (
+    augment_scored_with_structural_audit_features,
     build_confirmatory_cohort_summary,
     build_consensus_shortlist,
     build_false_negative_audit,
@@ -15,6 +16,12 @@ from plasmid_priority.reporting.amrfinder_support import (
     select_amrfinder_probe_panel,
     write_selected_fasta_records,
 )
+from plasmid_priority.reporting.artifact_contracts import (
+    validate_probability_columns,
+    validate_report_artifact,
+    validate_required_columns,
+    validate_unique_key,
+)
 from plasmid_priority.reporting.candidate_tables import (
     annotate_candidate_explanation_fields,
     build_candidate_dossier_table,
@@ -22,6 +29,7 @@ from plasmid_priority.reporting.candidate_tables import (
     build_candidate_risk_table,
     build_decision_yield_table,
     build_threshold_flip_table,
+    build_threshold_utility_table,
 )
 from plasmid_priority.reporting.enrichment import (
     build_backbone_identity_table,
@@ -43,6 +51,8 @@ from plasmid_priority.reporting.external_support import (
 from plasmid_priority.reporting.model_audit import (
     build_amrfinder_coverage_table,
     build_benchmark_protocol_table,
+    build_blocked_holdout_calibration_summary,
+    build_blocked_holdout_calibration_table,
     build_blocked_holdout_summary,
     build_calibration_metric_table,
     build_candidate_universe_table,
@@ -63,6 +73,7 @@ from plasmid_priority.reporting.model_audit import (
     build_model_subgroup_performance,
     build_negative_control_audit,
     build_novelty_margin_summary,
+    build_official_benchmark_panel,
     build_permutation_null_tables,
     build_primary_model_selection_summary,
     build_priority_bootstrap_stability_table,
@@ -75,6 +86,7 @@ from plasmid_priority.reporting.model_audit import (
     build_temporal_rank_stability_table,
     build_variant_rank_consistency_table,
 )
+from plasmid_priority.reporting.overview import build_report_overview_table
 from plasmid_priority.reporting.pathogen_support import (
     build_pathogen_detection_support,
     build_pathogen_group_comparison,
@@ -87,6 +99,7 @@ from plasmid_priority.reporting.summary import ManagedScriptRun
 
 __all__ = [
     "ManagedScriptRun",
+    "augment_scored_with_structural_audit_features",
     "build_amrfinder_coverage_table",
     "annotate_candidate_explanation_fields",
     "build_amrfinder_concordance_tables",
@@ -115,6 +128,8 @@ __all__ = [
     "build_model_comparison_table",
     "build_model_family_summary",
     "build_benchmark_protocol_table",
+    "build_blocked_holdout_calibration_summary",
+    "build_blocked_holdout_calibration_table",
     "build_blocked_holdout_summary",
     "build_model_selection_scorecard",
     "build_model_simplicity_summary",
@@ -124,6 +139,7 @@ __all__ = [
     "build_negative_control_audit",
     "build_novelty_margin_summary",
     "build_primary_model_selection_summary",
+    "build_official_benchmark_panel",
     "build_pathogen_group_comparison",
     "build_permutation_null_tables",
     "build_pathogen_strata_group_summary",
@@ -137,7 +153,13 @@ __all__ = [
     "build_temporal_drift_summary",
     "build_temporal_rank_stability_table",
     "build_threshold_flip_table",
+    "build_threshold_utility_table",
     "build_variant_rank_consistency_table",
+    "build_report_overview_table",
+    "validate_probability_columns",
+    "validate_report_artifact",
+    "validate_required_columns",
+    "validate_unique_key",
     "build_consensus_shortlist",
     "build_false_negative_audit",
     "build_matched_stratum_propensity_audit",

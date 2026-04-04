@@ -3,7 +3,7 @@
 ## Olası Jüri Soruları ve Yanıtları
 
 **S: "Model sadece zaten iyi bilinen büyük backbone'ları mı buluyor?"**
-C: `baseline_both` ROC AUC `0.722` üretirken `bio_clean_priority` ROC AUC `0.747` üretiyor. Delta `0.024, 95% CI [-0.019, 0.065]`. Eşleştirilmiş knownness/source strata audit'inde de ana model `0.701` vs baseline `0.594`.
+C: `baseline_both` ROC AUC `0.722` üretirken `bio_clean_priority` ROC AUC `0.745` üretiyor. Delta `0.023, 95% CI [-0.020, 0.063]`. Eşleştirilmiş knownness/source strata audit'inde de ana model `0.699` vs baseline `0.594`.
 
 **S: "Tüm modeller strict testi kaybediyorsa metodoloji geçerli mi?"**
 C: Evet. Strict matched-knownness/source-holdout testi en zor alt kohortu izole eder. Burada başarısız olmak metodolojinin çöktüğünü değil, mevcut veri yoğunluğunun bu alt dilimde sınırlı olduğunu gösterir. Bu kısıt raporda proaktif olarak açıkça belirtilir.

@@ -1,3 +1,3 @@
 pathogen_dataset	priority_group	n_backbones	n_with_any_support	mean_matching_records	median_matching_records	mean_matching_fraction	median_matching_fraction	mean_matching_genes
-environmental	high	247	104	2583.2955465587042	0.0	0.11673723059525017	0.0	1.0890688259109311
-environmental	low	247	9	212.01214574898785	0.0	0.010236357933806353	0.0	0.0728744939271255
+environmental	high	247	104	2579.4574898785427	0.0	0.11605146266884744	0.0	1.0890688259109311
+environmental	low	247	9	200.92712550607288	0.0	0.010746068377120539	0.0	0.06882591093117409

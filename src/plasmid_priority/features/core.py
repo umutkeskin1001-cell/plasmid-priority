@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from plasmid_priority.config import PipelineSettings, build_context, find_project_root
+from plasmid_priority.utils.geography import country_to_macro_region
 
 
 @lru_cache(maxsize=1)
@@ -1195,25 +1196,75 @@ def build_backbone_table(
     member_count_total = working.groupby("backbone_id", sort=False)["canonical_id"].nunique()
     member_count_train = training.groupby("backbone_id", sort=False)["canonical_id"].nunique()
 
-    training_pairs = training.assign(country_clean=_clean_text_series(training["country"]))
-    training_pairs = training_pairs.loc[
-        training_pairs["country_clean"].ne(""), ["backbone_id", "country_clean"]
+    training_country_frame = training.assign(country_clean=_clean_text_series(training["country"]))
+    training_pairs = training_country_frame.loc[
+        training_country_frame["country_clean"].ne(""), ["backbone_id", "country_clean"]
     ].drop_duplicates()
-    testing_pairs = testing.assign(country_clean=_clean_text_series(testing["country"]))
-    testing_pairs = testing_pairs.loc[
-        testing_pairs["country_clean"].ne(""), ["backbone_id", "country_clean"]
+    testing_country_frame = testing.assign(country_clean=_clean_text_series(testing["country"]))
+    testing_pairs = testing_country_frame.loc[
+        testing_country_frame["country_clean"].ne(""), ["backbone_id", "country_clean"]
     ].drop_duplicates()
 
     n_countries_train = training_pairs.groupby("backbone_id", sort=False).size()
     n_countries_test = testing_pairs.groupby("backbone_id", sort=False).size()
     if training_pairs.empty or testing_pairs.empty:
         n_new_countries = pd.Series(dtype=int)
+        new_country_first = pd.DataFrame(columns=["backbone_id", "country_clean", "resolved_year"])
     else:
         new_pairs = testing_pairs.merge(
             training_pairs, on=["backbone_id", "country_clean"], how="left", indicator=True
         )
         new_pairs = new_pairs.loc[new_pairs["_merge"] == "left_only"]
         n_new_countries = new_pairs.groupby("backbone_id", sort=False).size()
+        test_country_first = (
+            testing_country_frame.loc[
+                testing_country_frame["country_clean"].ne(""),
+                ["backbone_id", "country_clean", "resolved_year"],
+            ]
+            .sort_values(["backbone_id", "resolved_year", "country_clean"], kind="mergesort")
+            .drop_duplicates(["backbone_id", "country_clean"], keep="first")
+        )
+        new_country_first = test_country_first.merge(
+            training_pairs,
+            on=["backbone_id", "country_clean"],
+            how="left",
+            indicator=True,
+        )
+        new_country_first = new_country_first.loc[
+            new_country_first["_merge"] == "left_only",
+            ["backbone_id", "country_clean", "resolved_year"],
+        ].copy()
+    if not new_country_first.empty:
+        new_country_first["event_rank"] = new_country_first.groupby(
+            "backbone_id",
+            sort=False,
+        ).cumcount()
+
+    training_regions = training_country_frame.assign(
+        macro_region=training_country_frame["country_clean"].map(country_to_macro_region)
+    )
+    testing_regions = testing_country_frame.assign(
+        macro_region=testing_country_frame["country_clean"].map(country_to_macro_region)
+    )
+    train_region_pairs = training_regions.loc[
+        training_regions["macro_region"].ne(""), ["backbone_id", "macro_region"]
+    ].drop_duplicates()
+    test_region_pairs = testing_regions.loc[
+        testing_regions["macro_region"].ne(""), ["backbone_id", "macro_region"]
+    ].drop_duplicates()
+    if train_region_pairs.empty or test_region_pairs.empty:
+        new_region_pairs = pd.DataFrame(columns=["backbone_id", "macro_region"])
+    else:
+        new_region_pairs = test_region_pairs.merge(
+            train_region_pairs,
+            on=["backbone_id", "macro_region"],
+            how="left",
+            indicator=True,
+        )
+        new_region_pairs = new_region_pairs.loc[
+            new_region_pairs["_merge"] == "left_only",
+            ["backbone_id", "macro_region"],
+        ].copy()
 
     refseq_share_train = (
         training.assign(_is_refseq=training["record_origin"].eq("refseq").astype(float))
@@ -1612,6 +1663,90 @@ def build_backbone_table(
     )
     backbone_table["spread_label"] = spread_label
     backbone_table["visibility_expansion_label"] = spread_label
+    backbone_table["n_new_countries_recomputed"] = (
+        backbone_table["backbone_id"]
+        .map(new_country_first.groupby("backbone_id", sort=False).size())
+        .fillna(0)
+        .astype(int)
+    )
+    first_new_year = new_country_first.groupby("backbone_id", sort=False)["resolved_year"].min()
+    if "event_rank" in new_country_first.columns:
+        third_new_year = new_country_first.loc[
+            new_country_first["event_rank"].eq(2)
+        ].set_index("backbone_id")["resolved_year"]
+    else:
+        third_new_year = pd.Series(dtype=float)
+    backbone_table["time_to_first_new_country_years"] = (
+        backbone_table["backbone_id"].map(first_new_year).astype(float) - float(split_year)
+    )
+    backbone_table.loc[
+        backbone_table["backbone_id"].map(first_new_year).isna(),
+        "time_to_first_new_country_years",
+    ] = math.nan
+    backbone_table["time_to_third_new_country_years"] = (
+        backbone_table["backbone_id"].map(third_new_year).astype(float) - float(split_year)
+    )
+    backbone_table.loc[
+        backbone_table["backbone_id"].map(third_new_year).isna(),
+        "time_to_third_new_country_years",
+    ] = math.nan
+    first_delta = backbone_table["time_to_first_new_country_years"]
+    third_delta = backbone_table["time_to_third_new_country_years"]
+    backbone_table["event_within_1y_label"] = np.where(
+        eligible, ((first_delta <= 1) & first_delta.notna()).astype(float), np.nan
+    )
+    backbone_table["event_within_3y_label"] = np.where(
+        eligible, ((first_delta <= 3) & first_delta.notna()).astype(float), np.nan
+    )
+    backbone_table["event_within_5y_label"] = np.where(
+        eligible, ((first_delta <= 5) & first_delta.notna()).astype(float), np.nan
+    )
+    backbone_table["three_countries_within_3y_label"] = np.where(
+        eligible, ((third_delta <= 3) & third_delta.notna()).astype(float), np.nan
+    )
+    backbone_table["three_countries_within_5y_label"] = np.where(
+        eligible, ((third_delta <= 5) & third_delta.notna()).astype(float), np.nan
+    )
+    severity = pd.Series(np.nan, index=backbone_table.index, dtype=float)
+    severity.loc[eligible & backbone_table["n_new_countries_recomputed"].eq(0)] = 0.0
+    severity.loc[
+        eligible & backbone_table["n_new_countries_recomputed"].between(1, 2, inclusive="both")
+    ] = 1.0
+    severity.loc[
+        eligible & backbone_table["n_new_countries_recomputed"].between(3, 4, inclusive="both")
+    ] = 2.0
+    severity.loc[eligible & backbone_table["n_new_countries_recomputed"].ge(5)] = 3.0
+    backbone_table["spread_severity_bin"] = severity
+    backbone_table["n_train_macro_regions"] = (
+        backbone_table["backbone_id"]
+        .map(train_region_pairs.groupby("backbone_id", sort=False).size())
+        .fillna(0)
+        .astype(int)
+    )
+    backbone_table["n_test_macro_regions"] = (
+        backbone_table["backbone_id"]
+        .map(test_region_pairs.groupby("backbone_id", sort=False).size())
+        .fillna(0)
+        .astype(int)
+    )
+    backbone_table["n_new_macro_regions"] = (
+        backbone_table["backbone_id"]
+        .map(new_region_pairs.groupby("backbone_id", sort=False).size())
+        .fillna(0)
+        .astype(int)
+    )
+    backbone_table["new_macro_regions"] = (
+        backbone_table["backbone_id"]
+        .map(
+            new_region_pairs.groupby("backbone_id", sort=False)["macro_region"].agg(
+                lambda values: ",".join(sorted(values.astype(str)))
+            )
+        )
+        .fillna("")
+    )
+    backbone_table["macro_region_jump_label"] = np.where(
+        eligible, backbone_table["n_new_macro_regions"].ge(1).astype(float), np.nan
+    )
 
     if "backbone_seen_in_training" in working.columns:
         testing_seen = (

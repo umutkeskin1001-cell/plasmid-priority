@@ -2655,6 +2655,69 @@ def build_mash_similarity_graph_table(
     ).reset_index(drop=True)
 
 
+def augment_scored_with_structural_audit_features(
+    scored: pd.DataFrame,
+    *,
+    records: pd.DataFrame | None = None,
+    raw_amr: pd.DataFrame | None = None,
+    mash_pairs: pd.DataFrame | None = None,
+    split_year: int = 2015,
+) -> pd.DataFrame:
+    """Merge training-only graph and AMR-agreement features onto the scored backbone table."""
+    if scored.empty:
+        return scored.copy()
+    working = scored.copy()
+
+    if records is not None and not records.empty and raw_amr is not None and not raw_amr.empty:
+        amr_uncertainty = build_amr_uncertainty_table(records, raw_amr)
+        if not amr_uncertainty.empty:
+            overlap = [
+                column
+                for column in amr_uncertainty.columns
+                if column != "backbone_id" and column in working.columns
+            ]
+            if overlap:
+                working = working.drop(columns=overlap)
+            working = working.merge(amr_uncertainty, on="backbone_id", how="left")
+
+    if (
+        records is not None
+        and not records.empty
+        and mash_pairs is not None
+        and not mash_pairs.empty
+    ):
+        mash_graph = build_mash_similarity_graph_table(records, mash_pairs, split_year=split_year)
+        if not mash_graph.empty:
+            overlap = [
+                column
+                for column in mash_graph.columns
+                if column != "backbone_id" and column in working.columns
+            ]
+            if overlap:
+                working = working.drop(columns=overlap)
+            working = working.merge(mash_graph, on="backbone_id", how="left")
+
+    default_columns: dict[str, float | int] = {
+        "mean_amr_uncertainty_score": 0.0,
+        "amr_agreement_score": 0.0,
+        "mash_graph_novelty_score": 0.0,
+        "mash_graph_bridge_fraction": 0.0,
+        "mash_graph_external_neighbor_count": 0,
+    }
+    for column, default in default_columns.items():
+        if column not in working.columns:
+            working[column] = default
+        if isinstance(default, int):
+            working[column] = (
+                pd.to_numeric(working[column], errors="coerce").fillna(default).astype(int)
+            )
+        else:
+            working[column] = (
+                pd.to_numeric(working[column], errors="coerce").fillna(float(default)).astype(float)
+            )
+    return working
+
+
 def build_counterfactual_shortlist_comparison(
     scored: pd.DataFrame,
     predictions: pd.DataFrame,

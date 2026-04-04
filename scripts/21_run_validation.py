@@ -35,6 +35,9 @@ from plasmid_priority.modeling import (
 )
 from plasmid_priority.reporting import (
     ManagedScriptRun,
+    augment_scored_with_structural_audit_features,
+    build_blocked_holdout_calibration_summary,
+    build_blocked_holdout_calibration_table,
     build_calibration_metric_table,
     build_future_sentinel_audit,
     build_gate_consistency_audit,
@@ -188,7 +191,10 @@ def _summarize_prediction_frame(
 ) -> pd.DataFrame:
     valid = frame.loc[frame["spread_label"].notna() & frame[prediction_column].notna()].copy()
     if valid.empty or valid["spread_label"].astype(int).nunique() < 2:
-        row = {"model_name": model_name, "status": "skipped_insufficient_label_variation"}
+        row: dict[str, object] = {
+            "model_name": model_name,
+            "status": "skipped_insufficient_label_variation",
+        }
         if extra:
             row.update(extra)
         return pd.DataFrame([row])
@@ -196,7 +202,7 @@ def _summarize_prediction_frame(
     preds = valid[prediction_column].astype(float).to_numpy()
     precision_at_10, recall_at_10 = _top_k_precision_recall(y, preds, top_k=10)
     precision_at_25, recall_at_25 = _top_k_precision_recall(y, preds, top_k=25)
-    metrics = {
+    metrics: dict[str, object] = {
         "roc_auc": roc_auc_score(y, preds),
         "average_precision": average_precision(y, preds),
         "positive_prevalence": positive_prevalence(y),
@@ -237,6 +243,8 @@ def main() -> int:
     scored_path = context.root / "data/scores/backbone_scored.tsv"
     backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
     amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
+    raw_amr_path = context.root / "data/raw/amr.tsv"
+    mash_pairs_path = context.root / "data/raw/plsdb_mashdb_sim.tsv"
     metrics_path = context.root / "data/analysis/module_a_metrics.json"
     module_a_predictions = context.root / "data/analysis/module_a_predictions.tsv"
     config_path = context.root / "config.yaml"
@@ -247,6 +255,12 @@ def main() -> int:
     family_summary_output = context.root / "data/analysis/model_family_summary.tsv"
     comparison_output = context.root / "data/analysis/model_comparison_summary.tsv"
     calibration_metrics_output = context.root / "data/analysis/calibration_metrics.tsv"
+    blocked_holdout_calibration_output = (
+        context.root / "data/analysis/blocked_holdout_calibration_metrics.tsv"
+    )
+    blocked_holdout_calibration_summary_output = (
+        context.root / "data/analysis/blocked_holdout_calibration_summary.tsv"
+    )
     coefficients_output = context.root / "data/analysis/primary_model_coefficients.tsv"
     coefficient_stability_output = (
         context.root / "data/analysis/primary_model_coefficient_stability.tsv"
@@ -297,6 +311,9 @@ def main() -> int:
         module_a_predictions,
         config_path,
     ]
+    for optional_input in (raw_amr_path, mash_pairs_path):
+        if optional_input.exists():
+            input_paths.append(optional_input)
     cache_metadata = {
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
@@ -316,12 +333,17 @@ def main() -> int:
             config_path,
         ):
             run.record_input(path)
+        for optional_input in (raw_amr_path, mash_pairs_path):
+            if optional_input.exists():
+                run.record_input(optional_input)
         run.record_output(source_output)
         run.record_output(calibration_output)
         run.record_output(subgroup_output)
         run.record_output(family_summary_output)
         run.record_output(comparison_output)
         run.record_output(calibration_metrics_output)
+        run.record_output(blocked_holdout_calibration_output)
+        run.record_output(blocked_holdout_calibration_summary_output)
         run.record_output(coefficients_output)
         run.record_output(coefficient_stability_output)
         run.record_output(dropout_output)
@@ -406,6 +428,31 @@ def main() -> int:
                 "primary_replicon",
                 "sequence_accession",
             ],
+        )
+        raw_amr = (
+            read_tsv(
+                raw_amr_path,
+                usecols=["NUCCORE_ACC", "analysis_software_name", "gene_symbol", "drug_class"],
+            )
+            if raw_amr_path.exists()
+            else pd.DataFrame()
+        )
+        mash_pairs = (
+            read_tsv(
+                mash_pairs_path,
+                header=None,
+                names=["source_accession", "target_accession"],
+                usecols=[0, 1],
+            )
+            if mash_pairs_path.exists()
+            else pd.DataFrame()
+        )
+        scored = augment_scored_with_structural_audit_features(
+            scored,
+            records=backbones,
+            raw_amr=raw_amr,
+            mash_pairs=mash_pairs,
+            split_year=int(context.pipeline_settings.split_year),
         )
         backbones["primary_replicon_family"] = (
             backbones["primary_replicon"]
@@ -612,7 +659,7 @@ def main() -> int:
                     seed=42,
                     include_ci=False,
                 )
-                row = {
+                row: dict[str, object] = {
                     "cohort_name": cohort_name,
                     "model_name": model_name,
                     "feature_family": "named_model",
@@ -626,7 +673,7 @@ def main() -> int:
 
             specialist_result = evaluate_feature_columns(
                 cohort,
-                columns=NOVELTY_SPECIALIST_FEATURES,
+                columns=list(NOVELTY_SPECIALIST_FEATURES),
                 label="novelty_specialist_priority",
                 n_splits=n_splits,
                 n_repeats=5,
@@ -660,7 +707,7 @@ def main() -> int:
         if lower_half_splits is not None:
             specialist_oof_result = evaluate_feature_columns(
                 lower_half_train,
-                columns=NOVELTY_SPECIALIST_FEATURES,
+                columns=list(NOVELTY_SPECIALIST_FEATURES),
                 label="novelty_specialist_priority",
                 n_splits=lower_half_splits,
                 n_repeats=5,
@@ -1030,6 +1077,39 @@ def main() -> int:
             n_jobs=min(8, os.cpu_count() or 1),
         )
         group_holdout.to_csv(group_holdout_output, sep="\t", index=False)
+
+        calibration_holdout_models = [
+            model_name
+            for model_name in [
+                primary_model_name,
+                conservative_model_name,
+                governance_model_name,
+                "baseline_both",
+                "full_priority",
+            ]
+            if model_name in MODULE_A_FEATURE_SETS
+        ]
+        blocked_holdout_calibration = build_blocked_holdout_calibration_table(
+            scored,
+            model_names=calibration_holdout_models,
+            group_columns=[
+                "dominant_source",
+                "dominant_region_train",
+            ],
+            n_splits=3,
+            n_repeats=1,
+            seed=42,
+            n_jobs=min(8, os.cpu_count() or 1),
+        )
+        blocked_holdout_calibration.to_csv(
+            blocked_holdout_calibration_output, sep="\t", index=False
+        )
+        blocked_holdout_calibration_summary = build_blocked_holdout_calibration_summary(
+            blocked_holdout_calibration
+        )
+        blocked_holdout_calibration_summary.to_csv(
+            blocked_holdout_calibration_summary_output, sep="\t", index=False
+        )
 
         permutation_models = []
         for model_name in [

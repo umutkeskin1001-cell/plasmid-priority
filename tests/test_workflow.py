@@ -18,6 +18,41 @@ SPEC.loader.exec_module(run_workflow_script)
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_pipeline_sequential_workflow_keeps_full_dependency_chain(self) -> None:
+        steps = run_workflow_script._workflow_steps("pipeline-sequential")
+        names = [step.name for step in steps]
+        self.assertEqual(
+            names,
+            [
+                "01_check_inputs",
+                "02_build_all_plasmids_fasta",
+                "03_build_bronze_table",
+                "04_harmonize_metadata",
+                "05_deduplicate",
+                "06_annotate_mobility",
+                "07_annotate_amr",
+                "08_build_amr_consensus",
+                "09_assign_backbones",
+                "10_compute_coherence",
+                "11_compute_feature_T",
+                "12_compute_feature_H",
+                "13_compute_feature_A",
+                "14_build_backbone_table",
+                "15_normalize_and_score",
+                "16_run_module_A",
+                "17_run_module_B",
+                "18_run_module_C_pathogen_detection",
+                "19_run_module_D_external_support",
+                "20_run_module_E_amrfinder_concordance",
+                "21_run_validation",
+                "22_run_sensitivity",
+                "23_run_module_f_enrichment",
+                "27_run_advanced_audits",
+                "24_build_reports",
+                "25_export_tubitak_summary",
+            ],
+        )
+
     def test_core_refresh_workflow_keeps_only_headline_analysis_tail(self) -> None:
         steps = run_workflow_script._workflow_steps("core-refresh")
         names = [step.name for step in steps]
@@ -28,6 +63,27 @@ class WorkflowTests(unittest.TestCase):
                 "16_run_module_A",
                 "21_run_validation",
                 "22_run_sensitivity",
+                "27_run_advanced_audits",
+                "24_build_reports",
+                "25_export_tubitak_summary",
+            ],
+        )
+
+    def test_analysis_refresh_sequential_workflow_keeps_analysis_tail(self) -> None:
+        steps = run_workflow_script._workflow_steps("analysis-refresh-sequential")
+        names = [step.name for step in steps]
+        self.assertEqual(
+            names,
+            [
+                "15_normalize_and_score",
+                "16_run_module_A",
+                "17_run_module_B",
+                "18_run_module_C_pathogen_detection",
+                "19_run_module_D_external_support",
+                "20_run_module_E_amrfinder_concordance",
+                "21_run_validation",
+                "22_run_sensitivity",
+                "23_run_module_f_enrichment",
                 "27_run_advanced_audits",
                 "24_build_reports",
                 "25_export_tubitak_summary",

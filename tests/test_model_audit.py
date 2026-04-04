@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from plasmid_priority.reporting import (
     build_amrfinder_coverage_table,
     build_benchmark_protocol_table,
+    build_blocked_holdout_calibration_summary,
+    build_blocked_holdout_calibration_table,
     build_blocked_holdout_summary,
     build_calibration_metric_table,
     build_candidate_dossier_table,
@@ -31,6 +34,7 @@ from plasmid_priority.reporting import (
     build_model_subgroup_performance,
     build_negative_control_audit,
     build_novelty_margin_summary,
+    build_official_benchmark_panel,
     build_permutation_null_tables,
     build_primary_model_selection_summary,
     build_priority_bootstrap_stability_table,
@@ -41,8 +45,10 @@ from plasmid_priority.reporting import (
     build_temporal_drift_summary,
     build_temporal_rank_stability_table,
     build_threshold_flip_table,
+    build_threshold_utility_table,
     build_variant_rank_consistency_table,
 )
+from plasmid_priority.validation import decision_utility_summary
 
 
 class ModelAuditTests(unittest.TestCase):
@@ -128,13 +134,23 @@ class ModelAuditTests(unittest.TestCase):
                     "model_name": "bio_residual_synergy_priority",
                     "roc_auc": 0.80,
                     "average_precision": 0.71,
+                    "decision_utility_score": 0.31,
+                    "optimal_decision_threshold": 0.42,
                 },
                 {
                     "model_name": "phylo_support_fusion_priority",
                     "roc_auc": 0.79,
                     "average_precision": 0.70,
+                    "decision_utility_score": 0.29,
+                    "optimal_decision_threshold": 0.38,
                 },
-                {"model_name": "baseline_both", "roc_auc": 0.72, "average_precision": 0.65},
+                {
+                    "model_name": "baseline_both",
+                    "roc_auc": 0.72,
+                    "average_precision": 0.65,
+                    "decision_utility_score": 0.18,
+                    "optimal_decision_threshold": 0.50,
+                },
                 {
                     "model_name": "failed_model",
                     "roc_auc": 0.99,
@@ -253,6 +269,8 @@ class ModelAuditTests(unittest.TestCase):
         )
         self.assertIn("selection_composite_score", scorecard.columns)
         self.assertIn("selection_rank", scorecard.columns)
+        self.assertIn("decision_utility_score", scorecard.columns)
+        self.assertIn("optimal_decision_threshold", scorecard.columns)
         self.assertIn("model_track", scorecard.columns)
         self.assertIn("track_rank", scorecard.columns)
         self.assertIn("discovery_track_rank", scorecard.columns)
@@ -273,6 +291,20 @@ class ModelAuditTests(unittest.TestCase):
         self.assertEqual(int(governance_row["governance_track_rank"]), 1)
         self.assertEqual(str(baseline_row["model_track"]), "baseline")
         self.assertEqual(int(baseline_row["baseline_track_rank"]), 1)
+
+    def test_decision_utility_summary_prefers_best_threshold(self) -> None:
+        summary = decision_utility_summary(
+            np.array([1, 1, 0, 0, 0, 1]),
+            np.array([0.95, 0.85, 0.80, 0.35, 0.20, 0.10]),
+            thresholds=(0.2, 0.5, 0.8),
+            false_positive_cost=1.0,
+            false_negative_cost=4.0,
+        )
+        self.assertIn("optimal_threshold", summary)
+        self.assertIn("optimal_threshold_utility_per_sample", summary)
+        self.assertGreaterEqual(float(summary["optimal_threshold"]), 0.2)
+        self.assertLessEqual(float(summary["optimal_threshold"]), 0.8)
+        self.assertGreater(float(summary["optimal_threshold_precision"]), 0.5)
 
     def test_build_model_selection_scorecard_penalizes_missing_metrics(self) -> None:
         model_metrics = pd.DataFrame(
@@ -352,11 +384,36 @@ class ModelAuditTests(unittest.TestCase):
         )
         missing_row = scorecard.loc[scorecard["model_name"] == "missing_holdout_model"].iloc[0]
         complete_row = scorecard.loc[scorecard["model_name"] == "complete_model"].iloc[0]
+        self.assertIn("selection_metrics_complete", scorecard.columns)
         self.assertEqual(int(missing_row["selection_missing_metric_count"]), 1)
+        self.assertFalse(bool(missing_row["selection_metrics_complete"]))
+        self.assertTrue(bool(complete_row["selection_metrics_complete"]))
         self.assertGreater(
             float(complete_row["selection_composite_score"]),
             float(missing_row["selection_composite_score"]),
         )
+        self.assertTrue(pd.isna(missing_row["selection_rank"]))
+        self.assertEqual(int(complete_row["selection_rank"]), 1)
+
+    def test_build_threshold_utility_table_returns_optimal_thresholds(self) -> None:
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(6)] * 2,
+                "model_name": ["utility_a"] * 6 + ["utility_b"] * 6,
+                "oof_prediction": [0.95, 0.9, 0.75, 0.3, 0.2, 0.1]
+                + [0.9, 0.7, 0.6, 0.4, 0.35, 0.2],
+                "spread_label": [1, 1, 1, 0, 0, 0] * 2,
+            }
+        )
+        utility = build_threshold_utility_table(
+            predictions,
+            model_names=["utility_a", "utility_b"],
+            thresholds=(0.25, 0.5, 0.75),
+        )
+        self.assertEqual(set(utility["model_name"]), {"utility_a", "utility_b"})
+        self.assertIn("optimal_threshold", utility.columns)
+        self.assertIn("optimal_threshold_utility_per_sample", utility.columns)
+        self.assertGreaterEqual(float(utility.iloc[0]["optimal_threshold_utility_per_sample"]), 0.0)
 
     def test_build_model_selection_scorecard_marks_strict_knownness_acceptance(self) -> None:
         model_metrics = pd.DataFrame(
@@ -664,6 +721,13 @@ class ModelAuditTests(unittest.TestCase):
                     "strongest_metric_model": "support_synergy_priority",
                     "governance_primary_model": "knownness_robust_priority",
                     "governance_primary_strict_knownness_acceptance_flag": True,
+                    "published_primary_top_10_precision": 0.41,
+                    "published_primary_blocked_holdout_raw_brier_score": 0.14,
+                    "published_primary_blocked_holdout_best_calibration_method": "platt",
+                    "published_primary_blocked_holdout_best_calibration_gain_vs_raw_brier": 0.02,
+                    "governance_primary_top_10_precision": 0.52,
+                    "governance_primary_blocked_holdout_best_calibration_method": "beta",
+                    "governance_primary_blocked_holdout_best_calibration_gain_vs_raw_ece": 0.05,
                 }
             ]
         )
@@ -759,11 +823,51 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("strict_knownness_acceptance_flag", protocol.columns)
         self.assertIn("scientific_acceptance_status", protocol.columns)
         self.assertIn("benchmark_track", protocol.columns)
+        self.assertIn("published_primary_top_10_precision", protocol.columns)
+        self.assertIn(
+            "published_primary_blocked_holdout_best_calibration_method", protocol.columns
+        )
+        self.assertIn("governance_primary_top_10_precision", protocol.columns)
         self.assertEqual(str(primary_row["benchmark_guardrail_status"]), "passes_strict_acceptance")
         self.assertEqual(str(governance_row["benchmark_track"]), "governance")
         self.assertEqual(
             str(governance_row["benchmark_guardrail_status"]), "passes_strict_acceptance"
         )
+        self.assertEqual(float(primary_row["published_primary_top_10_precision"]), 0.41)
+        self.assertEqual(
+            str(primary_row["published_primary_blocked_holdout_best_calibration_method"]),
+            "platt",
+        )
+        self.assertEqual(
+            float(primary_row["published_primary_blocked_holdout_best_calibration_gain_vs_raw_brier"]),
+            0.02,
+        )
+        self.assertEqual(float(governance_row["governance_primary_top_10_precision"]), 0.52)
+        self.assertEqual(
+            str(governance_row["governance_primary_blocked_holdout_best_calibration_method"]),
+            "beta",
+        )
+        self.assertEqual(
+            float(
+                governance_row[
+                    "governance_primary_blocked_holdout_best_calibration_gain_vs_raw_ece"
+                ]
+            ),
+            0.05,
+        )
+        official = build_official_benchmark_panel(protocol)
+        self.assertEqual(
+            set(official["benchmark_role"]),
+            {
+                "primary_benchmark",
+                "governance_benchmark",
+                "conservative_benchmark",
+                "counts_baseline",
+                "source_control",
+            },
+        )
+        self.assertNotIn("preferred_adaptive_audit", set(official["benchmark_role"]))
+        self.assertNotIn("strongest_adaptive_upper_bound", set(official["benchmark_role"]))
 
     def test_build_primary_model_selection_summary_separates_discovery_and_governance_tracks(
         self,
@@ -813,11 +917,99 @@ class ModelAuditTests(unittest.TestCase):
                 },
             ]
         )
+        decision_yield = pd.DataFrame(
+            [
+                {
+                    "model_name": "discovery_primary",
+                    "top_k": 10,
+                    "precision_at_k": 0.40,
+                    "recall_at_k": 0.50,
+                },
+                {
+                    "model_name": "discovery_primary",
+                    "top_k": 25,
+                    "precision_at_k": 0.32,
+                    "recall_at_k": 0.80,
+                },
+                {
+                    "model_name": "conservative_model",
+                    "top_k": 10,
+                    "precision_at_k": 0.50,
+                    "recall_at_k": 0.60,
+                },
+                {
+                    "model_name": "conservative_model",
+                    "top_k": 25,
+                    "precision_at_k": 0.36,
+                    "recall_at_k": 0.72,
+                },
+                {
+                    "model_name": "regime_stability_priority",
+                    "top_k": 10,
+                    "precision_at_k": 0.60,
+                    "recall_at_k": 0.70,
+                },
+                {
+                    "model_name": "regime_stability_priority",
+                    "top_k": 25,
+                    "precision_at_k": 0.48,
+                    "recall_at_k": 0.84,
+                },
+            ]
+        )
+        blocked_holdout_calibration_summary = pd.DataFrame(
+            [
+                {
+                    "model_name": "discovery_primary",
+                    "calibration_method": "raw",
+                    "brier_score": 0.14,
+                    "ece": 0.06,
+                },
+                {
+                    "model_name": "discovery_primary",
+                    "calibration_method": "platt",
+                    "brier_score": 0.12,
+                    "ece": 0.05,
+                    "calibration_gain_vs_raw_brier": 0.02,
+                    "calibration_gain_vs_raw_ece": 0.01,
+                },
+                {
+                    "model_name": "conservative_model",
+                    "calibration_method": "raw",
+                    "brier_score": 0.15,
+                    "ece": 0.07,
+                },
+                {
+                    "model_name": "conservative_model",
+                    "calibration_method": "isotonic",
+                    "brier_score": 0.13,
+                    "ece": 0.04,
+                    "calibration_gain_vs_raw_brier": 0.02,
+                    "calibration_gain_vs_raw_ece": 0.03,
+                },
+                {
+                    "model_name": "regime_stability_priority",
+                    "calibration_method": "raw",
+                    "brier_score": 0.16,
+                    "ece": 0.08,
+                },
+                {
+                    "model_name": "regime_stability_priority",
+                    "calibration_method": "beta",
+                    "brier_score": 0.11,
+                    "ece": 0.03,
+                    "calibration_gain_vs_raw_brier": 0.05,
+                    "calibration_gain_vs_raw_ece": 0.05,
+                },
+            ]
+        )
         summary = build_primary_model_selection_summary(
             model_metrics,
             primary_model_name="discovery_primary",
             conservative_model_name="conservative_model",
             predictions=predictions,
+            decision_yield=decision_yield,
+            blocked_holdout_calibration_summary=blocked_holdout_calibration_summary,
             model_selection_scorecard=scorecard,
         )
         row = summary.iloc[0]
@@ -825,6 +1017,24 @@ class ModelAuditTests(unittest.TestCase):
         self.assertEqual(str(row["governance_primary_track"]), "governance_watch_only")
         self.assertEqual(str(row["governance_primary_benchmark_status"]), "governance_watch_only")
         self.assertEqual(str(row["governance_primary_model"]), "regime_stability_priority")
+        self.assertEqual(float(row["published_primary_top_10_precision"]), 0.40)
+        self.assertEqual(float(row["published_primary_top_25_recall"]), 0.80)
+        self.assertEqual(float(row["governance_primary_top_10_precision"]), 0.60)
+        self.assertEqual(float(row["governance_primary_top_25_recall"]), 0.84)
+        self.assertEqual(
+            str(row["published_primary_blocked_holdout_best_calibration_method"]), "platt"
+        )
+        self.assertEqual(
+            float(row["published_primary_blocked_holdout_best_calibration_gain_vs_raw_brier"]),
+            0.02,
+        )
+        self.assertEqual(
+            str(row["governance_primary_blocked_holdout_best_calibration_method"]), "beta"
+        )
+        self.assertEqual(
+            float(row["governance_primary_blocked_holdout_best_calibration_gain_vs_raw_ece"]),
+            0.05,
+        )
         self.assertIn("governance track", str(row["selection_rationale"]))
         self.assertIn("watch-only", str(row["governance_selection_rationale"]))
         self.assertIn("guardrail-aware candidate", str(row["governance_selection_rationale"]))
@@ -1027,8 +1237,47 @@ class ModelAuditTests(unittest.TestCase):
                 "spread_label": [0, 0, 0, 0, 1, 1, 1, 1],
             }
         )
-        calibration = build_calibration_metric_table(predictions, model_names=["enhanced_priority"])
+        calibration = build_calibration_metric_table(
+            predictions,
+            model_names=["enhanced_priority"],
+            calibration_methods=("raw", "platt", "isotonic", "beta"),
+            n_splits=4,
+            n_repeats=1,
+        )
         self.assertIn("expected_calibration_error", calibration.columns)
+        self.assertEqual(set(calibration["evaluation_split"]), {"oof"})
+        self.assertEqual(set(calibration["calibration_method"]), {"raw", "platt", "isotonic", "beta"})
+        self.assertEqual(calibration.iloc[0]["calibration_method"], "raw")
+
+    def test_build_blocked_holdout_calibration_table_returns_method_rows(self) -> None:
+        n = 50
+        spread = [0, 1] * (n // 2)
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "spread_label": spread,
+                "log1p_member_count_train": [0.2, 1.0] * (n // 2),
+                "log1p_n_countries_train": [0.1, 0.9] * (n // 2),
+                "refseq_share_train": [0.8] * (n // 2) + [0.2] * (n // 2),
+                "dominant_source": ["source_a"] * 25 + ["source_b"] * 25,
+            }
+        )
+        calibration = build_blocked_holdout_calibration_table(
+            scored,
+            model_names=["baseline_both"],
+            group_columns=["dominant_source"],
+            calibration_methods=("raw", "platt", "isotonic", "beta"),
+            n_splits=3,
+            n_repeats=1,
+            seed=11,
+        )
+        self.assertFalse(calibration.empty)
+        self.assertEqual(set(calibration["evaluation_split"]), {"blocked_holdout"})
+        self.assertEqual(set(calibration["calibration_method"]), {"raw", "platt", "isotonic", "beta"})
+        summary = build_blocked_holdout_calibration_summary(calibration)
+        self.assertFalse(summary.empty)
+        self.assertEqual(set(summary["evaluation_split"]), {"blocked_holdout"})
+        self.assertEqual(set(summary["calibration_method"]), {"raw", "platt", "isotonic", "beta"})
 
     def test_build_source_balance_resampling_table_returns_rows(self) -> None:
         scored = pd.DataFrame(
@@ -1567,6 +1816,8 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("mechanistic_rationale", dossier.columns)
         self.assertIn("monitoring_rationale", dossier.columns)
         self.assertIn("candidate_confidence_score", dossier.columns)
+        self.assertIn("multiverse_stability_score", dossier.columns)
+        self.assertIn("multiverse_stability_tier", dossier.columns)
         self.assertIn("candidate_explanation_summary", dossier.columns)
         self.assertIn("low_candidate_confidence_risk", dossier.columns)
         self.assertIn("model_prediction_uncertainty", dossier.columns)
@@ -1714,6 +1965,8 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("source_support_tier", portfolio.columns)
         self.assertIn("uncertainty_review_tier", portfolio.columns)
         self.assertIn("candidate_confidence_score", portfolio.columns)
+        self.assertIn("multiverse_stability_score", portfolio.columns)
+        self.assertIn("multiverse_stability_tier", portfolio.columns)
         self.assertIn("candidate_explanation_summary", portfolio.columns)
         self.assertIn("low_candidate_confidence_risk", portfolio.columns)
         self.assertEqual(

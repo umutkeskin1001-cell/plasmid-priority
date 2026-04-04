@@ -2,8 +2,8 @@
 
 Plasmid Priority is a retrospective surveillance ranking framework for plasmid backbone classes. It does not claim causal spread prediction; it asks whether pre-2016 genomic signals are associated with post-2015 international visibility increase.
 
-The Seer (headline model): `bio-clean model` | ROC AUC `0.747` | AP `0.660`.
-The Guard (governance watch-only): `phylo-support fusion model` | ROC AUC `0.827` | AP `0.766`.
+The Seer (headline model): `bio-clean model` | ROC AUC `0.745` | AP `0.654`.
+The Guard (governance watch-only): `phylo-support fusion model` | ROC AUC `0.828` | AP `0.767`.
 The Baseline: `counts-only baseline` | ROC AUC `0.722` | AP `0.647`.
 
 ## Method Overview
@@ -42,7 +42,7 @@ Raw Data (PLSDB + RefSeq + Pathogen Detection)
 
 ## Country Missingness
 
-- bio-clean model country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.744 to 0.757 and AP 0.660 to 0.732..
+- bio-clean model country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.741 to 0.754 and AP 0.654 to 0.728..
 
 ## Ranking Stability
 
@@ -53,7 +53,12 @@ Raw Data (PLSDB + RefSeq + Pathogen Detection)
 
 - `6` case studies are exported in `candidate_case_studies.tsv`.
 - Jury-facing narrative lives in `jury_brief.md` and `ozet_tr.md`.
+- `frozen_scientific_acceptance_audit.tsv` records the headline acceptance gate across matched-knownness, source holdout, spatial holdout, calibration, and leakage review.
 - Blocked holdout audit is exported in `blocked_holdout_summary.tsv`.
+- `nonlinear_deconfounding_audit.tsv` records the nonlinear deconfounding check used to keep knownness residualization transparent.
+- `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv` record the alternative-endpoint stress tests for ordinal, exposure-adjusted, and macro-region jump outcomes.
+- `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv` record the quasi-prospective freeze surface used to check whether the shortlist survives a forward-looking holdout.
+- `future_sentinel_audit.tsv`, `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv` record the leakage canary, graph audit, counterfactual shortlist comparison, geographic-jump diagnostic, and AMR-uncertainty summary.
 - Candidate rank stability is exported in `candidate_rank_stability.tsv` and model-variant consistency is exported in `candidate_variant_consistency.tsv`.
 - `calibration_threshold_summary.png` is exported as a compact calibration/threshold diagnostic when threshold-sensitivity data are available.
 - Figures in `reports/core_figures/` are presentation-ready.

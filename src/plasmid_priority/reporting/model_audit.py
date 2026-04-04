@@ -9,6 +9,8 @@ from typing import TypedDict, cast
 
 import numpy as np
 import pandas as pd
+from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
 
 from plasmid_priority.modeling import (
@@ -54,6 +56,9 @@ from plasmid_priority.reporting.candidate_tables import (
 from plasmid_priority.reporting.candidate_tables import (
     build_threshold_flip_table as _build_threshold_flip_table,
 )
+from plasmid_priority.reporting.candidate_tables import (
+    build_threshold_utility_table as _build_threshold_utility_table,
+)
 from plasmid_priority.scoring import DEFAULT_NORMALIZATION_METHOD, recompute_priority_from_reference
 from plasmid_priority.utils.dataframe import coalescing_left_merge
 from plasmid_priority.utils.parallel import limit_native_threads
@@ -86,6 +91,8 @@ FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS: dict[str, float] = {
     "selection_adjusted_p_max": 0.01,
 }
 
+_CALIBRATION_METHODS: tuple[str, ...] = ("raw", "platt", "isotonic", "beta")
+
 
 annotate_candidate_explanation_fields = _annotate_candidate_explanation_fields
 build_candidate_dossier_table = _build_candidate_dossier_table
@@ -93,6 +100,7 @@ build_candidate_portfolio_table = _build_candidate_portfolio_table
 build_candidate_risk_table = _build_candidate_risk_table
 build_decision_yield_table = _build_decision_yield_table
 build_threshold_flip_table = _build_threshold_flip_table
+build_threshold_utility_table = _build_threshold_utility_table
 
 
 def _stable_unit_interval(text: str, *, salt: str) -> float:
@@ -1556,30 +1564,494 @@ def build_model_comparison_table(
     return pd.DataFrame(rows).sort_values("delta_roc_auc", ascending=False).reset_index(drop=True)
 
 
+def _clip_probability_array(values: np.ndarray, *, eps: float = 1e-6) -> np.ndarray:
+    return cast(np.ndarray, np.clip(np.asarray(values, dtype=float), eps, 1.0 - eps))
+
+
+def _calibration_feature_matrix(preds: np.ndarray, *, method: str) -> np.ndarray:
+    clipped = _clip_probability_array(preds)
+    if method == "platt":
+        logit = np.log(clipped / (1.0 - clipped))
+        return logit.reshape(-1, 1)
+    if method == "beta":
+        return np.column_stack([np.log(clipped), np.log1p(-clipped)])
+    raise ValueError(f"unsupported calibration method: {method}")
+
+
+def _fit_calibration_transform(
+    y: np.ndarray,
+    preds: np.ndarray,
+    *,
+    method: str,
+) -> LogisticRegression | IsotonicRegression | None:
+    y = np.asarray(y, dtype=int)
+    preds = _clip_probability_array(preds)
+    if len(y) == 0 or np.unique(y).size < 2:
+        return None
+    if method == "platt":
+        calibrator = LogisticRegression(
+            C=1_000_000.0,
+            max_iter=1_000,
+            solver="lbfgs",
+        )
+        calibrator.fit(_calibration_feature_matrix(preds, method=method), y)
+        return cast(LogisticRegression, calibrator)
+    if method == "isotonic":
+        calibrator = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
+        calibrator.fit(preds, y)
+        return cast(IsotonicRegression, calibrator)
+    if method == "beta":
+        calibrator = LogisticRegression(
+            C=1_000_000.0,
+            max_iter=1_000,
+            solver="lbfgs",
+        )
+        calibrator.fit(_calibration_feature_matrix(preds, method=method), y)
+        return cast(LogisticRegression, calibrator)
+    raise ValueError(f"unsupported calibration method: {method}")
+
+
+def _apply_calibration_transform(
+    preds: np.ndarray,
+    *,
+    method: str,
+    calibrator: LogisticRegression | IsotonicRegression | None,
+) -> np.ndarray:
+    clipped = _clip_probability_array(preds)
+    if method == "raw" or calibrator is None:
+        return clipped
+    if method == "platt" or method == "beta":
+        proba = cast(
+            LogisticRegression,
+            calibrator,
+        ).predict_proba(_calibration_feature_matrix(clipped, method=method))[:, 1]
+        return _clip_probability_array(cast(np.ndarray, proba))
+    if method == "isotonic":
+        proba = cast(IsotonicRegression, calibrator).predict(clipped)
+        return _clip_probability_array(np.asarray(proba, dtype=float))
+    raise ValueError(f"unsupported calibration method: {method}")
+
+
+def _calibration_metrics_from_arrays(
+    y: np.ndarray,
+    preds: np.ndarray,
+    *,
+    method: str,
+) -> dict[str, object]:
+    y = np.asarray(y, dtype=int)
+    preds = _clip_probability_array(preds)
+    return {
+        "calibration_method": method,
+        "n_backbones": int(len(y)),
+        "mean_prediction": float(preds.mean()) if len(preds) else float("nan"),
+        "observed_rate": float(y.mean()) if len(y) else float("nan"),
+        "brier_score": brier_score(y, preds) if len(y) else float("nan"),
+        "ece": expected_calibration_error(y, preds) if len(y) else float("nan"),
+        "expected_calibration_error": expected_calibration_error(y, preds)
+        if len(y)
+        else float("nan"),
+        "max_calibration_error": max_calibration_error(y, preds) if len(y) else float("nan"),
+    }
+
+
+def _nested_calibrated_predictions(
+    y: np.ndarray,
+    preds: np.ndarray,
+    *,
+    method: str,
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+) -> np.ndarray:
+    preds = _clip_probability_array(preds)
+    if method == "raw" or len(y) == 0 or np.unique(y).size < 2:
+        return preds
+    calibrated = np.zeros(len(preds), dtype=float)
+    counts = np.zeros(len(preds), dtype=float)
+    for fold_indices in _stratified_folds(
+        np.asarray(y, dtype=int),
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        seed=seed,
+    ):
+        for test_idx in fold_indices:
+            train_mask = np.ones(len(preds), dtype=bool)
+            train_mask[test_idx] = False
+            calibrator = _fit_calibration_transform(y[train_mask], preds[train_mask], method=method)
+            fold_preds = _apply_calibration_transform(
+                preds[test_idx],
+                method=method,
+                calibrator=calibrator,
+            )
+            calibrated[test_idx] += fold_preds
+            counts[test_idx] += 1.0
+    counts[counts == 0] = 1.0
+    return _clip_probability_array(calibrated / counts)
+
+
 def build_calibration_metric_table(
-    predictions: pd.DataFrame, *, model_names: list[str]
+    predictions: pd.DataFrame,
+    *,
+    model_names: list[str],
+    calibration_methods: tuple[str, ...] = _CALIBRATION_METHODS,
+    n_splits: int = 5,
+    n_repeats: int = 1,
+    seed: int = 42,
 ) -> pd.DataFrame:
-    """Compute compact calibration-quality summaries for selected models."""
-    rows = []
+    """Compute nested calibration-quality summaries for selected models."""
+    rows: list[dict[str, object]] = []
     for model_name in model_names:
         frame = predictions.loc[predictions["model_name"] == model_name].copy()
         if frame.empty:
             continue
         y = frame["spread_label"].to_numpy(dtype=int)
-        preds = frame["oof_prediction"].to_numpy(dtype=float)
-        rows.append(
+        raw_preds = frame["oof_prediction"].to_numpy(dtype=float)
+        raw_metrics: dict[str, object] = _calibration_metrics_from_arrays(
+            y, raw_preds, method="raw"
+        )
+        raw_metrics.update(
             {
                 "model_name": model_name,
-                "n_backbones": int(len(frame)),
-                "mean_prediction": float(preds.mean()),
-                "observed_rate": float(y.mean()),
-                "brier_score": brier_score(y, preds),
-                "ece": expected_calibration_error(y, preds),
-                "expected_calibration_error": expected_calibration_error(y, preds),
-                "max_calibration_error": max_calibration_error(y, preds),
+                "evaluation_split": "oof",
+                "calibration_strategy": "identity",
+                "calibration_gain_vs_raw_brier": 0.0,
+                "calibration_gain_vs_raw_ece": 0.0,
             }
         )
-    return pd.DataFrame(rows)
+        rows.append(raw_metrics)
+        for method in calibration_methods:
+            if method == "raw":
+                continue
+            calibrated = _nested_calibrated_predictions(
+                y,
+                raw_preds,
+                method=method,
+                n_splits=n_splits,
+                n_repeats=n_repeats,
+                seed=seed,
+            )
+            calibrated_metrics: dict[str, object] = _calibration_metrics_from_arrays(
+                y, calibrated, method=method
+            )
+            raw_brier_score = cast(float, raw_metrics["brier_score"])
+            raw_ece = cast(float, raw_metrics["ece"])
+            calibrated_brier_score = cast(float, calibrated_metrics["brier_score"])
+            calibrated_ece = cast(float, calibrated_metrics["ece"])
+            calibrated_metrics.update(
+                {
+                    "model_name": model_name,
+                    "evaluation_split": "oof",
+                    "calibration_strategy": "nested_oof",
+                    "calibration_gain_vs_raw_brier": raw_brier_score - calibrated_brier_score,
+                    "calibration_gain_vs_raw_ece": raw_ece - calibrated_ece,
+                }
+            )
+            rows.append(calibrated_metrics)
+    result = pd.DataFrame(rows)
+    if result.empty:
+        return result
+    method_order = {method: index for index, method in enumerate(_CALIBRATION_METHODS)}
+    result["_calibration_method_order"] = result["calibration_method"].map(method_order).fillna(
+        len(method_order)
+    )
+    return result.sort_values(
+        ["model_name", "evaluation_split", "_calibration_method_order"],
+        kind="mergesort",
+    ).drop(columns=["_calibration_method_order"]).reset_index(drop=True)
+
+
+def build_blocked_holdout_calibration_table(
+    scored: pd.DataFrame,
+    *,
+    model_names: list[str],
+    group_columns: list[str],
+    calibration_methods: tuple[str, ...] = _CALIBRATION_METHODS,
+    n_splits: int = 5,
+    n_repeats: int = 1,
+    seed: int = 42,
+    n_jobs: int | None = 1,
+) -> pd.DataFrame:
+    """Evaluate nested calibration transfer on strict blocked holdout splits."""
+    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    if eligible.empty:
+        return pd.DataFrame()
+    eligible["spread_label"] = eligible["spread_label"].astype(int)
+
+    rows: list[dict[str, object]] = []
+    tasks: list[tuple[dict[str, object], pd.DataFrame, pd.DataFrame, str]] = []
+    for group_column in group_columns:
+        if group_column not in eligible.columns:
+            continue
+        working = eligible.copy()
+        working[group_column] = working[group_column].fillna("unknown").astype(str)
+        counts = working[group_column].value_counts()
+        if group_column == "dominant_source":
+            selected_groups = counts.index.tolist()
+        else:
+            selected_groups = counts.loc[counts >= 25].head(8).index.tolist()
+        for group_value in selected_groups:
+            test = working.loc[working[group_column] == group_value].copy()
+            train = working.loc[working[group_column] != group_value].copy()
+            base_row = {
+                "group_column": group_column,
+                "group_value": str(group_value),
+                "n_test_backbones": int(len(test)),
+                "n_train_backbones": int(len(train)),
+            }
+            for model_name in model_names:
+                if (
+                    len(test) < 25
+                    or test["spread_label"].nunique() < 2
+                    or train["spread_label"].nunique() < 2
+                ):
+                    rows.append(
+                        {
+                            **base_row,
+                            "model_name": model_name,
+                            "evaluation_split": "blocked_holdout",
+                            "calibration_method": "raw",
+                            "calibration_strategy": "skipped_insufficient_label_variation",
+                            "n_backbones": int(len(test)),
+                            "mean_prediction": np.nan,
+                            "observed_rate": np.nan,
+                            "brier_score": np.nan,
+                            "ece": np.nan,
+                            "expected_calibration_error": np.nan,
+                            "max_calibration_error": np.nan,
+                            "calibration_gain_vs_raw_brier": np.nan,
+                            "calibration_gain_vs_raw_ece": np.nan,
+                            "status": "skipped_insufficient_label_variation",
+                        }
+                    )
+                    continue
+                tasks.append((base_row, train, test, model_name))
+
+    def _evaluate_holdout_task(
+        task: tuple[dict[str, object], pd.DataFrame, pd.DataFrame, str],
+    ) -> list[dict[str, object]]:
+        base_row, train, test, model_name = task
+        train_result = evaluate_model_name(
+            train,
+            model_name=model_name,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=seed,
+            include_ci=False,
+        )
+        train_frame = train_result.predictions.copy()
+        if "oof_prediction" not in train_frame.columns or train_frame.empty:
+            return [
+                {
+                    **base_row,
+                    "model_name": model_name,
+                    "evaluation_split": "blocked_holdout",
+                    "calibration_method": method,
+                    "calibration_strategy": "train_fit_holdout_apply",
+                    "n_backbones": int(len(test)),
+                    "mean_prediction": np.nan,
+                    "observed_rate": np.nan,
+                    "brier_score": np.nan,
+                    "ece": np.nan,
+                    "expected_calibration_error": np.nan,
+                    "max_calibration_error": np.nan,
+                    "calibration_gain_vs_raw_brier": np.nan,
+                    "calibration_gain_vs_raw_ece": np.nan,
+                    "status": "skipped_fit_failure",
+                }
+                for method in calibration_methods
+            ]
+
+        y_train = train_frame["spread_label"].to_numpy(dtype=int)
+        source_preds = train_frame["oof_prediction"].to_numpy(dtype=float)
+        prediction_table = fit_predict_model_holdout(train, test, model_name=model_name)
+        if prediction_table.empty or prediction_table["spread_label"].nunique() < 2:
+            return [
+                {
+                    **base_row,
+                    "model_name": model_name,
+                    "evaluation_split": "blocked_holdout",
+                    "calibration_method": method,
+                    "calibration_strategy": "train_fit_holdout_apply",
+                    "n_backbones": int(len(test)),
+                    "mean_prediction": np.nan,
+                    "observed_rate": np.nan,
+                    "brier_score": np.nan,
+                    "ece": np.nan,
+                    "expected_calibration_error": np.nan,
+                    "max_calibration_error": np.nan,
+                    "calibration_gain_vs_raw_brier": np.nan,
+                    "calibration_gain_vs_raw_ece": np.nan,
+                    "status": "skipped_fit_failure",
+                }
+                for method in calibration_methods
+            ]
+        y_test = prediction_table["spread_label"].to_numpy(dtype=int)
+        target_preds = prediction_table["prediction"].to_numpy(dtype=float)
+        raw_metrics = _calibration_metrics_from_arrays(y_test, target_preds, method="raw")
+        raw_brier_score = cast(float, raw_metrics["brier_score"])
+        raw_ece = cast(float, raw_metrics["ece"])
+        holdout_rows: list[dict[str, object]] = []
+        for method in calibration_methods:
+            if method == "raw":
+                metrics = dict(raw_metrics)
+                metrics.update(
+                    {
+                        **base_row,
+                        "model_name": model_name,
+                        "evaluation_split": "blocked_holdout",
+                        "calibration_strategy": "identity",
+                        "calibration_gain_vs_raw_brier": 0.0,
+                        "calibration_gain_vs_raw_ece": 0.0,
+                        "status": "ok",
+                    }
+                )
+                holdout_rows.append(metrics)
+                continue
+            calibrator = _fit_calibration_transform(y_train, source_preds, method=method)
+            calibrated = _apply_calibration_transform(
+                target_preds,
+                method=method,
+                calibrator=calibrator,
+            )
+            metrics = _calibration_metrics_from_arrays(y_test, calibrated, method=method)
+            calibrated_brier_score = cast(float, metrics["brier_score"])
+            calibrated_ece = cast(float, metrics["ece"])
+            metrics.update(
+                {
+                    **base_row,
+                    "model_name": model_name,
+                    "evaluation_split": "blocked_holdout",
+                    "calibration_strategy": "train_fit_holdout_apply",
+                    "calibration_gain_vs_raw_brier": raw_brier_score - calibrated_brier_score,
+                    "calibration_gain_vs_raw_ece": raw_ece - calibrated_ece,
+                    "status": "ok",
+                }
+            )
+            holdout_rows.append(metrics)
+        return holdout_rows
+
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(tasks))
+    if jobs > 1 and tasks:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                for result in executor.map(_evaluate_holdout_task, tasks):
+                    rows.extend(result)
+    else:
+        for task in tasks:
+            rows.extend(_evaluate_holdout_task(task))
+    result = pd.DataFrame(rows)
+    if result.empty:
+        return result
+    return result.sort_values(
+        ["model_name", "group_column", "group_value", "calibration_method"],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def build_blocked_holdout_calibration_summary(
+    blocked_holdout_calibration: pd.DataFrame,
+) -> pd.DataFrame:
+    """Aggregate blocked-holdout calibration metrics to a model-level summary."""
+    if blocked_holdout_calibration.empty:
+        return pd.DataFrame()
+    working = blocked_holdout_calibration.loc[
+        blocked_holdout_calibration.get("status", pd.Series(dtype=str)).astype(str).eq("ok")
+    ].copy()
+    if working.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, object]] = []
+    for (model_name, calibration_method), frame in working.groupby(
+        ["model_name", "calibration_method"], sort=False
+    ):
+        weights = pd.to_numeric(
+            frame.get("n_test_backbones", pd.Series(np.nan, index=frame.index)), errors="coerce"
+        ).fillna(0.0)
+        valid = frame["brier_score"].notna() & frame["ece"].notna()
+        if not valid.any():
+            continue
+        valid_weights = np.clip(weights.loc[valid].to_numpy(dtype=float), 1.0, None)
+        if valid_weights.size and np.isfinite(valid_weights).any():
+            mean_prediction = float(
+                np.average(
+                    pd.to_numeric(
+                        frame.loc[valid, "mean_prediction"], errors="coerce"
+                    ).to_numpy(dtype=float),
+                    weights=valid_weights,
+                )
+            )
+            observed_rate = float(
+                np.average(
+                    pd.to_numeric(frame.loc[valid, "observed_rate"], errors="coerce").to_numpy(
+                        dtype=float
+                    ),
+                    weights=valid_weights,
+                )
+            )
+            brier_score_value = float(
+                np.average(
+                    pd.to_numeric(frame.loc[valid, "brier_score"], errors="coerce").to_numpy(
+                        dtype=float
+                    ),
+                    weights=valid_weights,
+                )
+            )
+            ece_value = float(
+                np.average(
+                    pd.to_numeric(frame.loc[valid, "ece"], errors="coerce").to_numpy(dtype=float),
+                    weights=valid_weights,
+                )
+            )
+            max_calibration_error_value = float(
+                np.average(
+                    pd.to_numeric(
+                        frame.loc[valid, "max_calibration_error"], errors="coerce"
+                    ).to_numpy(dtype=float),
+                    weights=valid_weights,
+                )
+            )
+        else:
+            mean_prediction = float(pd.to_numeric(frame["mean_prediction"], errors="coerce").mean())
+            observed_rate = float(pd.to_numeric(frame["observed_rate"], errors="coerce").mean())
+            brier_score_value = float(pd.to_numeric(frame["brier_score"], errors="coerce").mean())
+            ece_value = float(pd.to_numeric(frame["ece"], errors="coerce").mean())
+            max_calibration_error_value = float(
+                pd.to_numeric(frame["max_calibration_error"], errors="coerce").mean()
+            )
+        rows.append(
+            {
+                "model_name": str(model_name),
+                "evaluation_split": "blocked_holdout",
+                "calibration_method": str(calibration_method),
+                "calibration_strategy": "train_fit_holdout_apply"
+                if calibration_method != "raw"
+                else "identity",
+                "n_backbones": int(weights.sum()),
+                "n_groups": int(frame[["group_column", "group_value"]].drop_duplicates().shape[0]),
+                "mean_prediction": mean_prediction,
+                "observed_rate": observed_rate,
+                "brier_score": brier_score_value,
+                "ece": ece_value,
+                "expected_calibration_error": ece_value,
+                "max_calibration_error": max_calibration_error_value,
+                "calibration_gain_vs_raw_brier": float(
+                    pd.to_numeric(frame["calibration_gain_vs_raw_brier"], errors="coerce").mean()
+                ),
+                "calibration_gain_vs_raw_ece": float(
+                    pd.to_numeric(frame["calibration_gain_vs_raw_ece"], errors="coerce").mean()
+                ),
+                "status": "ok",
+            }
+        )
+    result = pd.DataFrame(rows)
+    if result.empty:
+        return result
+    method_order = {method: index for index, method in enumerate(_CALIBRATION_METHODS)}
+    result["_calibration_method_order"] = result["calibration_method"].map(method_order).fillna(
+        len(method_order)
+    )
+    return result.sort_values(
+        ["model_name", "_calibration_method_order"], kind="mergesort"
+    ).drop(columns=["_calibration_method_order"]).reset_index(drop=True)
 
 
 def build_source_balance_resampling_table(
@@ -3184,6 +3656,8 @@ def build_primary_model_selection_summary(
     conservative_model_name: str,
     governance_model_name: str | None = None,
     predictions: pd.DataFrame | None = None,
+    decision_yield: pd.DataFrame | None = None,
+    blocked_holdout_calibration_summary: pd.DataFrame | None = None,
     family_summary: pd.DataFrame | None = None,
     simplicity_summary: pd.DataFrame | None = None,
     model_selection_scorecard: pd.DataFrame | None = None,
@@ -3245,6 +3719,12 @@ def build_primary_model_selection_summary(
         family_summary = build_model_family_summary(model_metrics)
     model_selection_scorecard = (
         model_selection_scorecard if model_selection_scorecard is not None else pd.DataFrame()
+    )
+    decision_yield = decision_yield if decision_yield is not None else pd.DataFrame()
+    blocked_holdout_calibration_summary = (
+        blocked_holdout_calibration_summary
+        if blocked_holdout_calibration_summary is not None
+        else pd.DataFrame()
     )
 
     row: dict[str, object] = {
@@ -3352,6 +3832,73 @@ def build_primary_model_selection_summary(
             return frame
         return frame.sort_values("oof_prediction", ascending=False).reset_index(drop=True)
 
+    def _decision_yield_row(model_name: str, top_k: int) -> pd.Series:
+        if decision_yield.empty:
+            return pd.Series(dtype=object)
+        model_series = decision_yield.get("model_name", pd.Series(dtype=str)).astype(str)
+        top_k_series = pd.to_numeric(
+            decision_yield.get(
+                "top_k", pd.Series(np.nan, index=decision_yield.index, dtype=float)
+            ),
+            errors="coerce",
+        ).astype("Int64")
+        match = decision_yield.loc[
+            model_series.eq(str(model_name)) & top_k_series.eq(int(top_k))
+        ].head(1)
+        return match.iloc[0] if not match.empty else pd.Series(dtype=object)
+
+    def _blocked_holdout_row(model_name: str) -> pd.Series:
+        if blocked_holdout_calibration_summary.empty:
+            return pd.Series(dtype=object)
+        match = blocked_holdout_calibration_summary.loc[
+            blocked_holdout_calibration_summary.get("model_name", pd.Series(dtype=str))
+            .astype(str)
+            .eq(str(model_name))
+        ].head(1)
+        if match.empty:
+            return pd.Series(dtype=object)
+        raw = blocked_holdout_calibration_summary.loc[
+            (blocked_holdout_calibration_summary.get("model_name", pd.Series(dtype=str))
+            .astype(str)
+            .eq(str(model_name)))
+            & blocked_holdout_calibration_summary.get("calibration_method", pd.Series(dtype=str))
+            .astype(str)
+            .eq("raw")
+        ].head(1)
+        if raw.empty:
+            raw_row = pd.Series(dtype=object)
+        else:
+            raw_row = raw.iloc[0]
+        non_raw = blocked_holdout_calibration_summary.loc[
+            (blocked_holdout_calibration_summary.get("model_name", pd.Series(dtype=str))
+            .astype(str)
+            .eq(str(model_name)))
+            & ~blocked_holdout_calibration_summary.get("calibration_method", pd.Series(dtype=str))
+            .astype(str)
+            .eq("raw")
+        ].copy()
+        if non_raw.empty:
+            best_row = pd.Series(dtype=object)
+        else:
+            best_row = non_raw.sort_values(
+                ["brier_score", "ece"], ascending=[True, True], kind="mergesort"
+            ).iloc[0]
+        combined = pd.Series(dtype=object)
+        if not raw_row.empty:
+            combined["raw_brier_score"] = float(raw_row.get("brier_score", np.nan))
+            combined["raw_ece"] = float(raw_row.get("ece", np.nan))
+        if not best_row.empty:
+            combined["best_calibration_method"] = str(best_row.get("calibration_method", ""))
+            combined["best_brier_score"] = float(best_row.get("brier_score", np.nan))
+            combined["best_ece"] = float(best_row.get("ece", np.nan))
+            combined["best_calibration_gain_vs_raw_brier"] = float(
+                best_row.get("calibration_gain_vs_raw_brier", np.nan)
+            )
+            combined["best_calibration_gain_vs_raw_ece"] = float(
+                best_row.get("calibration_gain_vs_raw_ece", np.nan)
+            )
+        return combined
+
     def _add_topk_overlap(prefix: str, comparison_model_name: str) -> None:
         primary_predictions = _sorted_predictions(primary_model_name)
         comparison_predictions = _sorted_predictions(comparison_model_name)
@@ -3386,11 +3933,56 @@ def build_primary_model_selection_summary(
             float(selected_positive / total_positive) if total_positive > 0 else np.nan
         )
 
+    def _add_topk_yield(prefix: str, model_name: str) -> None:
+        for top_k in top_ks:
+            yield_row = _decision_yield_row(model_name, top_k)
+            if yield_row.empty:
+                continue
+            row[f"{prefix}_top_{top_k}_precision"] = float(
+                yield_row.get("precision_at_k", np.nan)
+            )
+            row[f"{prefix}_top_{top_k}_recall"] = float(yield_row.get("recall_at_k", np.nan))
+
+    def _add_utility(prefix: str, model_name: str) -> None:
+        scorecard_row = _scorecard_for(model_name)
+        if scorecard_row.empty:
+            return
+        row[f"{prefix}_decision_utility_score"] = float(
+            scorecard_row.get("decision_utility_score", np.nan)
+        )
+        row[f"{prefix}_decision_utility_cost"] = float(
+            scorecard_row.get("decision_utility_cost", np.nan)
+        )
+        row[f"{prefix}_optimal_decision_threshold"] = float(
+            scorecard_row.get("optimal_decision_threshold", np.nan)
+        )
+        row[f"{prefix}_decision_utility_precision"] = float(
+            scorecard_row.get("decision_utility_precision", np.nan)
+        )
+        row[f"{prefix}_decision_utility_recall"] = float(
+            scorecard_row.get("decision_utility_recall", np.nan)
+        )
+        row[f"{prefix}_decision_utility_positive_rate"] = float(
+            scorecard_row.get("decision_utility_positive_rate", np.nan)
+        )
+
     _add_topk_overlap("strongest", strongest_model_name)
     _add_topk_overlap("conservative", conservative_model_name)
     _add_top10_yield("published_primary", primary_model_name)
     _add_top10_yield("strongest", strongest_model_name)
     _add_top10_yield("conservative", conservative_model_name)
+    if governance_model_name and governance is not None:
+        _add_top10_yield("governance_primary", governance_model_name)
+    _add_topk_yield("published_primary", primary_model_name)
+    _add_topk_yield("strongest", strongest_model_name)
+    _add_topk_yield("conservative", conservative_model_name)
+    if governance_model_name and governance is not None:
+        _add_topk_yield("governance_primary", governance_model_name)
+    _add_utility("published_primary", primary_model_name)
+    _add_utility("strongest", strongest_model_name)
+    _add_utility("conservative", conservative_model_name)
+    if governance_model_name and governance is not None:
+        _add_utility("governance_primary", governance_model_name)
 
     strongest_overlap = row.get("primary_vs_strongest_top_10_overlap_count")
     strongest_overlap_25 = row.get("primary_vs_strongest_top_25_overlap_count")
@@ -3435,6 +4027,29 @@ def build_primary_model_selection_summary(
         row["published_primary_leakage_review_required"] = bool(
             primary_scorecard.get("leakage_review_required", False)
         )
+    primary_calibration_row = _blocked_holdout_row(primary_model_name)
+    if not primary_calibration_row.empty:
+        row["published_primary_blocked_holdout_raw_brier_score"] = float(
+            primary_calibration_row.get("raw_brier_score", np.nan)
+        )
+        row["published_primary_blocked_holdout_raw_ece"] = float(
+            primary_calibration_row.get("raw_ece", np.nan)
+        )
+        row["published_primary_blocked_holdout_best_calibration_method"] = str(
+            primary_calibration_row.get("best_calibration_method", "")
+        )
+        row["published_primary_blocked_holdout_best_brier_score"] = float(
+            primary_calibration_row.get("best_brier_score", np.nan)
+        )
+        row["published_primary_blocked_holdout_best_ece"] = float(
+            primary_calibration_row.get("best_ece", np.nan)
+        )
+        row["published_primary_blocked_holdout_best_calibration_gain_vs_raw_brier"] = float(
+            primary_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan)
+        )
+        row["published_primary_blocked_holdout_best_calibration_gain_vs_raw_ece"] = float(
+            primary_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan)
+        )
     if not strongest_scorecard.empty:
         if pd.notna(strongest_scorecard.get("selection_rank", np.nan)):
             row["strongest_metric_model_selection_rank"] = int(
@@ -3458,6 +4073,76 @@ def build_primary_model_selection_summary(
         row["strongest_metric_model_leakage_review_required"] = bool(
             strongest_scorecard.get("leakage_review_required", False)
         )
+    strongest_calibration_row = _blocked_holdout_row(strongest_model_name)
+    if not strongest_calibration_row.empty:
+        row["strongest_metric_model_blocked_holdout_raw_brier_score"] = float(
+            strongest_calibration_row.get("raw_brier_score", np.nan)
+        )
+        row["strongest_metric_model_blocked_holdout_raw_ece"] = float(
+            strongest_calibration_row.get("raw_ece", np.nan)
+        )
+        row["strongest_metric_model_blocked_holdout_best_calibration_method"] = str(
+            strongest_calibration_row.get("best_calibration_method", "")
+        )
+        row["strongest_metric_model_blocked_holdout_best_brier_score"] = float(
+            strongest_calibration_row.get("best_brier_score", np.nan)
+        )
+        row["strongest_metric_model_blocked_holdout_best_ece"] = float(
+            strongest_calibration_row.get("best_ece", np.nan)
+        )
+        row["strongest_metric_model_blocked_holdout_best_calibration_gain_vs_raw_brier"] = float(
+            strongest_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan)
+        )
+        row["strongest_metric_model_blocked_holdout_best_calibration_gain_vs_raw_ece"] = float(
+            strongest_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan)
+        )
+    conservative_calibration_row = _blocked_holdout_row(conservative_model_name)
+    if not conservative_calibration_row.empty:
+        row["conservative_blocked_holdout_raw_brier_score"] = float(
+            conservative_calibration_row.get("raw_brier_score", np.nan)
+        )
+        row["conservative_blocked_holdout_raw_ece"] = float(
+            conservative_calibration_row.get("raw_ece", np.nan)
+        )
+        row["conservative_blocked_holdout_best_calibration_method"] = str(
+            conservative_calibration_row.get("best_calibration_method", "")
+        )
+        row["conservative_blocked_holdout_best_brier_score"] = float(
+            conservative_calibration_row.get("best_brier_score", np.nan)
+        )
+        row["conservative_blocked_holdout_best_ece"] = float(
+            conservative_calibration_row.get("best_ece", np.nan)
+        )
+        row["conservative_blocked_holdout_best_calibration_gain_vs_raw_brier"] = float(
+            conservative_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan)
+        )
+        row["conservative_blocked_holdout_best_calibration_gain_vs_raw_ece"] = float(
+            conservative_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan)
+        )
+    if governance_model_name and governance is not None:
+        governance_calibration_row = _blocked_holdout_row(governance_model_name)
+        if not governance_calibration_row.empty:
+            row["governance_primary_blocked_holdout_raw_brier_score"] = float(
+                governance_calibration_row.get("raw_brier_score", np.nan)
+            )
+            row["governance_primary_blocked_holdout_raw_ece"] = float(
+                governance_calibration_row.get("raw_ece", np.nan)
+            )
+            row["governance_primary_blocked_holdout_best_calibration_method"] = str(
+                governance_calibration_row.get("best_calibration_method", "")
+            )
+            row["governance_primary_blocked_holdout_best_brier_score"] = float(
+                governance_calibration_row.get("best_brier_score", np.nan)
+            )
+            row["governance_primary_blocked_holdout_best_ece"] = float(
+                governance_calibration_row.get("best_ece", np.nan)
+            )
+            row["governance_primary_blocked_holdout_best_calibration_gain_vs_raw_brier"] = float(
+                governance_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan)
+            )
+            row["governance_primary_blocked_holdout_best_calibration_gain_vs_raw_ece"] = float(
+                governance_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan)
+            )
     if (
         strongest_model_name != primary_model_name
         and not primary_scorecard.empty
@@ -3605,6 +4290,10 @@ def build_benchmark_protocol_table(
         ].head(1)
         return match.iloc[0] if not match.empty else pd.Series(dtype=object)
 
+    def _safe_float(value: object) -> float:
+        coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        return float(coerced) if pd.notna(coerced) else float("nan")
+
     def _append_single(
         model_name: str, *, role: str, status: str, track: str, rationale: str
     ) -> None:
@@ -3618,52 +4307,71 @@ def build_benchmark_protocol_table(
             and pd.notna(scorecard_row.get("strict_knownness_acceptance_flag", np.nan))
             else np.nan
         )
-        rows.append(
-            {
-                "model_name": model_name,
-                "benchmark_role": role,
-                "benchmark_status": status,
-                "benchmark_track": track,
-                "model_family": "single_model",
-                "roc_auc": float(metric_row["roc_auc"]),
-                "average_precision": float(metric_row["average_precision"]),
-                "selection_rank": float(scorecard_row.get("selection_rank", np.nan))
-                if not scorecard_row.empty
-                else np.nan,
-                "strict_knownness_acceptance_flag": strict_flag,
-                "scientific_acceptance_flag": bool(
-                    scorecard_row.get("scientific_acceptance_flag", False)
-                )
-                if not scorecard_row.empty
-                and str(scorecard_row.get("scientific_acceptance_status", "")).strip()
-                in {"pass", "fail"}
-                else np.nan,
-                "scientific_acceptance_status": str(
-                    scorecard_row.get("scientific_acceptance_status", "not_scored")
-                )
-                if not scorecard_row.empty
-                else "not_scored",
-                "knownness_matched_gap": float(scorecard_row.get("knownness_matched_gap", np.nan))
-                if not scorecard_row.empty
-                else np.nan,
-                "source_holdout_gap": float(scorecard_row.get("source_holdout_gap", np.nan))
-                if not scorecard_row.empty
-                else np.nan,
-                "leakage_review_required": bool(scorecard_row.get("leakage_review_required", False))
-                if not scorecard_row.empty
-                else False,
-                "benchmark_guardrail_status": (
-                    "passes_strict_acceptance"
-                    if strict_flag is True
-                    else "fails_strict_acceptance"
-                    if strict_flag is False
-                    else "not_scored"
-                ),
-                "gate_consistency_tier": np.nan,
-                "specialist_weight_lower_half": np.nan,
-                "selection_rationale": rationale,
-            }
-        )
+        benchmark_row: dict[str, object] = {
+            "model_name": model_name,
+            "benchmark_role": role,
+            "benchmark_status": status,
+            "benchmark_track": track,
+            "model_family": "single_model",
+            "roc_auc": float(metric_row["roc_auc"]),
+            "average_precision": float(metric_row["average_precision"]),
+            "selection_rank": _safe_float(scorecard_row.get("selection_rank", np.nan))
+            if not scorecard_row.empty
+            else np.nan,
+            "strict_knownness_acceptance_flag": strict_flag,
+            "scientific_acceptance_flag": bool(
+                scorecard_row.get("scientific_acceptance_flag", False)
+            )
+            if not scorecard_row.empty
+            and str(scorecard_row.get("scientific_acceptance_status", "")).strip()
+            in {"pass", "fail"}
+            else np.nan,
+            "scientific_acceptance_status": str(
+                scorecard_row.get("scientific_acceptance_status", "not_scored")
+            )
+            if not scorecard_row.empty
+            else "not_scored",
+            "knownness_matched_gap": _safe_float(
+                scorecard_row.get("knownness_matched_gap", np.nan)
+            )
+            if not scorecard_row.empty
+            else np.nan,
+            "source_holdout_gap": _safe_float(scorecard_row.get("source_holdout_gap", np.nan))
+            if not scorecard_row.empty
+            else np.nan,
+            "leakage_review_required": bool(scorecard_row.get("leakage_review_required", False))
+            if not scorecard_row.empty
+            else False,
+            "benchmark_guardrail_status": (
+                "passes_strict_acceptance"
+                if strict_flag is True
+                else "fails_strict_acceptance"
+                if strict_flag is False
+                else "not_scored"
+            ),
+            "gate_consistency_tier": np.nan,
+            "specialist_weight_lower_half": np.nan,
+            "selection_rationale": rationale,
+        }
+        prefixes: list[str] = []
+        if model_name == primary_model_name:
+            prefixes.append("published_primary")
+        if model_name == conservative_model_name:
+            prefixes.append("conservative")
+        if model_name == strongest_model_name:
+            prefixes.append("strongest_metric_model")
+        if model_name == "baseline_both":
+            prefixes.append("baseline_both")
+        if model_name == "source_only":
+            prefixes.append("source_only")
+        if governance_model_name and model_name == governance_model_name:
+            prefixes.append("governance_primary")
+        for prefix in prefixes:
+            selection_prefix = f"{prefix}_"
+            for key, value in selection_row.items():
+                if isinstance(key, str) and key.startswith(selection_prefix):
+                    benchmark_row[key] = value
+        rows.append(benchmark_row)
 
     _append_single(
         primary_model_name,
@@ -3856,6 +4564,45 @@ def build_benchmark_protocol_table(
     return protocol
 
 
+def build_official_benchmark_panel(benchmark_protocol: pd.DataFrame) -> pd.DataFrame:
+    """Extract the compact public-facing benchmark panel from the full protocol."""
+    if benchmark_protocol.empty:
+        return pd.DataFrame()
+    if "benchmark_role" not in benchmark_protocol.columns:
+        return benchmark_protocol.copy().reset_index(drop=True)
+    official_roles = {
+        "primary_benchmark",
+        "governance_benchmark",
+        "conservative_benchmark",
+        "counts_baseline",
+        "source_control",
+    }
+    panel = benchmark_protocol.loc[
+        benchmark_protocol["benchmark_role"].astype(str).isin(official_roles)
+    ].copy()
+    if panel.empty:
+        return panel
+    role_order = {
+        "primary_benchmark": 0,
+        "governance_benchmark": 1,
+        "conservative_benchmark": 2,
+        "counts_baseline": 3,
+        "source_control": 4,
+    }
+    panel["_official_benchmark_rank"] = panel["benchmark_role"].map(role_order).fillna(99)
+    sort_columns = ["_official_benchmark_rank"]
+    if "benchmark_track" in panel.columns:
+        sort_columns.append("benchmark_track")
+    if "benchmark_status" in panel.columns:
+        sort_columns.append("benchmark_status")
+    panel = (
+        panel.sort_values(sort_columns, kind="mergesort")
+        .drop(columns="_official_benchmark_rank")
+        .reset_index(drop=True)
+    )
+    return panel
+
+
 def build_model_selection_scorecard(
     model_metrics: pd.DataFrame,
     predictions: pd.DataFrame,
@@ -3929,11 +4676,29 @@ def build_model_selection_scorecard(
             "expected_calibration_error",
             "max_calibration_error",
             "weighted_classification_cost",
+            "decision_utility_score",
+            "decision_utility_cost",
+            "optimal_decision_threshold",
+            "decision_utility_precision",
+            "decision_utility_recall",
+            "decision_utility_positive_rate",
             "spatial_holdout_roc_auc",
             "selection_adjusted_empirical_p_roc_auc",
         ):
             if extra_metric in available_metrics.columns:
                 row[extra_metric] = available_metrics.loc[model_name, extra_metric]
+        if pd.isna(row.get("decision_utility_score", np.nan)):
+            weighted_cost = pd.to_numeric(
+                pd.Series([row.get("weighted_classification_cost", np.nan)]), errors="coerce"
+            ).iloc[0]
+            if pd.notna(weighted_cost):
+                row["decision_utility_score"] = float(-weighted_cost)
+        if pd.isna(row.get("decision_utility_cost", np.nan)):
+            utility_score = pd.to_numeric(
+                pd.Series([row.get("decision_utility_score", np.nan)]), errors="coerce"
+            ).iloc[0]
+            if pd.notna(utility_score):
+                row["decision_utility_cost"] = float(-utility_score)
         for cohort_name, mask in (
             ("lower_half_knownness", valid["knownness_half"].astype(str).eq("lower_half")),
             ("lowest_knownness_quartile", valid["knownness_quartile"].astype(str).eq("q1_lowest")),
@@ -4004,7 +4769,7 @@ def build_model_selection_scorecard(
         "matched_knownness_weighted_roc_auc": False,
         "source_holdout_macro_roc_auc": False,
         "prediction_vs_knownness_spearman": True,
-        "weighted_classification_cost": True,
+        "decision_utility_score": False,
     }
     component_columns: list[str] = []
     for column, ascending in scoring_directions.items():
@@ -4174,15 +4939,53 @@ def build_model_selection_scorecard(
         np.where(scorecard["scientific_acceptance_flag"], "pass", "fail"),
         "not_scored",
     )
+    scorecard["selection_metrics_complete"] = (
+        scorecard["matched_knownness_weighted_roc_auc"].notna()
+        & scorecard["source_holdout_weighted_roc_auc"].notna()
+    )
+    spatial_holdout_values = pd.to_numeric(
+        scorecard.get("spatial_holdout_roc_auc", pd.Series(np.nan, index=scorecard.index)),
+        errors="coerce",
+    )
+    if spatial_holdout_values.notna().any():
+        scorecard["selection_metrics_complete"] &= spatial_holdout_values.notna()
+    ece_values = pd.to_numeric(
+        scorecard.get(
+            "ece",
+            scorecard.get("expected_calibration_error", pd.Series(np.nan, index=scorecard.index)),
+        ),
+        errors="coerce",
+    )
+    if ece_values.notna().any():
+        scorecard["selection_metrics_complete"] &= ece_values.notna()
+    selection_adjusted_values = pd.to_numeric(
+        scorecard.get(
+            "selection_adjusted_empirical_p_roc_auc",
+            pd.Series(np.nan, index=scorecard.index),
+        ),
+        errors="coerce",
+    )
+    if selection_adjusted_values.notna().any():
+        scorecard["selection_metrics_complete"] &= selection_adjusted_values.notna()
     scorecard["scientific_acceptance_failed_criteria"] = scorecard.apply(
         _scientific_acceptance_reason, axis=1
     )
     scorecard = scorecard.sort_values(
-        ["selection_composite_score", "roc_auc", "average_precision"],
-        ascending=[False, False, False],
+        [
+            "selection_metrics_complete",
+            "selection_composite_score",
+            "roc_auc",
+            "average_precision",
+        ],
+        ascending=[False, False, False, False],
         kind="mergesort",
     ).reset_index(drop=True)
-    scorecard["selection_rank"] = np.arange(1, len(scorecard) + 1)
+    scorecard["selection_rank"] = pd.Series(pd.NA, index=scorecard.index, dtype="Int64")
+    rankable = scorecard["selection_metrics_complete"].fillna(False).astype(bool)
+    if rankable.any():
+        scorecard.loc[rankable, "selection_rank"] = pd.Series(
+            np.arange(1, int(rankable.sum()) + 1), index=scorecard.index[rankable], dtype="Int64"
+        )
     scorecard["track_rank"] = (
         scorecard.groupby(scorecard["model_track"].astype(str), sort=False).cumcount() + 1
     ).astype(int)
@@ -4214,24 +5017,27 @@ def build_model_selection_scorecard(
     track_values = scorecard["model_track"].astype(str)
     _assign_track_specific_rank(
         "discovery_track_rank",
-        track_values.eq("discovery"),
+        track_values.eq("discovery") & rankable,
         ["selection_composite_score", "roc_auc", "average_precision"],
         [False, False, False],
     )
     _assign_track_specific_rank(
         "governance_track_rank",
-        track_values.eq("governance"),
+        track_values.eq("governance") & rankable,
         ["governance_priority_score", "guardrail_loss", "roc_auc", "average_precision"],
         [False, True, False, False],
     )
     _assign_track_specific_rank(
         "baseline_track_rank",
-        track_values.eq("baseline"),
+        track_values.eq("baseline") & rankable,
         ["selection_composite_score", "roc_auc", "average_precision"],
         [False, False, False],
     )
     scorecard["governance_rank"] = (
-        scorecard["governance_priority_score"].rank(method="dense", ascending=False).astype("Int64")
+        scorecard["governance_priority_score"]
+        .where(rankable)
+        .rank(method="dense", ascending=False)
+        .astype("Int64")
     )
     return scorecard
 

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import warnings
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any, cast
+
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", "1")
 
 import numpy as np
 import pandas as pd
@@ -66,6 +69,7 @@ from plasmid_priority.validation import (
     bootstrap_intervals,
     brier_decomposition,
     brier_score,
+    decision_utility_summary,
     expected_calibration_error,
     log_loss,
     max_calibration_error,
@@ -185,7 +189,12 @@ def _stable_quantile_labels(
     return labels, n_bins
 
 
-def _compute_sample_weight(eligible: pd.DataFrame, *, mode: str | None) -> np.ndarray | None:
+def _compute_sample_weight(
+    eligible: pd.DataFrame,
+    *,
+    mode: str | None,
+    fit_kwargs: dict[str, object] | None = None,
+) -> np.ndarray | None:
     if mode in (None, "", "none"):
         return None
     tokens = [token.strip() for token in str(mode).replace(",", "+").split("+") if token.strip()]
@@ -225,8 +234,89 @@ def _compute_sample_weight(eligible: pd.DataFrame, *, mode: str | None) -> np.nd
                     inverse = (1.0 / counts.clip(lower=1.0)).to_dict()
                     weights *= quantile_labels.map(inverse).fillna(1.0).to_numpy(dtype=float)
             continue
+        if token == "pu_negative_downweight":
+            labels = eligible["spread_label"].fillna(0).astype(int)
+            knownness = _knownness_score_series(eligible).fillna(0.0).clip(lower=0.0, upper=1.0)
+            min_weight = _fit_kwarg_float(fit_kwargs, "pu_negative_min_weight", 0.25)
+            min_weight = float(np.clip(min_weight, 0.0, 1.0))
+            power = max(_fit_kwarg_float(fit_kwargs, "pu_negative_power", 1.0), 0.1)
+            negative_weight = min_weight + ((1.0 - min_weight) * np.power(knownness, power))
+            pu_weight = np.where(
+                labels.to_numpy(dtype=int) == 1,
+                1.0,
+                negative_weight.to_numpy(dtype=float),
+            )
+            weights *= np.asarray(pu_weight, dtype=float)
+            continue
         raise ValueError(f"Unsupported sample_weight_mode: {mode}")
     return np.asarray(weights / max(weights.mean(), 1e-6), dtype=float)
+
+
+def _build_pairwise_rank_dataset(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    sample_weight: np.ndarray | None = None,
+    fit_kwargs: dict[str, object] | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    labels = np.asarray(y, dtype=int)
+    positive_idx = np.flatnonzero(labels == 1)
+    negative_idx = np.flatnonzero(labels == 0)
+    if positive_idx.size == 0 or negative_idx.size == 0:
+        raise ValueError("Pairwise ranking requires both positive and negative samples.")
+
+    max_pairs = max(_fit_kwarg_int(fit_kwargs, "pairwise_max_pairs", 6000), 1)
+    total_pairs = int(positive_idx.size * negative_idx.size)
+    rng = np.random.default_rng(_fit_kwarg_int(fit_kwargs, "pairwise_random_state", 42))
+    if total_pairs <= max_pairs:
+        high_idx = np.repeat(positive_idx, negative_idx.size)
+        low_idx = np.tile(negative_idx, positive_idx.size)
+    else:
+        high_idx = rng.choice(positive_idx, size=max_pairs, replace=True)
+        low_idx = rng.choice(negative_idx, size=max_pairs, replace=True)
+
+    forward = np.asarray(X[high_idx] - X[low_idx], dtype=float)
+    reverse = np.asarray(X[low_idx] - X[high_idx], dtype=float)
+    pair_matrix = np.vstack([forward, reverse])
+    pair_labels = np.concatenate(
+        [
+            np.ones(len(forward), dtype=int),
+            np.zeros(len(reverse), dtype=int),
+        ]
+    )
+    if sample_weight is None:
+        return pair_matrix, pair_labels, None
+    base_weight = 0.5 * (
+        np.asarray(sample_weight[high_idx], dtype=float)
+        + np.asarray(sample_weight[low_idx], dtype=float)
+    )
+    pair_weight = np.concatenate([base_weight, base_weight])
+    return pair_matrix, pair_labels, np.asarray(pair_weight, dtype=float)
+
+
+def _fit_pairwise_rank_model(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+    sample_weight: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    X_train_scaled, mean, std = _standardize_fit(X_train)
+    pair_X, pair_y, pair_weight = _build_pairwise_rank_dataset(
+        X_train_scaled,
+        y_train,
+        sample_weight=sample_weight,
+        fit_kwargs=fit_kwargs,
+    )
+    beta = _fit_logistic_regression(
+        pair_X,
+        pair_y,
+        l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+        sample_weight=pair_weight,
+        fit_backend=_fit_backend_name(fit_kwargs),
+    )
+    return beta, mean, std, X_train_scaled
 
 
 def _knownness_design_matrix(frame: pd.DataFrame) -> np.ndarray:
@@ -434,7 +524,11 @@ def _select_knownness_residualizer_alpha(
                     coefficients,
                     prepared=True,
                 )
-                train_weight = _compute_sample_weight(inner_train, mode=_fit_kwarg_mode(fit_kwargs))
+                train_weight = _compute_sample_weight(
+                    inner_train,
+                    mode=_fit_kwarg_mode(fit_kwargs),
+                    fit_kwargs=fit_kwargs,
+                )
                 X_train_scaled, mean, std = _standardize_fit(X_train)
                 X_valid_scaled = _standardize_apply(X_valid, mean, std)
                 beta = _fit_logistic_regression(
@@ -568,6 +662,7 @@ def _fit_ebm_classifier(
     model = ExplainableBoostingClassifier(
         interactions=_fit_kwarg_int(fit_kwargs, "nonlinear_interactions", interactions),
         outer_bags=_fit_kwarg_int(fit_kwargs, "nonlinear_outer_bags", 8),
+        n_jobs=_fit_kwarg_optional_int(fit_kwargs, "nonlinear_n_jobs", 1),
         learning_rate=_fit_kwarg_float(fit_kwargs, "nonlinear_learning_rate", 0.01),
         max_bins=_fit_kwarg_int(fit_kwargs, "nonlinear_max_bins", 64),
         min_samples_leaf=_fit_kwarg_int(
@@ -589,24 +684,42 @@ def _fit_nonlinear_model(
     *,
     fit_kwargs: dict[str, object] | None = None,
     sample_weight: np.ndarray | None = None,
-) -> object:
+) -> tuple[object, str, str]:
+    requested = _fit_kwarg_str(fit_kwargs, "nonlinear_backend", "").strip().lower()
     backend = _resolve_nonlinear_backend_name(fit_kwargs)
     if backend == "ebm":
         try:
-            return _fit_ebm_classifier(X, y, fit_kwargs=fit_kwargs, sample_weight=sample_weight)
+            return (
+                _fit_ebm_classifier(X, y, fit_kwargs=fit_kwargs, sample_weight=sample_weight),
+                "ebm",
+                "resolved_ebm",
+            )
         except (OSError, PermissionError) as exc:
             warnings.warn(
                 f"EBM nonlinear fit failed in this environment ({type(exc).__name__}: {exc}); "
                 "falling back to hist_gbm for the nonlinear branch.",
                 stacklevel=2,
             )
-            return _fit_hist_gradient_boosting(
-                X,
-                y,
-                fit_kwargs=fit_kwargs,
-                sample_weight=sample_weight,
+            return (
+                _fit_hist_gradient_boosting(
+                    X,
+                    y,
+                    fit_kwargs=fit_kwargs,
+                    sample_weight=sample_weight,
+                ),
+                "hist_gbm",
+                "fit_fallback_hist_gbm",
             )
-    return _fit_hist_gradient_boosting(X, y, fit_kwargs=fit_kwargs, sample_weight=sample_weight)
+    status = "resolved_hist_gbm"
+    if requested == "ebm" and ExplainableBoostingClassifier is None:
+        status = "interpret_missing_hist_gbm"
+    elif requested and requested != backend:
+        status = f"requested_{requested}_resolved_{backend}"
+    return (
+        _fit_hist_gradient_boosting(X, y, fit_kwargs=fit_kwargs, sample_weight=sample_weight),
+        backend,
+        status,
+    )
 
 
 def _predict_nonlinear_model(model: object, X: np.ndarray) -> np.ndarray:
@@ -677,7 +790,11 @@ def _fit_hybrid_isotonic_calibrator(
                 fit_kwargs=fit_kwargs,
                 prepared=True,
             )
-            inner_weight = _compute_sample_weight(inner_train, mode=_fit_kwarg_mode(fit_kwargs))
+            inner_weight = _compute_sample_weight(
+                inner_train,
+                mode=_fit_kwarg_mode(fit_kwargs),
+                fit_kwargs=fit_kwargs,
+            )
             beta, mean, std = _fit_standardized_model(
                 X_inner_train,
                 y[train_mask],
@@ -687,7 +804,7 @@ def _fit_hybrid_isotonic_calibrator(
                 fit_backend=_fit_backend_name(fit_kwargs),
             )
             logistic_valid = _predict_calibrated(_standardize_apply(X_inner_valid, mean, std), beta)
-            nonlinear_model = _fit_nonlinear_model(
+            nonlinear_model, _, _ = _fit_nonlinear_model(
                 X_inner_train,
                 y[train_mask],
                 fit_kwargs=fit_kwargs,
@@ -699,7 +816,11 @@ def _fit_hybrid_isotonic_calibrator(
     if np.any(counts == 0):
         return None
     blend = preds / counts
-    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
+    sample_weight = _compute_sample_weight(
+        train,
+        mode=_fit_kwarg_mode(fit_kwargs),
+        fit_kwargs=fit_kwargs,
+    )
     calibrator = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
     calibrator.fit(blend, y, sample_weight=sample_weight)
     return calibrator
@@ -723,7 +844,11 @@ def _fit_predict_hybrid_stacked(
         fit_kwargs=fit_kwargs,
         prepared=True,
     )
-    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
+    sample_weight = _compute_sample_weight(
+        train,
+        mode=_fit_kwarg_mode(fit_kwargs),
+        fit_kwargs=fit_kwargs,
+    )
     beta, mean, std = _fit_standardized_model(
         X_train,
         y_train,
@@ -734,7 +859,7 @@ def _fit_predict_hybrid_stacked(
     )
     X_score_scaled = _standardize_apply(X_score, mean, std)
     logistic_prediction = _predict_calibrated(X_score_scaled, beta)
-    nonlinear_model = _fit_nonlinear_model(
+    nonlinear_model, resolved_backend, backend_status = _fit_nonlinear_model(
         X_train,
         y_train,
         fit_kwargs=fit_kwargs,
@@ -758,6 +883,12 @@ def _fit_predict_hybrid_stacked(
             "nonlinear_base_prediction": nonlinear_prediction.tolist(),
             "agreement_score": agreement_score.tolist(),
             "agreement_review_flag": (agreement_score < review_threshold).tolist(),
+            "nonlinear_backend_requested": _fit_kwarg_str(fit_kwargs, "nonlinear_backend", "")
+            .strip()
+            .lower()
+            or ("ebm" if ExplainableBoostingClassifier is not None else "hist_gbm"),
+            "nonlinear_backend_resolved": resolved_backend,
+            "nonlinear_backend_resolution_status": backend_status,
         }
     )
     if "spread_label" in score.columns:
@@ -787,6 +918,9 @@ def _oof_hybrid_predictions_from_eligible(
     nonlinear_base = np.zeros(len(eligible), dtype=float)
     agreement = np.zeros(len(eligible), dtype=float)
     review = np.zeros(len(eligible), dtype=float)
+    nonlinear_backend_requested = np.full(len(eligible), "", dtype=object)
+    nonlinear_backend_resolved = np.full(len(eligible), "", dtype=object)
+    nonlinear_backend_resolution_status = np.full(len(eligible), "", dtype=object)
     counts = np.zeros(len(eligible), dtype=float)
     fold_groups = (
         folds_per_repeat
@@ -818,6 +952,18 @@ def _oof_hybrid_predictions_from_eligible(
             review[test_idx] += fold_predictions["agreement_review_flag"].astype(float).to_numpy(
                 dtype=float
             )
+            if "nonlinear_backend_requested" in fold_predictions.columns:
+                nonlinear_backend_requested[test_idx] = str(
+                    fold_predictions["nonlinear_backend_requested"].iloc[0]
+                )
+            if "nonlinear_backend_resolved" in fold_predictions.columns:
+                nonlinear_backend_resolved[test_idx] = str(
+                    fold_predictions["nonlinear_backend_resolved"].iloc[0]
+                )
+            if "nonlinear_backend_resolution_status" in fold_predictions.columns:
+                nonlinear_backend_resolution_status[test_idx] = str(
+                    fold_predictions["nonlinear_backend_resolution_status"].iloc[0]
+                )
             counts[test_idx] += 1.0
     if counts.min() == 0:
         warnings.warn(
@@ -831,6 +977,9 @@ def _oof_hybrid_predictions_from_eligible(
             "nonlinear_base_prediction": nonlinear_base / counts,
             "agreement_score": agreement / counts,
             "agreement_review_flag": (review / counts) >= 0.5,
+            "nonlinear_backend_requested": nonlinear_backend_requested,
+            "nonlinear_backend_resolved": nonlinear_backend_resolved,
+            "nonlinear_backend_resolution_status": nonlinear_backend_resolution_status,
         },
         index=eligible.index,
     )
@@ -849,7 +998,8 @@ def _oof_predictions_from_eligible(
     folds_per_repeat: list[list[np.ndarray]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     fit_kwargs = fit_kwargs or {}
-    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+    model_type = _model_type_name(fit_kwargs)
+    if model_type == "hybrid_stacked":
         hybrid_preds, hybrid_y, _ = _oof_hybrid_predictions_from_eligible(
             eligible,
             columns=columns,
@@ -886,17 +1036,30 @@ def _oof_predictions_from_eligible(
                 fit_kwargs=fit_kwargs,
                 prepared=True,
             )
-            train_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
-            X_train_scaled, mean, std = _standardize_fit(X_train)
-            X_test_scaled = _standardize_apply(X_test, mean, std)
-            beta = _fit_logistic_regression(
-                X_train_scaled,
-                y[train_mask],
-                l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
-                max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
-                sample_weight=train_weight,
-                fit_backend=_fit_backend_name(fit_kwargs),
+            train_weight = _compute_sample_weight(
+                train,
+                mode=_fit_kwarg_mode(fit_kwargs),
+                fit_kwargs=fit_kwargs,
             )
+            if model_type == "pairwise_rank_logistic":
+                beta, mean, std, _ = _fit_pairwise_rank_model(
+                    X_train,
+                    y[train_mask],
+                    fit_kwargs=fit_kwargs,
+                    sample_weight=train_weight,
+                )
+                X_test_scaled = _standardize_apply(X_test, mean, std)
+            else:
+                X_train_scaled, mean, std = _standardize_fit(X_train)
+                X_test_scaled = _standardize_apply(X_test, mean, std)
+                beta = _fit_logistic_regression(
+                    X_train_scaled,
+                    y[train_mask],
+                    l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                    max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+                    sample_weight=train_weight,
+                    fit_backend=_fit_backend_name(fit_kwargs),
+                )
             preds[test_idx] += _predict_logistic(X_test_scaled, beta)
             counts[test_idx] += 1
     if counts.min() == 0:
@@ -1006,6 +1169,7 @@ def _evaluate_prediction_set(
     precision_at_10, recall_at_10 = _top_k_precision_recall(y, preds, top_k=10)
     precision_at_25, recall_at_25 = _top_k_precision_recall(y, preds, top_k=25)
     brier_parts = brier_decomposition(y, preds)
+    utility_summary = decision_utility_summary(y, preds)
     metrics = {
         "roc_auc": roc_auc_score(y, preds),
         "average_precision": ap,
@@ -1025,6 +1189,13 @@ def _evaluate_prediction_set(
         "recall_at_top_10": recall_at_10,
         "precision_at_top_25": precision_at_25,
         "recall_at_top_25": recall_at_25,
+        "optimal_decision_threshold": utility_summary["optimal_threshold"],
+        "decision_utility_score": utility_summary["optimal_threshold_utility_per_sample"],
+        "decision_utility_cost": utility_summary["optimal_threshold_cost_per_sample"],
+        "decision_utility_precision": utility_summary["optimal_threshold_precision"],
+        "decision_utility_recall": utility_summary["optimal_threshold_recall"],
+        "decision_utility_positive_rate": utility_summary["optimal_threshold_positive_rate"],
+        "decision_utility_grid_size": utility_summary["utility_grid_size"],
         "n_backbones": int(len(y)),
         "n_positive": int((np.asarray(y, dtype=int) == 1).sum()),
         "weighted_classification_cost": weighted_classification_cost(y, preds),
@@ -1598,7 +1769,8 @@ def fit_predict_model_holdout(
 
     y_train = train["spread_label"].to_numpy(dtype=int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+    model_type = _model_type_name(fit_kwargs)
+    if model_type == "hybrid_stacked":
         return _fit_predict_hybrid_stacked(
             train,
             test,
@@ -1614,17 +1786,29 @@ def fit_predict_model_holdout(
         fit_kwargs=fit_kwargs,
         prepared=True,
     )
-    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
-    beta, mean, std = _fit_standardized_model(
-        X_train,
-        y_train,
-        l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
-        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
-        sample_weight=sample_weight,
-        fit_backend=_fit_backend_name(fit_kwargs),
+    sample_weight = _compute_sample_weight(
+        train,
+        mode=_fit_kwarg_mode(fit_kwargs),
+        fit_kwargs=fit_kwargs,
     )
+    if model_type == "pairwise_rank_logistic":
+        beta, mean, std, X_train_scaled = _fit_pairwise_rank_model(
+            X_train,
+            y_train,
+            fit_kwargs=fit_kwargs,
+            sample_weight=sample_weight,
+        )
+    else:
+        beta, mean, std = _fit_standardized_model(
+            X_train,
+            y_train,
+            l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+            sample_weight=sample_weight,
+            fit_backend=_fit_backend_name(fit_kwargs),
+        )
+        X_train_scaled = _standardize_apply(X_train, mean, std)
     effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", l2)
-    X_train_scaled = _standardize_apply(X_train, mean, std)
     X_test_scaled = _standardize_apply(X_test, mean, std)
     posterior_covariance = _logistic_posterior_covariance(
         X_train_scaled,
@@ -1674,7 +1858,8 @@ def fit_full_model_predictions(
 
     y_train = train["spread_label"].to_numpy(dtype=int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+    model_type = _model_type_name(fit_kwargs)
+    if model_type == "hybrid_stacked":
         return _fit_predict_hybrid_stacked(
             train,
             all_rows,
@@ -1690,17 +1875,29 @@ def fit_full_model_predictions(
         fit_kwargs=fit_kwargs,
         prepared=True,
     )
-    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
-    beta, mean, std = _fit_standardized_model(
-        X_train,
-        y_train,
-        l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
-        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
-        sample_weight=sample_weight,
-        fit_backend=_fit_backend_name(fit_kwargs),
+    sample_weight = _compute_sample_weight(
+        train,
+        mode=_fit_kwarg_mode(fit_kwargs),
+        fit_kwargs=fit_kwargs,
     )
+    if model_type == "pairwise_rank_logistic":
+        beta, mean, std, X_train_scaled = _fit_pairwise_rank_model(
+            X_train,
+            y_train,
+            fit_kwargs=fit_kwargs,
+            sample_weight=sample_weight,
+        )
+    else:
+        beta, mean, std = _fit_standardized_model(
+            X_train,
+            y_train,
+            l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+            sample_weight=sample_weight,
+            fit_backend=_fit_backend_name(fit_kwargs),
+        )
+        X_train_scaled = _standardize_apply(X_train, mean, std)
     effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", l2)
-    X_train_scaled = _standardize_apply(X_train, mean, std)
     X_all_scaled = _standardize_apply(X_all, mean, std)
     posterior_covariance = _logistic_posterior_covariance(
         X_train_scaled,
@@ -1849,7 +2046,8 @@ def fit_feature_columns_predictions(
     fit_kwargs: dict[str, object] = {"l2": 1.0, "max_iter": 100, "sample_weight_mode": None}
     if fit_config:
         fit_kwargs.update(fit_config)
-    if _model_type_name(fit_kwargs) == "hybrid_stacked":
+    model_type = _model_type_name(fit_kwargs)
+    if model_type == "hybrid_stacked":
         return _fit_predict_hybrid_stacked(train, score, columns, fit_kwargs=fit_kwargs)
     X_train, X_score = _prepare_feature_matrices(
         train,
@@ -1858,17 +2056,29 @@ def fit_feature_columns_predictions(
         fit_kwargs=fit_kwargs,
         prepared=True,
     )
-    sample_weight = _compute_sample_weight(train, mode=_fit_kwarg_mode(fit_kwargs))
-    beta, mean, std = _fit_standardized_model(
-        X_train,
-        y_train,
-        l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
-        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
-        sample_weight=sample_weight,
-        fit_backend=_fit_backend_name(fit_kwargs),
+    sample_weight = _compute_sample_weight(
+        train,
+        mode=_fit_kwarg_mode(fit_kwargs),
+        fit_kwargs=fit_kwargs,
     )
+    if model_type == "pairwise_rank_logistic":
+        beta, mean, std, X_train_scaled = _fit_pairwise_rank_model(
+            X_train,
+            y_train,
+            fit_kwargs=fit_kwargs,
+            sample_weight=sample_weight,
+        )
+    else:
+        beta, mean, std = _fit_standardized_model(
+            X_train,
+            y_train,
+            l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+            sample_weight=sample_weight,
+            fit_backend=_fit_backend_name(fit_kwargs),
+        )
+        X_train_scaled = _standardize_apply(X_train, mean, std)
     effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", 1.0)
-    X_train_scaled = _standardize_apply(X_train, mean, std)
     X_score_scaled = _standardize_apply(X_score, mean, std)
     posterior_covariance = _logistic_posterior_covariance(
         X_train_scaled,
@@ -2029,17 +2239,29 @@ def build_standardized_coefficient_table(
         fit_kwargs=fit_kwargs,
         prepared=True,
     )
-    sample_weight = _compute_sample_weight(eligible, mode=_fit_kwarg_mode(fit_kwargs))
-    beta, _, _ = _fit_standardized_model(
-        X,
-        y,
-        l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
-        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
-        sample_weight=sample_weight,
-        fit_backend=_fit_backend_name(fit_kwargs),
+    sample_weight = _compute_sample_weight(
+        eligible,
+        mode=_fit_kwarg_mode(fit_kwargs),
+        fit_kwargs=fit_kwargs,
     )
+    if _model_type_name(fit_kwargs) == "pairwise_rank_logistic":
+        beta, _, _, X_scaled = _fit_pairwise_rank_model(
+            X,
+            y,
+            fit_kwargs=fit_kwargs,
+            sample_weight=sample_weight,
+        )
+    else:
+        beta, _, _ = _fit_standardized_model(
+            X,
+            y,
+            l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+            sample_weight=sample_weight,
+            fit_backend=_fit_backend_name(fit_kwargs),
+        )
+        X_scaled, _, _ = _standardize_fit(X)
     effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", l2)
-    X_scaled, _, _ = _standardize_fit(X)
     posterior_covariance = _logistic_posterior_covariance(
         X_scaled,
         beta,
@@ -2083,7 +2305,11 @@ def build_coefficient_stability_table(
     eligible["spread_label"] = eligible["spread_label"].astype(int)
     y = eligible["spread_label"].to_numpy(dtype=int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    sample_weight = _compute_sample_weight(eligible, mode=_fit_kwarg_mode(fit_kwargs))
+    sample_weight = _compute_sample_weight(
+        eligible,
+        mode=_fit_kwarg_mode(fit_kwargs),
+        fit_kwargs=fit_kwargs,
+    )
     tasks = [
         (repeat_index, fold_index, test_idx)
         for repeat_index, fold_indices in enumerate(
@@ -2106,14 +2332,22 @@ def build_coefficient_stability_table(
             fit_kwargs=fit_kwargs,
             prepared=True,
         )
-        beta, _, _ = _fit_standardized_model(
-            X_train,
-            y[train_mask],
-            l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
-            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
-            sample_weight=train_weight,
-            fit_backend=_fit_backend_name(fit_kwargs),
-        )
+        if _model_type_name(fit_kwargs) == "pairwise_rank_logistic":
+            beta, _, _, _ = _fit_pairwise_rank_model(
+                X_train,
+                y[train_mask],
+                fit_kwargs=fit_kwargs,
+                sample_weight=train_weight,
+            )
+        else:
+            beta, _, _ = _fit_standardized_model(
+                X_train,
+                y[train_mask],
+                l2=_fit_kwarg_float(fit_kwargs, "l2", l2),
+                max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", max_iter),
+                sample_weight=train_weight,
+                fit_backend=_fit_backend_name(fit_kwargs),
+            )
         return [
             {
                 "model_name": model_name,
@@ -2241,7 +2475,11 @@ def build_logistic_convergence_audit(
             ]
 
         fit_kwargs = _model_fit_kwargs(model_name)
-        sample_weight = _compute_sample_weight(eligible, mode=_fit_kwarg_mode(fit_kwargs))
+        sample_weight = _compute_sample_weight(
+            eligible,
+            mode=_fit_kwarg_mode(fit_kwargs),
+            fit_kwargs=fit_kwargs,
+        )
         model_rows: list[dict[str, object]] = []
         for repeat_index, fold_indices in enumerate(
             _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed),
@@ -2259,15 +2497,32 @@ def build_logistic_convergence_audit(
                     fit_kwargs=fit_kwargs,
                     prepared=True,
                 )
-                X_train_scaled, _, _ = _standardize_fit(X_train)
-                _, diagnostics = _fit_logistic_regression_with_diagnostics(
-                    X_train_scaled,
-                    y[train_mask],
-                    l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
-                    max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
-                    sample_weight=train_weight,
-                    fit_backend=_fit_backend_name(fit_kwargs),
-                )
+                if _model_type_name(fit_kwargs) == "pairwise_rank_logistic":
+                    X_train_scaled, _, _ = _standardize_fit(X_train)
+                    pair_X, pair_y, pair_weight = _build_pairwise_rank_dataset(
+                        X_train_scaled,
+                        y[train_mask],
+                        sample_weight=train_weight,
+                        fit_kwargs=fit_kwargs,
+                    )
+                    _, diagnostics = _fit_logistic_regression_with_diagnostics(
+                        pair_X,
+                        pair_y,
+                        l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+                        sample_weight=pair_weight,
+                        fit_backend=_fit_backend_name(fit_kwargs),
+                    )
+                else:
+                    X_train_scaled, _, _ = _standardize_fit(X_train)
+                    _, diagnostics = _fit_logistic_regression_with_diagnostics(
+                        X_train_scaled,
+                        y[train_mask],
+                        l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+                        sample_weight=train_weight,
+                        fit_backend=_fit_backend_name(fit_kwargs),
+                    )
                 model_rows.append(
                     {
                         "model_name": model_name,

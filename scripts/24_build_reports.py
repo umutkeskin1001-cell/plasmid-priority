@@ -51,13 +51,17 @@ from plasmid_priority.reporting import (
     build_module_f_enrichment_table,
     build_module_f_top_hits,
     build_novelty_margin_summary,
+    build_official_benchmark_panel,
     build_pathogen_group_comparison,
     build_primary_model_selection_summary,
+    build_report_overview_table,
     build_score_axis_summary,
     build_score_distribution_diagnostics,
     build_temporal_drift_summary,
     build_threshold_flip_table,
+    build_threshold_utility_table,
     normalize_drug_class_token,
+    validate_report_artifact,
 )
 from plasmid_priority.reporting.figures import generate_all_figures
 from plasmid_priority.utils.dataframe import coalescing_left_merge, read_tsv
@@ -1187,6 +1191,8 @@ def _build_candidate_brief_table(
     backbones: pd.DataFrame,
     amr_consensus: pd.DataFrame,
     *,
+    model_selection_summary: pd.DataFrame | None = None,
+    decision_yield: pd.DataFrame | None = None,
     split_year: int = 2015,
 ) -> pd.DataFrame:
     if candidate_portfolio.empty or backbones.empty:
@@ -1205,6 +1211,30 @@ def _build_candidate_brief_table(
     )
     years = pd.to_numeric(merged["resolved_year"], errors="coerce").fillna(0).astype(int)
     merged = merged.assign(resolved_year_int=years)
+    model_selection_summary = (
+        model_selection_summary if model_selection_summary is not None else pd.DataFrame()
+    )
+    decision_yield = decision_yield if decision_yield is not None else pd.DataFrame()
+    selection_row = model_selection_summary.iloc[0] if not model_selection_summary.empty else pd.Series(dtype=object)
+
+    def _decision_yield_lookup(prefix: str, top_k: int) -> tuple[float, float]:
+        if decision_yield.empty or "model_name" not in decision_yield.columns:
+            return (np.nan, np.nan)
+        match = decision_yield.loc[
+            decision_yield["model_name"].astype(str).eq(str(prefix))
+            & pd.to_numeric(decision_yield.get("top_k", pd.Series(np.nan, index=decision_yield.index)), errors="coerce").astype("Int64").eq(int(top_k))
+        ].head(1)
+        if match.empty:
+            return (np.nan, np.nan)
+        row = match.iloc[0]
+        return (
+            float(row.get("precision_at_k", np.nan)),
+            float(row.get("recall_at_k", np.nan)),
+        )
+
+    official_primary_model = str(selection_row.get("published_primary_model", "") or "").strip()
+    official_governance_model = str(selection_row.get("governance_primary_model", "") or "").strip()
+    official_conservative_model = str(selection_row.get("conservative_model_name", "") or "").strip()
 
     rows: list[dict[str, object]] = []
     candidate_ids = candidate_portfolio["backbone_id"].astype(str).tolist()
@@ -1378,6 +1408,61 @@ def _build_candidate_brief_table(
             if pd.notna(candidate_confidence_score)
             else ""
         )
+        primary_top10_precision, primary_top10_recall = _decision_yield_lookup(
+            official_primary_model, 10
+        )
+        primary_top25_precision, primary_top25_recall = _decision_yield_lookup(
+            official_primary_model, 25
+        )
+        governance_top10_precision, governance_top10_recall = _decision_yield_lookup(
+            official_governance_model, 10
+        )
+        governance_top25_precision, governance_top25_recall = _decision_yield_lookup(
+            official_governance_model, 25
+        )
+        conservative_top10_precision, conservative_top10_recall = _decision_yield_lookup(
+            official_conservative_model, 10
+        )
+        decision_yield_note_en = ""
+        if pd.notna(primary_top10_precision) or pd.notna(governance_top10_precision):
+            decision_yield_bits: list[str] = []
+            if pd.notna(primary_top10_precision):
+                decision_yield_bits.append(
+                    f"primary top-10 precision {float(primary_top10_precision):.2f}"
+                )
+            if pd.notna(primary_top25_precision):
+                decision_yield_bits.append(
+                    f"primary top-25 recall {float(primary_top25_recall):.2f}"
+                )
+            if pd.notna(governance_top10_precision):
+                decision_yield_bits.append(
+                    f"governance top-10 precision {float(governance_top10_precision):.2f}"
+                )
+            if pd.notna(conservative_top10_precision):
+                decision_yield_bits.append(
+                    f"conservative top-10 precision {float(conservative_top10_precision):.2f}"
+                )
+            decision_yield_note_en = " Official benchmark yield: " + "; ".join(decision_yield_bits) + "."
+        decision_yield_note_tr = ""
+        if pd.notna(primary_top10_precision) or pd.notna(governance_top10_precision):
+            decision_yield_bits_tr: list[str] = []
+            if pd.notna(primary_top10_precision):
+                decision_yield_bits_tr.append(
+                    f"birincil top-10 isabet {float(primary_top10_precision):.2f}"
+                )
+            if pd.notna(primary_top25_recall):
+                decision_yield_bits_tr.append(
+                    f"birincil top-25 yakalama {float(primary_top25_recall):.2f}"
+                )
+            if pd.notna(governance_top10_precision):
+                decision_yield_bits_tr.append(
+                    f"yonetisim top-10 isabet {float(governance_top10_precision):.2f}"
+                )
+            if pd.notna(conservative_top10_precision):
+                decision_yield_bits_tr.append(
+                    f"konservatif top-10 isabet {float(conservative_top10_precision):.2f}"
+                )
+            decision_yield_note_tr = " Resmi benchmark verimi: " + "; ".join(decision_yield_bits_tr) + "."
         if pd.notna(multiverse_stability_score):
             stability_note_en = (
                 f" Rank stability: {multiverse_stability_tier or 'multiverse'} "
@@ -1401,12 +1486,32 @@ def _build_candidate_brief_table(
             )
             stability_note_tr = (
                 f" Sira kararliligi: {', '.join(stability_bits_tr)}." if stability_bits_tr else ""
+            )
+        primary_decision_utility_score = pd.to_numeric(
+            pd.Series([row.get("official_primary_decision_utility_score", np.nan)]),
+            errors="coerce",
+        ).iloc[0]
+        primary_decision_threshold = pd.to_numeric(
+            pd.Series([row.get("official_primary_optimal_decision_threshold", np.nan)]),
+            errors="coerce",
+        ).iloc[0]
+        utility_note_en = (
+            f" Decision utility: {float(primary_decision_utility_score):.2f} at threshold "
+            f"{float(primary_decision_threshold):.2f}."
+            if pd.notna(primary_decision_utility_score) and pd.notna(primary_decision_threshold)
+            else ""
+        )
+        utility_note_tr = (
+            f" Karar faydasi: {float(primary_decision_utility_score):.2f}; esik "
+            f"{float(primary_decision_threshold):.2f}."
+            if pd.notna(primary_decision_utility_score) and pd.notna(primary_decision_threshold)
+            else ""
         )
         summary_en = (
             f"{backbone_id} is dominated by {species_or_genus}; training-period support is {int(row.get('member_count_train', 0) or 0)} records across "
             f"{int(row.get('n_countries_train', 0) or 0)} countries, and after 2015 it appears in {new_country_count} new countries. "
             f"For review, treat it as {track_en}. Evidence tier: {evidence_tier_en}; monitoring tier: {action_tier_en}; multi-model consensus top-50: {consensus_en}."
-            f"{novelty_note_en}{mechanistic_note_en} {monitoring_note_en}{risk_note_en}{uncertainty_review_note_en}{confidence_note_en}{stability_note_en}"
+            f"{novelty_note_en}{mechanistic_note_en} {monitoring_note_en}{risk_note_en}{uncertainty_review_note_en}{confidence_note_en}{stability_note_en}{decision_yield_note_en}{utility_note_en}"
             f"{' Case summary: ' + candidate_explanation_summary + '.' if candidate_explanation_summary else ''}"
             f" Main public-health AMR classes: {top_amr_classes or 'none detected'}."
         )
@@ -1414,7 +1519,7 @@ def _build_candidate_brief_table(
             f"{backbone_id} omurgasi agirlikli olarak {species_or_genus} ile iliskilidir; egitim doneminde {int(row.get('member_count_train', 0) or 0)} kayit ve "
             f"{int(row.get('n_countries_train', 0) or 0)} ulke destegi vardir, 2015 sonrasinda ise {new_country_count} yeni ulkede gorulmustur. "
             f"Juri yorumu icin bu aday {track_tr} olarak ele alinmalidir. Kanit seviyesi {evidence_tier_tr}; izlem duzeyi {action_tier_tr}; coklu model uzlasi top-50 durumu: {consensus_tr}."
-            f"{novelty_note_tr}{mechanistic_note_tr} {monitoring_note_tr}{risk_note_tr}{uncertainty_review_note_tr}{confidence_note_tr}{stability_note_tr}"
+            f"{novelty_note_tr}{mechanistic_note_tr} {monitoring_note_tr}{risk_note_tr}{uncertainty_review_note_tr}{confidence_note_tr}{stability_note_tr}{decision_yield_note_tr}{utility_note_tr}"
             f"{' Vaka ozeti: ' + candidate_explanation_summary + '.' if candidate_explanation_summary else ''}"
             f" Baskin halk sagligi odakli AMR siniflari: {top_amr_classes or 'tespit edilmedi'}."
         )
@@ -1423,6 +1528,50 @@ def _build_candidate_brief_table(
                 "portfolio_track": row.get("portfolio_track"),
                 "track_rank": row.get("track_rank"),
                 "backbone_id": backbone_id,
+                "official_primary_model": official_primary_model,
+                "official_conservative_model": official_conservative_model,
+                "official_governance_model": official_governance_model,
+                "official_benchmark_panel_size": pd.to_numeric(
+                    pd.Series([row.get("official_benchmark_panel_size", np.nan)]), errors="coerce"
+                ).iloc[0],
+                "official_primary_top_10_precision": primary_top10_precision,
+                "official_primary_top_10_recall": primary_top10_recall,
+                "official_primary_top_25_precision": primary_top25_precision,
+                "official_primary_top_25_recall": primary_top25_recall,
+                "official_primary_decision_utility_score": pd.to_numeric(
+                    pd.Series([row.get("official_primary_decision_utility_score", np.nan)]),
+                    errors="coerce",
+                ).iloc[0],
+                "official_primary_optimal_decision_threshold": pd.to_numeric(
+                    pd.Series([row.get("official_primary_optimal_decision_threshold", np.nan)]),
+                    errors="coerce",
+                ).iloc[0],
+                "official_governance_top_10_precision": governance_top10_precision,
+                "official_governance_top_10_recall": governance_top10_recall,
+                "official_governance_top_25_precision": governance_top25_precision,
+                "official_governance_top_25_recall": governance_top25_recall,
+                "official_governance_decision_utility_score": pd.to_numeric(
+                    pd.Series([row.get("official_governance_decision_utility_score", np.nan)]),
+                    errors="coerce",
+                ).iloc[0],
+                "official_governance_optimal_decision_threshold": pd.to_numeric(
+                    pd.Series(
+                        [row.get("official_governance_optimal_decision_threshold", np.nan)]
+                    ),
+                    errors="coerce",
+                ).iloc[0],
+                "official_conservative_top_10_precision": conservative_top10_precision,
+                "official_conservative_top_10_recall": conservative_top10_recall,
+                "official_conservative_decision_utility_score": pd.to_numeric(
+                    pd.Series([row.get("official_conservative_decision_utility_score", np.nan)]),
+                    errors="coerce",
+                ).iloc[0],
+                "official_conservative_optimal_decision_threshold": pd.to_numeric(
+                    pd.Series(
+                        [row.get("official_conservative_optimal_decision_threshold", np.nan)]
+                    ),
+                    errors="coerce",
+                ).iloc[0],
                 "dominant_genus": dominant_genus,
                 "dominant_species": dominant_species,
                 "primary_replicon": primary_replicon,
@@ -1540,6 +1689,26 @@ def _build_candidate_evidence_matrix(
         "portfolio_track",
         "track_rank",
         "backbone_id",
+        "official_primary_model",
+        "official_conservative_model",
+        "official_governance_model",
+        "official_benchmark_panel_size",
+        "official_primary_top_10_precision",
+        "official_primary_top_10_recall",
+        "official_primary_top_25_precision",
+        "official_primary_top_25_recall",
+        "official_primary_decision_utility_score",
+        "official_primary_optimal_decision_threshold",
+        "official_governance_top_10_precision",
+        "official_governance_top_10_recall",
+        "official_governance_top_25_precision",
+        "official_governance_top_25_recall",
+        "official_governance_decision_utility_score",
+        "official_governance_optimal_decision_threshold",
+        "official_conservative_top_10_precision",
+        "official_conservative_top_10_recall",
+        "official_conservative_decision_utility_score",
+        "official_conservative_optimal_decision_threshold",
         "evidence_tier",
         "action_tier",
         "false_positive_risk_tier",
@@ -1831,6 +2000,106 @@ def _lookup_decision_yield(
     return match.iloc[0]
 
 
+def _build_official_benchmark_context(
+    model_selection_summary: pd.DataFrame,
+    decision_yield: pd.DataFrame,
+    benchmark_protocol: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    if model_selection_summary.empty and decision_yield.empty:
+        return pd.DataFrame()
+    selection_row = (
+        model_selection_summary.iloc[0]
+        if not model_selection_summary.empty
+        else pd.Series(dtype=object)
+    )
+    primary_model_name = str(selection_row.get("published_primary_model", "") or "").strip()
+    conservative_model_name = str(selection_row.get("conservative_model_name", "") or "").strip()
+    governance_model_name = str(selection_row.get("governance_primary_model", "") or "").strip()
+
+    def _yield_metrics(model_name: str, top_k: int) -> tuple[float, float]:
+        if not model_name:
+            return (np.nan, np.nan)
+        row = _lookup_decision_yield(decision_yield, model_name, top_k)
+        if row is None:
+            return (np.nan, np.nan)
+        return (
+            float(row.get("precision_at_k", np.nan)),
+            float(row.get("recall_at_k", np.nan)),
+        )
+
+    primary_top10_precision, primary_top10_recall = _yield_metrics(primary_model_name, 10)
+    primary_top25_precision, primary_top25_recall = _yield_metrics(primary_model_name, 25)
+    governance_top10_precision, governance_top10_recall = _yield_metrics(
+        governance_model_name, 10
+    )
+    governance_top25_precision, governance_top25_recall = _yield_metrics(
+        governance_model_name, 25
+    )
+    conservative_top10_precision, conservative_top10_recall = _yield_metrics(
+        conservative_model_name, 10
+    )
+    def _selection_value(column: str) -> float:
+        value = selection_row.get(column, np.nan)
+        return float(pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0])
+
+    panel_size = (
+        int(len(build_official_benchmark_panel(benchmark_protocol)))
+        if benchmark_protocol is not None and not benchmark_protocol.empty
+        else np.nan
+    )
+    return pd.DataFrame(
+        [
+            {
+                "official_primary_model": primary_model_name,
+                "official_conservative_model": conservative_model_name,
+                "official_governance_model": governance_model_name,
+                "official_primary_top_10_precision": primary_top10_precision,
+                "official_primary_top_10_recall": primary_top10_recall,
+                "official_primary_top_25_precision": primary_top25_precision,
+                "official_primary_top_25_recall": primary_top25_recall,
+                "official_primary_decision_utility_score": _selection_value(
+                    "published_primary_decision_utility_score"
+                ),
+                "official_primary_optimal_decision_threshold": _selection_value(
+                    "published_primary_optimal_decision_threshold"
+                ),
+                "official_governance_top_10_precision": governance_top10_precision,
+                "official_governance_top_10_recall": governance_top10_recall,
+                "official_governance_top_25_precision": governance_top25_precision,
+                "official_governance_top_25_recall": governance_top25_recall,
+                "official_governance_decision_utility_score": _selection_value(
+                    "governance_primary_decision_utility_score"
+                ),
+                "official_governance_optimal_decision_threshold": _selection_value(
+                    "governance_primary_optimal_decision_threshold"
+                ),
+                "official_conservative_top_10_precision": conservative_top10_precision,
+                "official_conservative_top_10_recall": conservative_top10_recall,
+                "official_conservative_decision_utility_score": _selection_value(
+                    "conservative_decision_utility_score"
+                ),
+                "official_conservative_optimal_decision_threshold": _selection_value(
+                    "conservative_optimal_decision_threshold"
+                ),
+                "official_benchmark_panel_size": panel_size,
+            }
+        ]
+    )
+
+
+def _attach_official_benchmark_context(
+    frame: pd.DataFrame,
+    context: pd.DataFrame,
+) -> pd.DataFrame:
+    if frame.empty or context.empty:
+        return frame
+    working = frame.copy()
+    context_row = context.iloc[0]
+    for column, value in context_row.items():
+        working[column] = value
+    return working
+
+
 def _prune_duplicate_table_artifacts(
     core_dir: Path, diag_dir: Path, core_file_names: set[str]
 ) -> None:
@@ -2035,6 +2304,26 @@ def _build_candidate_case_studies(
         "portfolio_track",
         "track_rank",
         "backbone_id",
+        "official_primary_model",
+        "official_conservative_model",
+        "official_governance_model",
+        "official_benchmark_panel_size",
+        "official_primary_top_10_precision",
+        "official_primary_top_10_recall",
+        "official_primary_top_25_precision",
+        "official_primary_top_25_recall",
+        "official_primary_decision_utility_score",
+        "official_primary_optimal_decision_threshold",
+        "official_governance_top_10_precision",
+        "official_governance_top_10_recall",
+        "official_governance_top_25_precision",
+        "official_governance_top_25_recall",
+        "official_governance_decision_utility_score",
+        "official_governance_optimal_decision_threshold",
+        "official_conservative_top_10_precision",
+        "official_conservative_top_10_recall",
+        "official_conservative_decision_utility_score",
+        "official_conservative_optimal_decision_threshold",
         "dominant_genus",
         "dominant_species",
         "primary_replicon",
@@ -2197,6 +2486,10 @@ def _write_headline_validation_summary(
         "- Permutation entries below include the selection-adjusted official-model null; the fixed-score label-permutation audit is retained only as an exploratory appendix diagnostic.",
         "- The explicit leakage canary is exported separately in `future_sentinel_audit.tsv`.",
         "- The frozen acceptance audit is exported separately in `frozen_scientific_acceptance_audit.tsv`.",
+        "- The nonlinear deconfounding audit is exported separately in `nonlinear_deconfounding_audit.tsv`.",
+        "- Alternative endpoint audits are exported separately in `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv`.",
+        "- The prospective freeze audits are exported separately in `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv`.",
+        "- The graph, counterfactual, geographic-jump, and AMR-uncertainty diagnostics are exported separately in `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv`.",
         "- Frozen scientific acceptance combines matched-knownness, source holdout, spatial holdout, calibration, selection-adjusted null, and leakage review.",
         "",
         "| Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | ECE | Max CE | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |",
@@ -2479,7 +2772,12 @@ def _write_executive_summary(
             "",
             f"- `{int(len(candidate_case_studies))}` case studies are exported in `candidate_case_studies.tsv`.",
             "- Jury-facing narrative lives in `jury_brief.md` and `ozet_tr.md`.",
+            "- `frozen_scientific_acceptance_audit.tsv` records the headline acceptance gate across matched-knownness, source holdout, spatial holdout, calibration, and leakage review.",
             f"- Blocked holdout audit is exported in `blocked_holdout_summary.tsv`{f': {blocked_holdout_text}' if blocked_holdout_text else ''}.",
+            "- `nonlinear_deconfounding_audit.tsv` records the nonlinear deconfounding check used to keep knownness residualization transparent.",
+            "- `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv` record the alternative-endpoint stress tests for ordinal, exposure-adjusted, and macro-region jump outcomes.",
+            "- `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv` record the quasi-prospective freeze surface used to check whether the shortlist survives a forward-looking holdout.",
+            "- `future_sentinel_audit.tsv`, `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv` record the leakage canary, graph audit, counterfactual shortlist comparison, geographic-jump diagnostic, and AMR-uncertainty summary.",
             "- Candidate rank stability is exported in `candidate_rank_stability.tsv` and model-variant consistency is exported in `candidate_variant_consistency.tsv`.",
             "- `calibration_threshold_summary.png` is exported as a compact calibration/threshold diagnostic when threshold-sensitivity data are available.",
             "- Figures in `reports/core_figures/` are presentation-ready.",
@@ -2913,7 +3211,12 @@ def _write_turkish_summary(
             "",
             "## Sürüm Yüzeyi",
             "",
+            "- `frozen_scientific_acceptance_audit.tsv`: doğrulayıcı kabul katmanını; eşleştirilmiş bilinirlik, kaynak dışlama, mekânsal holdout, kalibrasyon ve leakage incelemesini raporlar.",
             f"- `blocked_holdout_summary.tsv`: {blocked_holdout_text or 'iç kaynak/bölge stres testi olarak raporlanır.'}",
+            "- `nonlinear_deconfounding_audit.tsv`: knownness residualization için kullanılan doğrusal olmayan karıştırma denetimini raporlar.",
+            "- `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv` ve `macro_region_jump_outcome.tsv`: sırasal, maruziyet-düzeltilmiş ve makro-bölge sıçrama sonuçları için alternatif sonuç stres testlerini raporlar.",
+            "- `prospective_candidate_freeze.tsv` ve `annual_candidate_freeze_summary.tsv`: kısa listenin ileriye dönük bir holdout üzerinde ayakta kalıp kalmadığını kontrol eden quasi-prospective freeze yüzeyini raporlar.",
+            "- `future_sentinel_audit.tsv`, `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv` ve `amr_uncertainty_summary.tsv`: leakage canary, graph denetimi, counterfactual shortlist comparison, geographic-jump tanısı ve AMR belirsizlik özetini raporlar.",
             "- `country_missingness_bounds.tsv` ve `country_missingness_sensitivity.tsv`: ülke eksikliği varsayımlarına göre etiket ve performans duyarlılığını raporlar.",
             "- `candidate_rank_stability.tsv` ve `candidate_variant_consistency.tsv`: aday sıralama kararlılığını ve model-varyant tutarlılığını raporlar.",
             "- `calibration_threshold_summary.png`: kalibrasyon ve eşik duyarlılığı için kompakt tanı grafiğidir.",
@@ -3880,7 +4183,12 @@ def _write_jury_brief(
             "",
             "## Release Surface",
             "",
+            "- `frozen_scientific_acceptance_audit.tsv` records the headline acceptance gate across matched-knownness, source holdout, spatial holdout, calibration, and leakage review.",
             "- `blocked_holdout_summary.tsv` records the blocked source/region stress test used for the internal audit layer.",
+            "- `nonlinear_deconfounding_audit.tsv` records the nonlinear deconfounding check used to keep knownness residualization transparent.",
+            "- `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv` record the alternative-endpoint stress tests for ordinal, exposure-adjusted, and macro-region jump outcomes.",
+            "- `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv` record the quasi-prospective freeze surface used to check whether the shortlist survives a forward-looking holdout.",
+            "- `future_sentinel_audit.tsv`, `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv` record the leakage canary, graph audit, counterfactual shortlist comparison, geographic-jump diagnostic, and AMR-uncertainty summary.",
             "- `candidate_rank_stability.tsv` and `candidate_variant_consistency.tsv` record backbone-level ranking stability across bootstrap and model-variant audits.",
             "- `calibration_threshold_summary.png` captures the compact calibration/threshold view used in slide decks.",
             "- `reports/core_figures/` contains the rest of the presentation-ready figure pack.",
@@ -4516,6 +4824,9 @@ def main() -> int:
     subgroup_performance_path = context.root / "data/analysis/model_subgroup_performance.tsv"
     comparison_path = context.root / "data/analysis/model_comparison_summary.tsv"
     calibration_metrics_path = context.root / "data/analysis/calibration_metrics.tsv"
+    blocked_holdout_calibration_path = (
+        context.root / "data/analysis/blocked_holdout_calibration_summary.tsv"
+    )
     coefficient_path = context.root / "data/analysis/primary_model_coefficients.tsv"
     coefficient_stability_path = (
         context.root / "data/analysis/primary_model_coefficient_stability.tsv"
@@ -4612,11 +4923,15 @@ def main() -> int:
                 "model_metrics.tsv",
                 "model_selection_scorecard.tsv",
                 "benchmark_protocol.tsv",
+                "official_benchmark_panel.tsv",
                 "model_comparison_summary.tsv",
                 "model_selection_summary.tsv",
                 "decision_yield_summary.tsv",
+                "threshold_utility_summary.tsv",
+                "report_overview.tsv",
                 "candidate_evidence_matrix.tsv",
                 "candidate_threshold_flip.tsv",
+                "candidate_universe.tsv",
                 "candidate_portfolio.tsv",
                 "candidate_case_studies.tsv",
                 "confirmatory_cohort_summary.tsv",
@@ -4688,6 +5003,7 @@ def main() -> int:
         subgroup_performance_path,
         comparison_path,
         calibration_metrics_path,
+        blocked_holdout_calibration_path,
         coefficient_path,
         coefficient_stability_path,
         dropout_path,
@@ -4768,6 +5084,8 @@ def main() -> int:
         run.record_output(final_tables_dir / "candidate_evidence_matrix.tsv")
         run.record_output(final_tables_dir / "candidate_threshold_flip.tsv")
         run.record_output(final_tables_dir / "decision_yield_summary.tsv")
+        run.record_output(final_tables_dir / "threshold_utility_summary.tsv")
+        run.record_output(final_tables_dir / "report_overview.tsv")
         run.record_output(final_tables_dir / "decision_budget_curve.tsv")
         run.record_output(final_tables_dir / "false_negative_audit.tsv")
         run.record_output(final_tables_dir / "confirmatory_cohort_summary.tsv")
@@ -4775,6 +5093,7 @@ def main() -> int:
         run.record_output(final_tables_dir / "frozen_scientific_acceptance_audit.tsv")
         run.record_output(final_tables_dir / "model_selection_summary.tsv")
         run.record_output(final_tables_dir / "benchmark_protocol.tsv")
+        run.record_output(final_tables_dir / "official_benchmark_panel.tsv")
         run.record_output(final_tables_dir / "module_b_amr_class_comparison.tsv")
         run.record_output(final_tables_dir / "model_metrics.tsv")
         run.record_output(final_tables_dir / "sensitivity_summary.tsv")
@@ -4785,6 +5104,7 @@ def main() -> int:
         run.record_output(final_tables_dir / "model_subgroup_performance.tsv")
         run.record_output(final_tables_dir / "model_comparison_summary.tsv")
         run.record_output(final_tables_dir / "calibration_metrics.tsv")
+        run.record_output(final_tables_dir / "blocked_holdout_calibration_summary.tsv")
         run.record_output(final_tables_dir / "primary_model_coefficients.tsv")
         run.record_output(final_tables_dir / "primary_model_coefficient_stability.tsv")
         run.record_output(final_tables_dir / "coefficient_stability_cv.tsv")
@@ -4940,6 +5260,7 @@ def main() -> int:
         subgroup_performance = read_tsv(subgroup_performance_path)
         comparison_table = read_tsv(comparison_path)
         calibration_metrics = read_tsv(calibration_metrics_path)
+        blocked_holdout_calibration_summary = _read_if_exists(blocked_holdout_calibration_path)
         coefficient_table = read_tsv(coefficient_path)
         coefficient_stability = read_tsv(coefficient_stability_path)
         coefficient_stability_cv = _read_if_exists(coefficient_stability_cv_path)
@@ -5100,6 +5421,9 @@ def main() -> int:
         )
         calibration_metrics.to_csv(
             final_tables_dir / "calibration_metrics.tsv", sep="\t", index=False
+        )
+        blocked_holdout_calibration_summary.to_csv(
+            final_tables_dir / "blocked_holdout_calibration_summary.tsv", sep="\t", index=False
         )
         coefficient_table.to_csv(
             final_tables_dir / "primary_model_coefficients.tsv", sep="\t", index=False
@@ -6369,6 +6693,27 @@ def main() -> int:
         decision_yield.to_csv(
             final_tables_dir / "decision_yield_summary.tsv", sep="\t", index=False
         )
+        threshold_utility_summary = build_threshold_utility_table(
+            predictions,
+            model_names=list(
+                dict.fromkeys(
+                    [
+                        primary_model_name,
+                        conservative_model_name,
+                        governance_model_name,
+                        "knownness_robust_priority",
+                        "host_transfer_synergy_priority",
+                        "threat_architecture_priority",
+                        "natural_auc_priority",
+                        "baseline_both",
+                        "evidence_aware_priority",
+                    ]
+                )
+            ),
+        )
+        threshold_utility_summary.to_csv(
+            final_tables_dir / "threshold_utility_summary.tsv", sep="\t", index=False
+        )
         stable_adaptive_model_names = (
             gate_consistency_audit.loc[
                 gate_consistency_audit.get("gate_consistency_tier", pd.Series(dtype=str))
@@ -6556,6 +6901,8 @@ def main() -> int:
             conservative_model_name=conservative_model_name,
             governance_model_name=governance_model_name,
             predictions=predictions,
+            decision_yield=decision_yield,
+            blocked_holdout_calibration_summary=blocked_holdout_calibration_summary,
             family_summary=family_summary,
             simplicity_summary=simplicity_summary,
             model_selection_scorecard=model_selection_scorecard,
@@ -6573,6 +6920,27 @@ def main() -> int:
         benchmark_protocol.to_csv(
             final_tables_dir / "benchmark_protocol.tsv", sep="\t", index=False
         )
+        official_benchmark_panel = build_official_benchmark_panel(benchmark_protocol)
+        official_benchmark_panel.to_csv(
+            final_tables_dir / "official_benchmark_panel.tsv", sep="\t", index=False
+        )
+        official_benchmark_context = _build_official_benchmark_context(
+            model_selection_summary,
+            decision_yield,
+            benchmark_protocol=benchmark_protocol,
+        )
+        candidate_universe = _attach_official_benchmark_context(
+            candidate_universe, official_benchmark_context
+        )
+        candidate_dossiers = _attach_official_benchmark_context(
+            candidate_dossiers, official_benchmark_context
+        )
+        candidate_portfolio = _attach_official_benchmark_context(
+            candidate_portfolio, official_benchmark_context
+        )
+        candidate_universe.to_csv(
+            final_tables_dir / "candidate_universe.tsv", sep="\t", index=False
+        )
 
         candidate_dossiers.to_csv(
             final_tables_dir / "candidate_dossiers.tsv", sep="\t", index=False
@@ -6587,12 +6955,23 @@ def main() -> int:
             candidate_portfolio,
             backbones,
             amr_consensus,
+            model_selection_summary=model_selection_summary,
+            decision_yield=decision_yield,
             split_year=pipeline.split_year,
         )
         candidate_case_studies = _build_candidate_case_studies(candidate_briefs, per_track=3)
         candidate_case_studies.to_csv(
             final_tables_dir / "candidate_case_studies.tsv", sep="\t", index=False
         )
+        report_overview = build_report_overview_table(
+            model_selection_summary=model_selection_summary,
+            decision_yield=decision_yield,
+            threshold_utility_summary=threshold_utility_summary,
+            candidate_portfolio=candidate_portfolio,
+            candidate_case_studies=candidate_case_studies,
+            false_negative_audit=false_negative_audit,
+        )
+        report_overview.to_csv(final_tables_dir / "report_overview.tsv", sep="\t", index=False)
         candidate_evidence_matrix = _build_candidate_evidence_matrix(
             candidate_portfolio,
             candidate_briefs,
@@ -6607,6 +6986,52 @@ def main() -> int:
                 candidate_briefs[["backbone_id", "dominant_genus", "dominant_species"]],
                 on="backbone_id",
             )
+        validate_report_artifact(
+            model_selection_scorecard,
+            artifact_name="model_selection_scorecard",
+            required_columns=(
+                "model_name",
+                "selection_rank",
+                "selection_composite_score",
+                "decision_utility_score",
+            ),
+            unique_key="model_name",
+        )
+        validate_report_artifact(
+            candidate_portfolio,
+            artifact_name="candidate_portfolio",
+            required_columns=(
+                "backbone_id",
+                "portfolio_track",
+                "candidate_confidence_score",
+                "multiverse_stability_score",
+            ),
+            unique_key="backbone_id",
+            probability_columns=(
+                "candidate_confidence_score",
+                "multiverse_stability_score",
+                "bootstrap_top_10_frequency",
+                "variant_top_10_frequency",
+            ),
+        )
+        validate_report_artifact(
+            candidate_case_studies,
+            artifact_name="candidate_case_studies",
+            required_columns=(
+                "backbone_id",
+                "candidate_summary_en",
+                "candidate_summary_tr",
+            ),
+            unique_key="backbone_id",
+            probability_columns=("candidate_confidence_score", "multiverse_stability_score"),
+        )
+        validate_report_artifact(
+            threshold_utility_summary,
+            artifact_name="threshold_utility_summary",
+            required_columns=("model_name", "optimal_threshold", "optimal_threshold_utility_per_sample"),
+            unique_key="model_name",
+            probability_columns=("optimal_threshold",),
+        )
         _prune_duplicate_table_artifacts(core_dir, diag_dir, final_tables_dir.core_files)
         _prune_shadowed_report_tables(core_dir, diag_dir, analysis_dir)
         _write_turkish_summary(

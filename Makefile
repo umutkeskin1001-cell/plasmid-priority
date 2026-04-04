@@ -39,18 +39,7 @@ experiments-registry:
 	$(PYTHON) scripts/29_build_experiment_registry.py
 
 analysis-refresh-sequential:
-	$(PYTHON) scripts/15_normalize_and_score.py
-	$(PYTHON) scripts/16_run_module_A.py
-	$(PYTHON) scripts/17_run_module_B.py
-	$(PYTHON) scripts/18_run_module_C_pathogen_detection.py
-	$(PYTHON) scripts/19_run_module_D_external_support.py
-	$(PYTHON) scripts/20_run_module_E_amrfinder_concordance.py
-	$(PYTHON) scripts/21_run_validation.py
-	$(PYTHON) scripts/22_run_sensitivity.py
-	$(PYTHON) scripts/23_run_module_f_enrichment.py
-	$(PYTHON) scripts/27_run_advanced_audits.py
-	$(PYTHON) scripts/24_build_reports.py
-	$(PYTHON) scripts/25_export_tubitak_summary.py
+	$(PYTHON) scripts/run_workflow.py analysis-refresh-sequential
 
 test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
@@ -84,32 +73,7 @@ pipeline:
 	$(PYTHON) scripts/run_workflow.py pipeline
 
 pipeline-sequential:
-	$(PYTHON) scripts/01_check_inputs.py
-	$(PYTHON) scripts/02_build_all_plasmids_fasta.py --overwrite
-	$(PYTHON) scripts/03_build_bronze_table.py --overwrite
-	$(PYTHON) scripts/04_harmonize_metadata.py
-	$(PYTHON) scripts/05_deduplicate.py
-	$(PYTHON) scripts/06_annotate_mobility.py
-	$(PYTHON) scripts/07_annotate_amr.py
-	$(PYTHON) scripts/08_build_amr_consensus.py
-	$(PYTHON) scripts/09_assign_backbones.py
-	$(PYTHON) scripts/10_compute_coherence.py
-	$(PYTHON) scripts/11_compute_feature_T.py
-	$(PYTHON) scripts/12_compute_feature_H.py
-	$(PYTHON) scripts/13_compute_feature_A.py
-	$(PYTHON) scripts/14_build_backbone_table.py
-	$(PYTHON) scripts/15_normalize_and_score.py
-	$(PYTHON) scripts/16_run_module_A.py
-	$(PYTHON) scripts/17_run_module_B.py
-	$(PYTHON) scripts/18_run_module_C_pathogen_detection.py
-	$(PYTHON) scripts/19_run_module_D_external_support.py
-	$(PYTHON) scripts/20_run_module_E_amrfinder_concordance.py
-	$(PYTHON) scripts/21_run_validation.py
-	$(PYTHON) scripts/22_run_sensitivity.py
-	$(PYTHON) scripts/23_run_module_f_enrichment.py
-	$(PYTHON) scripts/27_run_advanced_audits.py
-	$(PYTHON) scripts/24_build_reports.py
-	$(PYTHON) scripts/25_export_tubitak_summary.py
+	$(PYTHON) scripts/run_workflow.py pipeline-sequential
 
 clean-generated:
 	find . -name '.DS_Store' -delete

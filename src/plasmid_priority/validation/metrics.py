@@ -254,6 +254,109 @@ def novelty_adjusted_average_precision(
     return float(naap)
 
 
+def decision_utility_summary(
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    *,
+    thresholds: np.ndarray | list[float] | tuple[float, ...] | None = None,
+    true_positive_reward: float = 1.0,
+    false_positive_cost: float = 1.0,
+    false_negative_cost: float = 5.0,
+    true_negative_reward: float = 0.0,
+) -> dict[str, float]:
+    y_true = np.asarray(y_true, dtype=int)
+    y_score = np.asarray(y_score, dtype=float)
+    if len(y_true) == 0:
+        return {
+            "optimal_threshold": float("nan"),
+            "optimal_threshold_cost_per_sample": float("nan"),
+            "optimal_threshold_utility_per_sample": float("nan"),
+            "optimal_threshold_utility_total": float("nan"),
+            "optimal_threshold_true_positive": float("nan"),
+            "optimal_threshold_false_positive": float("nan"),
+            "optimal_threshold_false_negative": float("nan"),
+            "optimal_threshold_true_negative": float("nan"),
+            "optimal_threshold_precision": float("nan"),
+            "optimal_threshold_recall": float("nan"),
+            "optimal_threshold_positive_rate": float("nan"),
+            "utility_grid_size": 0.0,
+            "utility_grid_min_threshold": float("nan"),
+            "utility_grid_max_threshold": float("nan"),
+        }
+
+    clean_scores = np.nan_to_num(y_score, nan=-np.inf)
+    if thresholds is None:
+        finite_scores = np.unique(np.clip(y_score[np.isfinite(y_score)], 0.0, 1.0))
+        grid = np.linspace(0.0, 1.0, 101, dtype=float)
+        if finite_scores.size:
+            thresholds_array = np.unique(np.concatenate([grid, finite_scores]))
+        else:
+            thresholds_array = grid
+    else:
+        thresholds_array = np.unique(np.asarray(thresholds, dtype=float))
+    thresholds_array = thresholds_array[np.isfinite(thresholds_array)]
+    if thresholds_array.size == 0:
+        return {
+            "optimal_threshold": float("nan"),
+            "optimal_threshold_cost_per_sample": float("nan"),
+            "optimal_threshold_utility_per_sample": float("nan"),
+            "optimal_threshold_utility_total": float("nan"),
+            "optimal_threshold_true_positive": float("nan"),
+            "optimal_threshold_false_positive": float("nan"),
+            "optimal_threshold_false_negative": float("nan"),
+            "optimal_threshold_true_negative": float("nan"),
+            "optimal_threshold_precision": float("nan"),
+            "optimal_threshold_recall": float("nan"),
+            "optimal_threshold_positive_rate": float("nan"),
+            "utility_grid_size": 0.0,
+            "utility_grid_min_threshold": float("nan"),
+            "utility_grid_max_threshold": float("nan"),
+        }
+
+    y_true_bool = y_true == 1
+    n_samples = len(y_true_bool)
+    best: dict[str, float] | None = None
+    best_rank: tuple[float, float, float] | None = None
+    for threshold in thresholds_array:
+        predicted_positive = clean_scores >= float(threshold)
+        tp = int(np.sum(y_true_bool & predicted_positive))
+        fp = int(np.sum((~y_true_bool) & predicted_positive))
+        fn = int(np.sum(y_true_bool & (~predicted_positive)))
+        tn = int(np.sum((~y_true_bool) & (~predicted_positive)))
+        utility_total = (
+            float(true_positive_reward) * tp
+            + float(true_negative_reward) * tn
+            - float(false_positive_cost) * fp
+            - float(false_negative_cost) * fn
+        )
+        utility_per_sample = utility_total / max(n_samples, 1)
+        cost_per_sample = -utility_per_sample
+        precision = float(tp / (tp + fp)) if (tp + fp) > 0 else float("nan")
+        recall = float(tp / (tp + fn)) if (tp + fn) > 0 else float("nan")
+        positive_rate = float(predicted_positive.mean()) if n_samples > 0 else float("nan")
+        candidate = {
+            "optimal_threshold": float(threshold),
+            "optimal_threshold_cost_per_sample": float(cost_per_sample),
+            "optimal_threshold_utility_per_sample": float(utility_per_sample),
+            "optimal_threshold_utility_total": float(utility_total),
+            "optimal_threshold_true_positive": float(tp),
+            "optimal_threshold_false_positive": float(fp),
+            "optimal_threshold_false_negative": float(fn),
+            "optimal_threshold_true_negative": float(tn),
+            "optimal_threshold_precision": float(precision),
+            "optimal_threshold_recall": float(recall),
+            "optimal_threshold_positive_rate": float(positive_rate),
+            "utility_grid_size": float(len(thresholds_array)),
+            "utility_grid_min_threshold": float(thresholds_array.min()),
+            "utility_grid_max_threshold": float(thresholds_array.max()),
+        }
+        rank = (utility_per_sample, recall if np.isfinite(recall) else -np.inf, -float(threshold))
+        if best is None or best_rank is None or rank > best_rank:
+            best = candidate
+            best_rank = rank
+    return best if best is not None else {}
+
+
 def weighted_classification_cost(
     y_true: np.ndarray,
     y_score: np.ndarray,
@@ -262,27 +365,14 @@ def weighted_classification_cost(
     false_positive_cost: float = 1.0,
     target_positive_rate: float | None = None,
 ) -> float:
-    """Cost of a prevalence-matched classification cutoff under asymmetric errors."""
-    y_true = np.asarray(y_true, dtype=int)
-    y_score = np.asarray(y_score, dtype=float)
-    if len(y_true) == 0:
-        return float("nan")
-    if target_positive_rate is None:
-        target_positive_rate = positive_prevalence(y_true)
-    if not np.isfinite(float(target_positive_rate)):
-        return float("nan")
-    n_samples = len(y_true)
-    n_pred_positive = int(np.clip(np.rint(float(target_positive_rate) * n_samples), 0, n_samples))
-    predicted_positive = np.zeros(n_samples, dtype=bool)
-    if n_pred_positive > 0:
-        order = np.argsort(-np.nan_to_num(y_score, nan=-np.inf), kind="mergesort")
-        predicted_positive[order[:n_pred_positive]] = True
-    false_negative = int(np.sum((y_true == 1) & (~predicted_positive)))
-    false_positive = int(np.sum((y_true == 0) & predicted_positive))
-    total_cost = (float(false_negative_cost) * false_negative) + (
-        float(false_positive_cost) * false_positive
+    """Cost of a threshold chosen by the best utility grid under asymmetric errors."""
+    summary = decision_utility_summary(
+        y_true,
+        y_score,
+        false_positive_cost=false_positive_cost,
+        false_negative_cost=false_negative_cost,
     )
-    return float(total_cost / max(n_samples, 1))
+    return float(summary.get("optimal_threshold_cost_per_sample", float("nan")))
 
 
 def expected_calibration_error(

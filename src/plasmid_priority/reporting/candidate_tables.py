@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from plasmid_priority.utils.dataframe import coalescing_left_merge
+from plasmid_priority.validation import decision_utility_summary
 
 
 def _annotate_source_support_tier(frame: pd.DataFrame) -> pd.DataFrame:
@@ -178,15 +179,41 @@ def _candidate_confidence_score(frame: pd.DataFrame) -> pd.Series:
             "novelty_watchlist": 0.56,
         }
     ).fillna(0.60)
-    bootstrap_top10 = pd.to_numeric(
-        frame.get("bootstrap_top_10_frequency", pd.Series(np.nan, index=frame.index)),
+    multiverse_stability = pd.to_numeric(
+        frame.get("multiverse_stability_score", pd.Series(np.nan, index=frame.index)),
         errors="coerce",
     )
-    variant_top10 = pd.to_numeric(
-        frame.get("variant_top_10_frequency", pd.Series(np.nan, index=frame.index)),
-        errors="coerce",
-    )
-    stability_score = pd.concat([bootstrap_top10, variant_top10], axis=1).mean(axis=1).fillna(0.5)
+    if multiverse_stability.notna().any():
+        stability_score = multiverse_stability.fillna(0.5)
+    else:
+        bootstrap_top25 = pd.to_numeric(
+            frame.get("bootstrap_top_25_frequency", pd.Series(np.nan, index=frame.index)),
+            errors="coerce",
+        )
+        variant_top25 = pd.to_numeric(
+            frame.get("variant_top_25_frequency", pd.Series(np.nan, index=frame.index)),
+            errors="coerce",
+        )
+        bootstrap_top10 = pd.to_numeric(
+            frame.get("bootstrap_top_10_frequency", pd.Series(np.nan, index=frame.index)),
+            errors="coerce",
+        )
+        variant_top10 = pd.to_numeric(
+            frame.get("variant_top_10_frequency", pd.Series(np.nan, index=frame.index)),
+            errors="coerce",
+        )
+        threshold_robustness = pd.to_numeric(
+            frame.get("threshold_robustness_score", pd.Series(np.nan, index=frame.index)),
+            errors="coerce",
+        )
+        stability_components = [
+            bootstrap_top25,
+            variant_top25,
+            bootstrap_top10,
+            variant_top10,
+            threshold_robustness,
+        ]
+        stability_score = pd.concat(stability_components, axis=1).mean(axis=1).fillna(0.5)
     assignment_confidence = pd.to_numeric(
         frame.get("assignment_confidence_score", pd.Series(np.nan, index=frame.index)),
         errors="coerce",
@@ -218,6 +245,10 @@ def _candidate_confidence_score(frame: pd.DataFrame) -> pd.Series:
 
 
 def _candidate_stability_phrase(frame: pd.DataFrame, *, idx: object) -> str:
+    multiverse_stability = pd.to_numeric(
+        frame.get("multiverse_stability_score", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    )
     bootstrap_top10 = pd.to_numeric(
         frame.get("bootstrap_top_10_frequency", pd.Series(np.nan, index=frame.index)),
         errors="coerce",
@@ -226,10 +257,15 @@ def _candidate_stability_phrase(frame: pd.DataFrame, *, idx: object) -> str:
         frame.get("variant_top_10_frequency", pd.Series(np.nan, index=frame.index)),
         errors="coerce",
     )
+    stability_value = multiverse_stability.loc[idx] if idx in multiverse_stability.index else np.nan
     bootstrap_value = bootstrap_top10.loc[idx] if idx in bootstrap_top10.index else np.nan
     variant_value = variant_top10.loc[idx] if idx in variant_top10.index else np.nan
-    if pd.isna(bootstrap_value) and pd.isna(variant_value):
+    if pd.isna(stability_value) and pd.isna(bootstrap_value) and pd.isna(variant_value):
         return "stability unavailable"
+    if pd.notna(stability_value) and float(stability_value) >= 0.80:
+        return "multiverse stable"
+    if pd.notna(stability_value) and float(stability_value) >= 0.55:
+        return "multiverse moderate"
     if pd.notna(bootstrap_value) and pd.notna(variant_value) and min(
         float(bootstrap_value),
         float(variant_value),
@@ -241,6 +277,31 @@ def _candidate_stability_phrase(frame: pd.DataFrame, *, idx: object) -> str:
     ) >= 0.60:
         return "multiverse moderate"
     return "multiverse mixed"
+
+
+def _candidate_multiverse_stability_score(frame: pd.DataFrame) -> pd.Series:
+    if frame.empty:
+        return pd.Series(dtype=float)
+    explicit = pd.to_numeric(
+        frame.get("multiverse_stability_score", pd.Series(np.nan, index=frame.index)),
+        errors="coerce",
+    )
+    component_columns = [
+        "bootstrap_top_25_frequency",
+        "variant_top_25_frequency",
+        "bootstrap_top_10_frequency",
+        "variant_top_10_frequency",
+        "threshold_robustness_score",
+    ]
+    components = [
+        pd.to_numeric(frame.get(column, pd.Series(np.nan, index=frame.index)), errors="coerce")
+        for column in component_columns
+        if column in frame.columns or column == "threshold_robustness_score"
+    ]
+    fallback = pd.concat(components, axis=1).mean(axis=1).clip(0.0, 1.0) if components else None
+    if fallback is None:
+        return explicit.clip(0.0, 1.0)
+    return explicit.fillna(fallback).clip(0.0, 1.0)
 
 
 def _confidence_label_from_score(score: float | None, tier: str) -> str:
@@ -571,6 +632,17 @@ def build_candidate_portfolio_table(
     bootstrap_top10 = combined.get(
         "bootstrap_top_10_frequency", pd.Series(0.0, index=combined.index)
     ).fillna(0.0)
+    multiverse_stability = _candidate_multiverse_stability_score(combined)
+    combined["multiverse_stability_score"] = multiverse_stability
+    combined["multiverse_stability_tier"] = np.select(
+        [
+            multiverse_stability.fillna(0.0) >= 0.80,
+            multiverse_stability.fillna(0.0) >= 0.55,
+        ],
+        ["stable", "moderately_stable"],
+        default="fragile",
+    )
+    multiverse_signal = multiverse_stability.fillna(bootstrap_top10)
     risk_tier = (
         combined.get("false_positive_risk_tier", pd.Series("unknown", index=combined.index))
         .fillna("unknown")
@@ -578,8 +650,8 @@ def build_candidate_portfolio_table(
     )
     recommended_monitoring_tier = np.select(
         [
-            (bootstrap_top10 >= 0.80) & risk_tier.isin(["low", "medium"]),
-            (bootstrap_top10 >= 0.50) & risk_tier.ne("high"),
+            (multiverse_signal >= 0.80) & risk_tier.isin(["low", "medium"]),
+            (multiverse_signal >= 0.55) & risk_tier.ne("high"),
         ],
         ["core_surveillance", "extended_watchlist"],
         default="low_confidence_backlog",
@@ -749,6 +821,11 @@ def build_candidate_dossier_table(
             "variant_mean_rank",
             "variant_median_rank",
             "variant_rank_std",
+            "multiverse_component_count",
+            "multiverse_stability_score",
+            "multiverse_stability_tier",
+            "threshold_flip_count",
+            "threshold_robustness_score",
             "high_confidence_candidate",
             "knownness_score",
             "knownness_half",
@@ -918,6 +995,17 @@ def build_candidate_dossier_table(
         np.clip(combined_uncertainty, 0.0, None)
     )
 
+    multiverse_stability = _candidate_multiverse_stability_score(dossier).fillna(0.5)
+    dossier["multiverse_stability_score"] = multiverse_stability
+    dossier["multiverse_stability_tier"] = np.select(
+        [
+            dossier["multiverse_stability_score"].fillna(0.0) >= 0.80,
+            dossier["multiverse_stability_score"].fillna(0.0) >= 0.55,
+        ],
+        ["stable", "moderately_stable"],
+        default="fragile",
+    )
+
     bootstrap = dossier.get(
         "bootstrap_top_k_frequency", pd.Series(0.0, index=dossier.index)
     ).fillna(0.0)
@@ -940,18 +1028,24 @@ def build_candidate_dossier_table(
             "variant_top_k_frequency",
             pd.Series(np.nan, index=dossier.index),
         ).notna()
+        | dossier.get("multiverse_stability_score", pd.Series(np.nan, index=dossier.index)).notna()
     )
     dossier["candidate_confidence_tier"] = np.select(
         [
             (coherence >= 0.60)
             & (consensus_support >= 2)
             & (
-                ((bootstrap >= 0.85) & (variant >= 0.75))
+                (multiverse_stability >= 0.80)
+                | ((bootstrap >= 0.85) & (variant >= 0.75))
                 | ((~stability_available) & (disagreement <= 50))
             ),
             (coherence >= 0.50)
             & (consensus_support >= 2)
-            & (((bootstrap >= 0.70) & (variant >= 0.60)) | (~stability_available)),
+            & (
+                (multiverse_stability >= 0.55)
+                | ((bootstrap >= 0.70) & (variant >= 0.60))
+                | (~stability_available)
+            ),
         ],
         ["tier_a", "tier_b"],
         default="watchlist",
@@ -1350,6 +1444,47 @@ def build_decision_yield_table(
                 }
             )
     return pd.DataFrame(rows)
+
+
+def build_threshold_utility_table(
+    predictions: pd.DataFrame,
+    *,
+    model_names: list[str],
+    thresholds: tuple[float, ...] | list[float] | None = None,
+    false_positive_cost: float = 1.0,
+    false_negative_cost: float = 5.0,
+    true_positive_reward: float = 1.0,
+    true_negative_reward: float = 0.0,
+) -> pd.DataFrame:
+    """Summarize the best decision threshold under an explicit utility grid."""
+    if predictions.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, object]] = []
+    for model_name in model_names:
+        frame = predictions.loc[predictions["model_name"] == model_name].copy()
+        if frame.empty:
+            continue
+        summary = decision_utility_summary(
+            frame["spread_label"].to_numpy(dtype=int),
+            frame["oof_prediction"].to_numpy(dtype=float),
+            thresholds=thresholds,
+            false_positive_cost=false_positive_cost,
+            false_negative_cost=false_negative_cost,
+            true_positive_reward=true_positive_reward,
+            true_negative_reward=true_negative_reward,
+        )
+        rows.append({"model_name": model_name, **summary})
+    if not rows:
+        return pd.DataFrame()
+    frame = pd.DataFrame(rows)
+    sort_columns = [
+        column
+        for column in ["optimal_threshold_utility_per_sample", "optimal_threshold"]
+        if column in frame.columns
+    ]
+    if sort_columns:
+        frame = frame.sort_values(sort_columns, ascending=[False, False][: len(sort_columns)])
+    return frame.reset_index(drop=True)
 
 
 def build_threshold_flip_table(

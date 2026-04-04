@@ -8,12 +8,16 @@ This is the canonical one-page validation surface for jury review.
 - Permutation entries below include the selection-adjusted official-model null; the fixed-score label-permutation audit is retained only as an exploratory appendix diagnostic.
 - The explicit leakage canary is exported separately in `future_sentinel_audit.tsv`.
 - The frozen acceptance audit is exported separately in `frozen_scientific_acceptance_audit.tsv`.
+- The nonlinear deconfounding audit is exported separately in `nonlinear_deconfounding_audit.tsv`.
+- Alternative endpoint audits are exported separately in `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv`.
+- The prospective freeze audits are exported separately in `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv`.
+- The graph, counterfactual, geographic-jump, and AMR-uncertainty diagnostics are exported separately in `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv`.
 - Frozen scientific acceptance combines matched-knownness, source holdout, spatial holdout, calibration, selection-adjusted null, and leakage review.
 
 | Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | ECE | Max CE | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |
 | --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |
-| discovery_primary | bio_clean_priority | 0.747 | [0.713, 0.778] | 0.660 | [0.611, 0.715] | 0.187 | 0.193 | 0.042 | NA | fail | fail:matched_knownness,source_holdout | 0.005 | <0.001 | 0.024 ([-0.019, 0.065]) | 0.735 | 989 | 362 |
-| governance_watch_only | phylo_support_fusion_priority | 0.827 | [0.800, 0.852] | 0.766 | [0.726, 0.804] | 0.166 | 0.284 | 0.085 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | NA | NA | 0.818 | 989 | 362 |
+| discovery_primary | bio_clean_priority | 0.745 | [0.714, 0.778] | 0.654 | [0.605, 0.709] | 0.188 | 0.188 | 0.063 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | <0.001 | 0.023 ([-0.020, 0.063]) | 0.731 | 989 | 362 |
+| governance_watch_only | phylo_support_fusion_priority | 0.828 | [0.801, 0.853] | 0.767 | [0.726, 0.803] | 0.166 | 0.285 | 0.085 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | NA | NA | 0.821 | 989 | 362 |
 | counts_baseline | baseline_both | 0.722 | [0.689, 0.756] | 0.647 | [0.596, 0.698] | 0.186 | 0.198 | 0.039 | NA | fail | fail:matched_knownness | 0.005 | <0.001 | NA | 0.740 | 989 | 362 |
 
 ## Rolling-Origin Validation
@@ -24,11 +28,11 @@ Mean Brier score across the successful outer splits is 0.095.
 
 ## Blocked Holdout Audit
 
-- bio-clean model blocked holdout audit (dominant_region_train + dominant_source): weighted ROC AUC `0.720` across `7` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.617`.
+- bio-clean model blocked holdout audit (dominant_region_train + dominant_source): weighted ROC AUC `0.719` across `7` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.626`.
 
 ## Country Missingness
 
-- bio-clean model country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.744 to 0.757 and AP 0.660 to 0.732..
+- bio-clean model country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.741 to 0.754 and AP 0.654 to 0.728..
 
 ## Ranking Stability
 

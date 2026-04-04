@@ -23,7 +23,10 @@ from plasmid_priority.modeling import (
     run_module_a,
     validate_discovery_input_contract,
 )
-from plasmid_priority.reporting import ManagedScriptRun
+from plasmid_priority.reporting import (
+    ManagedScriptRun,
+    augment_scored_with_structural_audit_features,
+)
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import (
     atomic_write_json,
@@ -61,16 +64,22 @@ def main(argv: list[str] | None = None) -> int:
 
     context = build_context(PROJECT_ROOT)
     scored_path = context.root / "data/scores/backbone_scored.tsv"
+    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
     metrics_path = context.root / "data/analysis/module_a_metrics.json"
     predictions_path = context.root / "data/analysis/module_a_predictions.tsv"
     manifest_path = context.root / "data/analysis/16_run_module_a.manifest.json"
     config_path = context.root / "config.yaml"
+    raw_amr_path = context.root / "data/raw/amr.tsv"
+    mash_pairs_path = context.root / "data/raw/plsdb_mashdb_sim.tsv"
     ensure_directory(metrics_path.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/16_run_module_A.py",
     )
     input_paths = [scored_path, config_path]
+    for optional_input in (backbones_path, raw_amr_path, mash_pairs_path):
+        if optional_input.exists():
+            input_paths.append(optional_input)
     cache_metadata = {
         "research_models": bool(args.research_models),
         "ablation_models": bool(args.ablation_models),
@@ -99,6 +108,39 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         scored = read_tsv(scored_path)
+        backbone_records = (
+            read_tsv(
+                backbones_path,
+                usecols=["backbone_id", "sequence_accession", "resolved_year"],
+            )
+            if backbones_path.exists()
+            else pd.DataFrame()
+        )
+        raw_amr = (
+            read_tsv(
+                raw_amr_path,
+                usecols=["NUCCORE_ACC", "analysis_software_name", "gene_symbol", "drug_class"],
+            )
+            if raw_amr_path.exists()
+            else pd.DataFrame()
+        )
+        mash_pairs = (
+            read_tsv(
+                mash_pairs_path,
+                header=None,
+                names=["source_accession", "target_accession"],
+                usecols=[0, 1],
+            )
+            if mash_pairs_path.exists()
+            else pd.DataFrame()
+        )
+        scored = augment_scored_with_structural_audit_features(
+            scored,
+            records=backbone_records,
+            raw_amr=raw_amr,
+            mash_pairs=mash_pairs,
+            split_year=int(context.pipeline_settings.split_year),
+        )
         model_names = get_module_a_model_names(
             include_research=args.research_models,
             include_ablations=args.ablation_models,

@@ -7,7 +7,7 @@ import argparse
 import os
 import subprocess
 import sys
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -141,76 +141,90 @@ STEP_LIBRARY: dict[str, WorkflowStep] = {
     ),
 }
 
+PIPELINE_STEP_NAMES: tuple[str, ...] = (
+    "01_check_inputs",
+    "02_build_all_plasmids_fasta",
+    "03_build_bronze_table",
+    "04_harmonize_metadata",
+    "05_deduplicate",
+    "06_annotate_mobility",
+    "07_annotate_amr",
+    "08_build_amr_consensus",
+    "09_assign_backbones",
+    "10_compute_coherence",
+    "11_compute_feature_T",
+    "12_compute_feature_H",
+    "13_compute_feature_A",
+    "14_build_backbone_table",
+    "15_normalize_and_score",
+    "16_run_module_A",
+    "17_run_module_B",
+    "18_run_module_C_pathogen_detection",
+    "19_run_module_D_external_support",
+    "20_run_module_E_amrfinder_concordance",
+    "21_run_validation",
+    "22_run_sensitivity",
+    "23_run_module_f_enrichment",
+    "27_run_advanced_audits",
+    "24_build_reports",
+    "25_export_tubitak_summary",
+)
+
+ANALYSIS_REFRESH_STEP_NAMES: tuple[str, ...] = (
+    "15_normalize_and_score",
+    "16_run_module_A",
+    "17_run_module_B",
+    "18_run_module_C_pathogen_detection",
+    "19_run_module_D_external_support",
+    "20_run_module_E_amrfinder_concordance",
+    "21_run_validation",
+    "22_run_sensitivity",
+    "23_run_module_f_enrichment",
+    "27_run_advanced_audits",
+    "24_build_reports",
+    "25_export_tubitak_summary",
+)
+
+CORE_REFRESH_STEP_NAMES: tuple[str, ...] = (
+    "15_normalize_and_score",
+    "16_run_module_A",
+    "21_run_validation",
+    "22_run_sensitivity",
+    "27_run_advanced_audits",
+    "24_build_reports",
+    "25_export_tubitak_summary",
+)
+
+SUPPORT_REFRESH_STEP_NAMES: tuple[str, ...] = (
+    "15_normalize_and_score",
+    "16_run_module_A",
+    "17_run_module_B",
+    "18_run_module_C_pathogen_detection",
+    "19_run_module_D_external_support",
+    "20_run_module_E_amrfinder_concordance",
+    "23_run_module_f_enrichment",
+    "24_build_reports",
+    "25_export_tubitak_summary",
+)
+
+RELEASE_STEP_NAMES: tuple[str, ...] = (
+    "24_build_reports",
+    "25_export_tubitak_summary",
+    "28_build_release_bundle",
+    "29_build_experiment_registry",
+)
+
+SEQUENTIAL_WORKFLOW_MODES = {"pipeline-sequential", "analysis-refresh-sequential"}
+
 
 MODE_STEP_NAMES: dict[str, tuple[str, ...]] = {
-    "pipeline": (
-        "01_check_inputs",
-        "02_build_all_plasmids_fasta",
-        "03_build_bronze_table",
-        "04_harmonize_metadata",
-        "05_deduplicate",
-        "06_annotate_mobility",
-        "07_annotate_amr",
-        "08_build_amr_consensus",
-        "09_assign_backbones",
-        "10_compute_coherence",
-        "11_compute_feature_T",
-        "12_compute_feature_H",
-        "13_compute_feature_A",
-        "14_build_backbone_table",
-        "15_normalize_and_score",
-        "16_run_module_A",
-        "17_run_module_B",
-        "18_run_module_C_pathogen_detection",
-        "19_run_module_D_external_support",
-        "20_run_module_E_amrfinder_concordance",
-        "21_run_validation",
-        "22_run_sensitivity",
-        "23_run_module_f_enrichment",
-        "27_run_advanced_audits",
-        "24_build_reports",
-        "25_export_tubitak_summary",
-    ),
-    "analysis-refresh": (
-        "15_normalize_and_score",
-        "16_run_module_A",
-        "17_run_module_B",
-        "18_run_module_C_pathogen_detection",
-        "19_run_module_D_external_support",
-        "20_run_module_E_amrfinder_concordance",
-        "21_run_validation",
-        "22_run_sensitivity",
-        "23_run_module_f_enrichment",
-        "27_run_advanced_audits",
-        "24_build_reports",
-        "25_export_tubitak_summary",
-    ),
-    "core-refresh": (
-        "15_normalize_and_score",
-        "16_run_module_A",
-        "21_run_validation",
-        "22_run_sensitivity",
-        "27_run_advanced_audits",
-        "24_build_reports",
-        "25_export_tubitak_summary",
-    ),
-    "support-refresh": (
-        "15_normalize_and_score",
-        "16_run_module_A",
-        "17_run_module_B",
-        "18_run_module_C_pathogen_detection",
-        "19_run_module_D_external_support",
-        "20_run_module_E_amrfinder_concordance",
-        "23_run_module_f_enrichment",
-        "24_build_reports",
-        "25_export_tubitak_summary",
-    ),
-    "release": (
-        "24_build_reports",
-        "25_export_tubitak_summary",
-        "28_build_release_bundle",
-        "29_build_experiment_registry",
-    ),
+    "pipeline": PIPELINE_STEP_NAMES,
+    "pipeline-sequential": PIPELINE_STEP_NAMES,
+    "analysis-refresh": ANALYSIS_REFRESH_STEP_NAMES,
+    "analysis-refresh-sequential": ANALYSIS_REFRESH_STEP_NAMES,
+    "core-refresh": CORE_REFRESH_STEP_NAMES,
+    "support-refresh": SUPPORT_REFRESH_STEP_NAMES,
+    "release": RELEASE_STEP_NAMES,
 }
 
 
@@ -323,14 +337,16 @@ def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = F
             print(f"{step.name}{dep_text}: {step.script}{arg_text}")
         return 0
 
-    if max_workers is None:
+    if mode in SEQUENTIAL_WORKFLOW_MODES:
+        max_workers = 1
+    elif max_workers is None:
         max_workers = min(4, os.cpu_count() or 1)
     max_workers = max(1, min(int(max_workers), len(steps)))
     auto_job_cap = _auto_job_cap(max_workers)
     order = {step.name: index for index, step in enumerate(steps)}
     pending = {step.name: step for step in steps}
     completed: set[str] = set()
-    running: dict[object, WorkflowStep] = {}
+    running: dict[Future[int], WorkflowStep] = {}
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         while pending or running:
@@ -354,7 +370,7 @@ def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = F
                 }
                 raise RuntimeError(f"Workflow deadlock detected: {blocked}")
 
-            done, _ = wait(running.keys(), return_when=FIRST_COMPLETED)
+            done, _ = wait(list(running.keys()), return_when=FIRST_COMPLETED)
             for future in done:
                 step = running.pop(future)
                 return_code = int(future.result())

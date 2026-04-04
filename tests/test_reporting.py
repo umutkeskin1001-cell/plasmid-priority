@@ -18,7 +18,11 @@ build_reports_script = importlib.util.module_from_spec(_BUILD_REPORTS_SPEC)
 _BUILD_REPORTS_SPEC.loader.exec_module(build_reports_script)
 
 from plasmid_priority.config import build_context
-from plasmid_priority.reporting import ManagedScriptRun
+from plasmid_priority.reporting import (
+    ManagedScriptRun,
+    build_report_overview_table,
+    validate_report_artifact,
+)
 from plasmid_priority.reporting.figures import (
     _candidate_tick_label,
     plot_calibration_threshold_summary,
@@ -227,6 +231,17 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Country Missingness", content)
         self.assertIn("country_missingness_bounds.tsv", content)
         self.assertIn("country_missingness_sensitivity.tsv", content)
+        self.assertIn("frozen_scientific_acceptance_audit.tsv", content)
+        self.assertIn("nonlinear_deconfounding_audit.tsv", content)
+        self.assertIn("ordinal_outcome_audit.tsv", content)
+        self.assertIn("exposure_adjusted_event_outcomes.tsv", content)
+        self.assertIn("macro_region_jump_outcome.tsv", content)
+        self.assertIn("prospective_candidate_freeze.tsv", content)
+        self.assertIn("annual_candidate_freeze_summary.tsv", content)
+        self.assertIn("mash_similarity_graph.tsv", content)
+        self.assertIn("counterfactual_shortlist_comparison.tsv", content)
+        self.assertIn("geographic_jump_distance_outcome.tsv", content)
+        self.assertIn("amr_uncertainty_summary.tsv", content)
 
     def test_weighting_sensitivity_table_uses_explicit_sample_weight_modes(self) -> None:
         sensitivity = {
@@ -534,9 +549,76 @@ class ReportingTests(unittest.TestCase):
                 }
             ]
         )
+        model_selection_summary = pd.DataFrame(
+            [
+                {
+                    "published_primary_model": "primary_priority",
+                    "conservative_model_name": "conservative_priority",
+                    "governance_primary_model": "governance_priority",
+                    "published_primary_decision_utility_score": 0.31,
+                    "published_primary_optimal_decision_threshold": 0.42,
+                    "conservative_decision_utility_score": 0.18,
+                    "conservative_optimal_decision_threshold": 0.50,
+                    "governance_primary_decision_utility_score": 0.29,
+                    "governance_primary_optimal_decision_threshold": 0.38,
+                }
+            ]
+        )
+        decision_yield = pd.DataFrame(
+            [
+                {
+                    "model_name": "primary_priority",
+                    "top_k": 10,
+                    "precision_at_k": 0.50,
+                    "recall_at_k": 0.60,
+                },
+                {
+                    "model_name": "primary_priority",
+                    "top_k": 25,
+                    "precision_at_k": 0.44,
+                    "recall_at_k": 0.78,
+                },
+                {
+                    "model_name": "conservative_priority",
+                    "top_k": 10,
+                    "precision_at_k": 0.42,
+                    "recall_at_k": 0.52,
+                },
+                {
+                    "model_name": "governance_priority",
+                    "top_k": 10,
+                    "precision_at_k": 0.57,
+                    "recall_at_k": 0.69,
+                },
+            ]
+        )
+        benchmark_protocol = pd.DataFrame(
+            [
+                {"benchmark_role": "primary_benchmark"},
+                {"benchmark_role": "governance_benchmark"},
+                {"benchmark_role": "conservative_benchmark"},
+                {"benchmark_role": "counts_baseline"},
+                {"benchmark_role": "source_control"},
+            ]
+        )
+        official_context = build_reports_script._build_official_benchmark_context(
+            model_selection_summary,
+            decision_yield,
+            benchmark_protocol=benchmark_protocol,
+        )
+        candidate_universe = build_reports_script._attach_official_benchmark_context(
+            pd.DataFrame({"backbone_id": ["AA276"]}), official_context
+        )
+        candidate_portfolio = build_reports_script._attach_official_benchmark_context(
+            candidate_portfolio, official_context
+        )
 
         result = build_reports_script._build_candidate_brief_table(
-            candidate_portfolio, backbones, amr_consensus
+            candidate_portfolio,
+            backbones,
+            amr_consensus,
+            model_selection_summary=model_selection_summary,
+            decision_yield=decision_yield,
         )
         case_studies = build_reports_script._build_candidate_case_studies(result, per_track=1)
         summary_en = str(result.loc[0, "candidate_summary_en"])
@@ -544,13 +626,36 @@ class ReportingTests(unittest.TestCase):
 
         self.assertIn("Confidence score", summary_en)
         self.assertIn("Rank stability", summary_en)
+        self.assertIn("Official benchmark yield", summary_en)
+        self.assertIn("Decision utility", summary_en)
         self.assertIn("Case summary", summary_en)
         self.assertIn("coklu model uzlasi top-50", summary_tr)
         self.assertIn("ayri erken sinyal izleme hatti", summary_tr)
+        self.assertIn("Resmi benchmark verimi", summary_tr)
+        self.assertIn("Karar faydasi", summary_tr)
         self.assertNotIn("Consensus kisa listesinde", summary_tr)
         self.assertIn("uncertainty_review_tier", result.columns)
         self.assertEqual(str(result.loc[0, "uncertainty_review_tier"]), "review")
         self.assertIn("candidate_confidence_score", result.columns)
+        self.assertIn("official_primary_top_10_precision", result.columns)
+        self.assertIn("official_governance_top_10_precision", result.columns)
+        self.assertIn("official_benchmark_panel_size", result.columns)
+        self.assertEqual(int(result.loc[0, "official_benchmark_panel_size"]), 5)
+        self.assertIn("official_primary_model", candidate_universe.columns)
+        self.assertIn("official_primary_decision_utility_score", candidate_universe.columns)
+        self.assertIn(
+            "official_primary_optimal_decision_threshold", candidate_universe.columns
+        )
+        self.assertEqual(
+            str(candidate_universe.loc[0, "official_governance_model"]),
+            "governance_priority",
+        )
+        self.assertIn("official_primary_model", case_studies.columns)
+        self.assertIn("official_benchmark_panel_size", case_studies.columns)
+        self.assertIn("official_primary_decision_utility_score", case_studies.columns)
+        self.assertIn(
+            "official_primary_optimal_decision_threshold", case_studies.columns
+        )
         self.assertIn("candidate_explanation_summary", result.columns)
         self.assertIn("low_candidate_confidence_risk", result.columns)
         self.assertIn("bootstrap_top_10_frequency", case_studies.columns)
@@ -565,6 +670,80 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Belirsizlik inceleme seviyesi", str(result.loc[0, "candidate_summary_tr"]))
         self.assertIn("Guven skoru", str(result.loc[0, "candidate_summary_tr"]))
         self.assertIn("Vaka ozeti", str(result.loc[0, "candidate_summary_tr"]))
+
+    def test_report_overview_table_summarizes_core_outputs(self) -> None:
+        import pandas as pd
+
+        model_selection_summary = pd.DataFrame(
+            [
+                {
+                    "published_primary_model": "primary_priority",
+                    "governance_primary_model": "governance_priority",
+                    "conservative_model_name": "conservative_priority",
+                    "published_primary_roc_auc": 0.75,
+                    "published_primary_average_precision": 0.68,
+                    "governance_primary_roc_auc": 0.72,
+                    "published_primary_decision_utility_score": 0.31,
+                    "published_primary_optimal_decision_threshold": 0.42,
+                    "governance_primary_decision_utility_score": 0.29,
+                    "governance_primary_optimal_decision_threshold": 0.38,
+                }
+            ]
+        )
+        decision_yield = pd.DataFrame(
+            [
+                {
+                    "model_name": "primary_priority",
+                    "top_k": 10,
+                    "precision_at_k": 0.50,
+                    "recall_at_k": 0.60,
+                },
+                {
+                    "model_name": "governance_priority",
+                    "top_k": 10,
+                    "precision_at_k": 0.57,
+                    "recall_at_k": 0.69,
+                },
+            ]
+        )
+        threshold_utility = pd.DataFrame(
+            [
+                {
+                    "model_name": "primary_priority",
+                    "optimal_threshold": 0.42,
+                    "optimal_threshold_utility_per_sample": 0.31,
+                },
+                {
+                    "model_name": "governance_priority",
+                    "optimal_threshold": 0.38,
+                    "optimal_threshold_utility_per_sample": 0.29,
+                },
+            ]
+        )
+        overview = build_report_overview_table(
+            model_selection_summary=model_selection_summary,
+            decision_yield=decision_yield,
+            threshold_utility_summary=threshold_utility,
+            candidate_portfolio=pd.DataFrame({"backbone_id": ["aa1", "aa2"]}),
+            candidate_case_studies=pd.DataFrame({"backbone_id": ["aa1"]}),
+            false_negative_audit=pd.DataFrame({"backbone_id": []}),
+        )
+        self.assertIn("panel_item", overview.columns)
+        self.assertIn("metric_value", overview.columns)
+        self.assertIn("primary_priority_utility", set(overview["panel_item"].astype(str)))
+        self.assertIn("candidate_portfolio_size", set(overview["panel_item"].astype(str)))
+
+    def test_report_artifact_validator_rejects_duplicates(self) -> None:
+        import pandas as pd
+
+        with self.assertRaises(ValueError):
+            validate_report_artifact(
+                pd.DataFrame({"backbone_id": ["a", "a"], "candidate_confidence_score": [0.3, 0.4]}),
+                artifact_name="candidate_portfolio",
+                required_columns=("backbone_id", "candidate_confidence_score"),
+                unique_key="backbone_id",
+                probability_columns=("candidate_confidence_score",),
+            )
 
     def test_plot_calibration_threshold_summary_writes_compact_figure(self) -> None:
         import pandas as pd
@@ -940,11 +1119,28 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("Blocked Holdout Audit", content)
         self.assertIn("dominant_source + dominant_region_train", content)
         self.assertIn("internal source/region stress test", content)
+        self.assertIn("frozen_scientific_acceptance_audit.tsv", content)
+        self.assertIn("nonlinear_deconfounding_audit.tsv", content)
+        self.assertIn("ordinal_outcome_audit.tsv", content)
+        self.assertIn("exposure_adjusted_event_outcomes.tsv", content)
+        self.assertIn("macro_region_jump_outcome.tsv", content)
+        self.assertIn("prospective_candidate_freeze.tsv", content)
+        self.assertIn("annual_candidate_freeze_summary.tsv", content)
+        self.assertIn("future_sentinel_audit.tsv", content)
+        self.assertIn("mash_similarity_graph.tsv", content)
+        self.assertIn("counterfactual_shortlist_comparison.tsv", content)
+        self.assertIn("geographic_jump_distance_outcome.tsv", content)
+        self.assertIn("amr_uncertainty_summary.tsv", content)
         self.assertIn("## Ranking Stability", content)
         self.assertIn("candidate_rank_stability.tsv", content)
         self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("## Release Surface", content)
         self.assertIn("blocked_holdout_summary.tsv", content)
+        self.assertIn("frozen_scientific_acceptance_audit.tsv", content)
+        self.assertIn("nonlinear_deconfounding_audit.tsv", content)
+        self.assertIn("ordinal_outcome_audit.tsv", content)
+        self.assertIn("exposure_adjusted_event_outcomes.tsv", content)
+        self.assertIn("macro_region_jump_outcome.tsv", content)
         self.assertIn("candidate_rank_stability.tsv", content)
         self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("calibration_threshold_summary.png", content)
@@ -957,6 +1153,18 @@ class ReportingTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("## Release Surface", bundle_jury_brief)
         self.assertIn("blocked_holdout_summary.tsv", bundle_jury_brief)
+        self.assertIn("frozen_scientific_acceptance_audit.tsv", bundle_jury_brief)
+        self.assertIn("nonlinear_deconfounding_audit.tsv", bundle_jury_brief)
+        self.assertIn("ordinal_outcome_audit.tsv", bundle_jury_brief)
+        self.assertIn("exposure_adjusted_event_outcomes.tsv", bundle_jury_brief)
+        self.assertIn("macro_region_jump_outcome.tsv", bundle_jury_brief)
+        self.assertIn("prospective_candidate_freeze.tsv", bundle_jury_brief)
+        self.assertIn("annual_candidate_freeze_summary.tsv", bundle_jury_brief)
+        self.assertIn("future_sentinel_audit.tsv", bundle_jury_brief)
+        self.assertIn("mash_similarity_graph.tsv", bundle_jury_brief)
+        self.assertIn("counterfactual_shortlist_comparison.tsv", bundle_jury_brief)
+        self.assertIn("geographic_jump_distance_outcome.tsv", bundle_jury_brief)
+        self.assertIn("amr_uncertainty_summary.tsv", bundle_jury_brief)
         self.assertIn("candidate_rank_stability.tsv", bundle_jury_brief)
         self.assertIn("candidate_variant_consistency.tsv", bundle_jury_brief)
         self.assertIn("calibration_threshold_summary.png", bundle_jury_brief)
@@ -1081,6 +1289,18 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("candidate_rank_stability.tsv", content)
         self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("blocked_holdout_summary.tsv", content)
+        self.assertIn("frozen_scientific_acceptance_audit.tsv", content)
+        self.assertIn("nonlinear_deconfounding_audit.tsv", content)
+        self.assertIn("ordinal_outcome_audit.tsv", content)
+        self.assertIn("exposure_adjusted_event_outcomes.tsv", content)
+        self.assertIn("macro_region_jump_outcome.tsv", content)
+        self.assertIn("prospective_candidate_freeze.tsv", content)
+        self.assertIn("annual_candidate_freeze_summary.tsv", content)
+        self.assertIn("future_sentinel_audit.tsv", content)
+        self.assertIn("mash_similarity_graph.tsv", content)
+        self.assertIn("counterfactual_shortlist_comparison.tsv", content)
+        self.assertIn("geographic_jump_distance_outcome.tsv", content)
+        self.assertIn("amr_uncertainty_summary.tsv", content)
         self.assertIn("calibration_threshold_summary.png", content)
         self.assertIn("Country Missingness", content)
         self.assertIn("country_missingness_bounds.tsv", content)
@@ -1199,6 +1419,18 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("## Sürüm Yüzeyi", content)
         self.assertIn("## Sıralama Kararlılığı", content)
         self.assertIn("blocked_holdout_summary.tsv", content)
+        self.assertIn("frozen_scientific_acceptance_audit.tsv", content)
+        self.assertIn("nonlinear_deconfounding_audit.tsv", content)
+        self.assertIn("ordinal_outcome_audit.tsv", content)
+        self.assertIn("exposure_adjusted_event_outcomes.tsv", content)
+        self.assertIn("macro_region_jump_outcome.tsv", content)
+        self.assertIn("prospective_candidate_freeze.tsv", content)
+        self.assertIn("annual_candidate_freeze_summary.tsv", content)
+        self.assertIn("future_sentinel_audit.tsv", content)
+        self.assertIn("mash_similarity_graph.tsv", content)
+        self.assertIn("counterfactual_shortlist_comparison.tsv", content)
+        self.assertIn("geographic_jump_distance_outcome.tsv", content)
+        self.assertIn("amr_uncertainty_summary.tsv", content)
         self.assertIn("candidate_rank_stability.tsv", content)
         self.assertIn("candidate_variant_consistency.tsv", content)
         self.assertIn("calibration_threshold_summary.png", content)

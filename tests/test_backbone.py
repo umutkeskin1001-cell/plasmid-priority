@@ -183,6 +183,37 @@ class BackboneTests(unittest.TestCase):
         self.assertTrue(bool(bb2["training_only_future_unseen_backbone_flag"]))
         self.assertTrue(pd.isna(bb2["spread_label"]))
 
+    def test_build_backbone_table_emits_event_timing_and_macro_region_outcomes(self) -> None:
+        records = pd.DataFrame(
+            {
+                "backbone_id": ["bb1", "bb1", "bb1", "bb1"],
+                "canonical_id": ["c1", "c2", "c3", "c4"],
+                "resolved_year": [2014, 2016, 2017, 2019],
+                "country": ["USA", "Germany", "Japan", "Brazil"],
+                "record_origin": ["insd", "refseq", "refseq", "refseq"],
+            }
+        )
+        coherence = pd.DataFrame({"backbone_id": ["bb1"], "coherence_score": [0.8]})
+
+        table = build_backbone_table(records, coherence, split_year=2015, test_year_end=2023)
+        row = table.iloc[0]
+
+        self.assertIn("time_to_first_new_country_years", table.columns)
+        self.assertIn("time_to_third_new_country_years", table.columns)
+        self.assertIn("event_within_3y_label", table.columns)
+        self.assertIn("three_countries_within_5y_label", table.columns)
+        self.assertIn("spread_severity_bin", table.columns)
+        self.assertIn("macro_region_jump_label", table.columns)
+        self.assertEqual(int(row["n_new_countries_recomputed"]), 3)
+        self.assertEqual(float(row["time_to_first_new_country_years"]), 1.0)
+        self.assertEqual(float(row["time_to_third_new_country_years"]), 4.0)
+        self.assertEqual(int(row["event_within_3y_label"]), 1)
+        self.assertEqual(int(row["three_countries_within_3y_label"]), 0)
+        self.assertEqual(int(row["three_countries_within_5y_label"]), 1)
+        self.assertEqual(int(row["spread_severity_bin"]), 2)
+        self.assertEqual(int(row["n_new_macro_regions"]), 3)
+        self.assertEqual(int(row["macro_region_jump_label"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

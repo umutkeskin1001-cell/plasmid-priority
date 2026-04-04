@@ -667,6 +667,9 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("agreement_review_flag", result.predictions.columns)
         self.assertIn("logistic_base_prediction", result.predictions.columns)
         self.assertIn("nonlinear_base_prediction", result.predictions.columns)
+        self.assertIn("nonlinear_backend_requested", result.predictions.columns)
+        self.assertIn("nonlinear_backend_resolved", result.predictions.columns)
+        self.assertIn("nonlinear_backend_resolution_status", result.predictions.columns)
         self.assertIn("mean_agreement_score", result.metrics)
         self.assertIn("review_fraction", result.metrics)
         self.assertTrue(result.predictions["agreement_score"].between(0.0, 1.0).all())
@@ -700,8 +703,13 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("agreement_review_flag", result.predictions.columns)
         self.assertIn("logistic_base_prediction", result.predictions.columns)
         self.assertIn("nonlinear_base_prediction", result.predictions.columns)
+        self.assertIn("nonlinear_backend_requested", result.predictions.columns)
+        self.assertIn("nonlinear_backend_resolved", result.predictions.columns)
+        self.assertIn("nonlinear_backend_resolution_status", result.predictions.columns)
         self.assertTrue(result.predictions["oof_prediction"].between(0.0, 1.0).all())
         self.assertTrue(result.predictions["nonlinear_base_prediction"].between(0.0, 1.0).all())
+        self.assertEqual(str(result.predictions["nonlinear_backend_resolved"].iloc[0]), "hist_gbm")
+        self.assertIn("fallback", str(result.predictions["nonlinear_backend_resolution_status"].iloc[0]))
         self.assertIn("mean_agreement_score", result.metrics)
         self.assertIn("review_fraction", result.metrics)
 
@@ -721,6 +729,9 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("nonlinear_base_prediction", preds.columns)
         self.assertIn("agreement_score", preds.columns)
         self.assertIn("agreement_review_flag", preds.columns)
+        self.assertIn("nonlinear_backend_requested", preds.columns)
+        self.assertIn("nonlinear_backend_resolved", preds.columns)
+        self.assertIn("nonlinear_backend_resolution_status", preds.columns)
         self.assertTrue(preds["prediction"].between(0.0, 1.0).all())
 
     def test_run_module_a_continues_when_one_model_fails_in_worker_fallback(self) -> None:
@@ -1117,6 +1128,85 @@ class ModelingTests(unittest.TestCase):
         self.assertFalse(audit.empty)
         self.assertIn("converged", audit.columns)
         self.assertIn("used_pinv", audit.columns)
+
+    def test_pairwise_rank_priority_emits_predictions(self) -> None:
+        scored = self._hybrid_ready_scored(n=40)
+        result = evaluate_model_name(
+            scored,
+            model_name="pairwise_rank_priority",
+            n_splits=4,
+            n_repeats=2,
+            seed=23,
+        )
+
+        self.assertEqual(result.name, "pairwise_rank_priority")
+        self.assertEqual(len(result.predictions), len(scored))
+        self.assertIn("oof_prediction", result.predictions.columns)
+        self.assertTrue(result.predictions["oof_prediction"].between(0.0, 1.0).all())
+        self.assertIn("roc_auc", result.metrics)
+
+    def test_pu_negative_downweight_reduces_low_knownness_negative_weights(self) -> None:
+        eligible = pd.DataFrame(
+            {
+                "backbone_id": ["bb_low", "bb_high", "bb_pos"],
+                "spread_label": [0, 0, 1],
+                "log1p_member_count_train": [0.0, 2.5, 2.5],
+                "log1p_n_countries_train": [0.0, 1.5, 1.5],
+                "refseq_share_train": [0.0, 0.9, 0.9],
+            }
+        )
+
+        weights = module_a_impl._compute_sample_weight(
+            eligible,
+            mode="pu_negative_downweight",
+            fit_kwargs={"pu_negative_min_weight": 0.2, "pu_negative_power": 1.0},
+        )
+
+        assert weights is not None
+        self.assertLess(float(weights[0]), float(weights[1]))
+        self.assertLess(float(weights[0]), float(weights[2]))
+
+    def test_graph_evidence_priority_can_score_structural_columns(self) -> None:
+        rng = np.random.default_rng(313)
+        n = 30
+        label = np.array([0, 1] * (n // 2))
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "spread_label": label,
+                "T_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_specialization_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "coherence_score": rng.uniform(0.1, 0.9, size=n),
+                "backbone_purity_norm": rng.uniform(0.1, 0.9, size=n),
+                "assignment_confidence_norm": rng.uniform(0.1, 0.9, size=n),
+                "mash_neighbor_distance_train_norm": rng.uniform(0.1, 0.9, size=n),
+                "replicon_architecture_norm": rng.uniform(0.1, 0.9, size=n),
+                "clinical_context_fraction_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_recurrence_norm": rng.uniform(0.1, 0.9, size=n),
+                "pmlst_coherence_norm": rng.uniform(0.1, 0.9, size=n),
+                "ecology_context_diversity_norm": rng.uniform(0.1, 0.9, size=n),
+                "mash_graph_novelty_score": np.where(label == 1, 0.8, 0.2),
+                "mash_graph_bridge_fraction": np.where(label == 1, 0.7, 0.1),
+                "amr_agreement_score": np.where(label == 1, 0.9, 0.4),
+                "mean_amr_uncertainty_score": np.where(label == 1, 0.1, 0.5),
+                "log1p_member_count_train": rng.uniform(0.1, 2.0, size=n),
+                "log1p_n_countries_train": rng.uniform(0.1, 1.5, size=n),
+                "refseq_share_train": rng.uniform(0.0, 1.0, size=n),
+            }
+        )
+
+        result = evaluate_model_name(
+            scored,
+            model_name="graph_evidence_priority",
+            n_splits=3,
+            n_repeats=2,
+            seed=29,
+        )
+
+        self.assertEqual(len(result.predictions), n)
+        self.assertIn("oof_prediction", result.predictions.columns)
+        self.assertTrue(result.predictions["oof_prediction"].between(0.0, 1.0).all())
 
 
 if __name__ == "__main__":

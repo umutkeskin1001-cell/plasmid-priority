@@ -91,6 +91,8 @@ def _build_release_info(context_root: Path) -> str:
             if float(selection_adjusted_p) < 0.001
             else f"= {float(selection_adjusted_p):.3f}"
         )
+    n_permutations = pd.to_numeric(pd.Series([row.get("n_permutations", pd.NA)]), errors="coerce").iloc[0]
+    n_permutations_text = int(n_permutations) if pd.notna(n_permutations) else 0
     return (
         "\n".join(
             [
@@ -100,8 +102,8 @@ def _build_release_info(context_root: Path) -> str:
                 f"Primary model: {row.get('model_name', 'unknown')}",
                 f"ROC AUC: {float(row.get('roc_auc', float('nan'))):.4f} [{float(row.get('roc_auc_ci_lower', float('nan'))):.4f}–{float(row.get('roc_auc_ci_upper', float('nan'))):.4f}]",
                 f"AP: {float(row.get('average_precision', float('nan'))):.4f} [{float(row.get('average_precision_ci_lower', float('nan'))):.4f}–{float(row.get('average_precision_ci_upper', float('nan'))):.4f}]",
-                f"Selection-adjusted permutation p {selection_adjusted_text} (n={int(row.get('n_permutations', 0) or 0)})",
-                f"Fixed-score permutation p {permutation_text} (n={int(row.get('n_permutations', 0) or 0)})",
+                f"Selection-adjusted permutation p {selection_adjusted_text} (n={n_permutations_text})",
+                f"Fixed-score permutation p {permutation_text} (n={n_permutations_text})",
             ]
         )
         + "\n"

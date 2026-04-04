@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from plasmid_priority.reporting.advanced_audits import (
+    augment_scored_with_structural_audit_features,
     build_amr_uncertainty_table,
     build_confirmatory_cohort_summary,
     build_consensus_shortlist,
@@ -917,6 +918,67 @@ class AdvancedAuditTests(unittest.TestCase):
                 "baseline_matched_to_primary",
             },
         )
+
+    def test_augment_scored_with_structural_audit_features_merges_expected_columns(self) -> None:
+        scored = pd.DataFrame({"backbone_id": ["AA001", "AA002"], "spread_label": [1, 0]})
+        records = pd.DataFrame(
+            [
+                {
+                    "backbone_id": "AA001",
+                    "sequence_accession": "seq1",
+                    "resolved_year": 2014,
+                    "country": "USA",
+                },
+                {
+                    "backbone_id": "AA001",
+                    "sequence_accession": "seq2",
+                    "resolved_year": 2014,
+                    "country": "Germany",
+                },
+                {
+                    "backbone_id": "AA002",
+                    "sequence_accession": "seq3",
+                    "resolved_year": 2014,
+                    "country": "USA",
+                },
+            ]
+        )
+        raw_amr = pd.DataFrame(
+            [
+                {
+                    "NUCCORE_ACC": "seq1",
+                    "analysis_software_name": "tool_a",
+                    "gene_symbol": "blaTEM",
+                    "drug_class": "beta-lactam",
+                },
+                {
+                    "NUCCORE_ACC": "seq1",
+                    "analysis_software_name": "tool_b",
+                    "gene_symbol": "blaTEM",
+                    "drug_class": "beta-lactam",
+                },
+            ]
+        )
+        mash_pairs = pd.DataFrame(
+            [["seq1", "seq2"], ["seq1", "seq3"]],
+            columns=["source_accession", "target_accession"],
+        )
+
+        enriched = augment_scored_with_structural_audit_features(
+            scored,
+            records=records,
+            raw_amr=raw_amr,
+            mash_pairs=mash_pairs,
+            split_year=2015,
+        )
+
+        self.assertIn("amr_agreement_score", enriched.columns)
+        self.assertIn("mean_amr_uncertainty_score", enriched.columns)
+        self.assertIn("mash_graph_novelty_score", enriched.columns)
+        self.assertIn("mash_graph_bridge_fraction", enriched.columns)
+        self.assertIn("mash_graph_external_neighbor_count", enriched.columns)
+        self.assertTrue(enriched["mash_graph_external_neighbor_count"].ge(0).all())
+        self.assertTrue(enriched["mash_graph_bridge_fraction"].between(0.0, 1.0).all())
 
 
 if __name__ == "__main__":
