@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Run unit tests and a lightweight smoke check on real project data."""
+"""Run a lightweight smoke check on real project data, optionally with unit tests."""
 
 from __future__ import annotations
 
+import argparse
 import itertools
 import subprocess
 import sys
@@ -42,16 +43,34 @@ def _missing_required_input_errors(validation_report) -> list[object]:
     return missing_errors
 
 
-def main() -> int:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run real-data smoke checks. Use --with-tests to prepend unit tests."
+    )
+    parser.add_argument(
+        "--with-tests",
+        action="store_true",
+        help="Run the full unittest suite before the smoke checks.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args([] if argv is None else argv)
     context = build_context(PROJECT_ROOT)
 
     with ManagedScriptRun(context, "26_run_tests_or_smoke") as run:
-        test_result = run_unit_tests()
-        run.set_metric("tests_run", test_result.testsRun)
-        run.set_metric("test_failures", len(test_result.failures))
-        run.set_metric("test_errors", len(test_result.errors))
-        if not test_result.wasSuccessful():
-            raise RuntimeError("Unit tests failed.")
+        if args.with_tests:
+            test_result = run_unit_tests()
+            run.set_metric("tests_run", test_result.testsRun)
+            run.set_metric("test_failures", len(test_result.failures))
+            run.set_metric("test_errors", len(test_result.errors))
+            if not test_result.wasSuccessful():
+                raise RuntimeError("Unit tests failed.")
+        else:
+            run.set_metric("tests_run", 0)
+            run.set_metric("test_failures", 0)
+            run.set_metric("test_errors", 0)
 
         validation_report = run_input_checks(context)
         run.set_metric("input_check_errors", len(validation_report.errors))
@@ -103,4 +122,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

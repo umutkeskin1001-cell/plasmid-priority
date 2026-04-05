@@ -66,7 +66,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[analysis]"  # Installs the package and analysis dependencies
 python scripts/01_check_inputs.py
-python scripts/26_run_tests_or_smoke.py
+python scripts/26_run_tests_or_smoke.py --with-tests
 ```
 
 ## Current Scope

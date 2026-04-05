@@ -51,7 +51,76 @@ class _SuccessfulTestResult:
         return True
 
 
+class _FakeContext:
+    def asset_path(self, key: str) -> Path:
+        return Path("/tmp") / key
+
+
 class SmokeRunnerTests(unittest.TestCase):
+    def test_smoke_does_not_run_unit_tests_by_default(self) -> None:
+        fake_run = _FakeRun()
+        report = ValidationReport(results=[], contract_notes=[])
+
+        with (
+            mock.patch.object(smoke_runner_script, "build_context", return_value=_FakeContext()),
+            mock.patch.object(smoke_runner_script, "ManagedScriptRun", return_value=fake_run),
+            mock.patch.object(smoke_runner_script, "run_input_checks", return_value=report),
+            mock.patch.object(
+                smoke_runner_script,
+                "_run_cli_smoke",
+                return_value=mock.Mock(returncode=0),
+            ),
+            mock.patch.object(
+                smoke_runner_script,
+                "build_plsdb_canonical_metadata",
+                return_value=[],
+            ),
+            mock.patch.object(
+                smoke_runner_script,
+                "iter_fasta_summaries",
+                return_value=iter([("h1", "", 1), ("h2", "", 1)]),
+            ),
+            mock.patch.object(smoke_runner_script, "run_unit_tests") as run_tests_mock,
+        ):
+            result = smoke_runner_script.main([])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(fake_run.metrics["tests_run"], 0)
+        run_tests_mock.assert_not_called()
+
+    def test_smoke_can_run_unit_tests_when_requested(self) -> None:
+        fake_run = _FakeRun()
+        report = ValidationReport(results=[], contract_notes=[])
+
+        with (
+            mock.patch.object(smoke_runner_script, "build_context", return_value=_FakeContext()),
+            mock.patch.object(smoke_runner_script, "ManagedScriptRun", return_value=fake_run),
+            mock.patch.object(
+                smoke_runner_script, "run_unit_tests", return_value=_SuccessfulTestResult()
+            ) as run_tests_mock,
+            mock.patch.object(smoke_runner_script, "run_input_checks", return_value=report),
+            mock.patch.object(
+                smoke_runner_script,
+                "_run_cli_smoke",
+                return_value=mock.Mock(returncode=0),
+            ),
+            mock.patch.object(
+                smoke_runner_script,
+                "build_plsdb_canonical_metadata",
+                return_value=[],
+            ),
+            mock.patch.object(
+                smoke_runner_script,
+                "iter_fasta_summaries",
+                return_value=iter([("h1", "", 1), ("h2", "", 1)]),
+            ),
+        ):
+            result = smoke_runner_script.main(["--with-tests"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(fake_run.metrics["tests_run"], 1)
+        run_tests_mock.assert_called_once()
+
     def test_smoke_skips_real_data_when_required_inputs_are_absent(self) -> None:
         fake_run = _FakeRun()
         report = ValidationReport(
@@ -69,7 +138,7 @@ class SmokeRunnerTests(unittest.TestCase):
         )
 
         with (
-            mock.patch.object(smoke_runner_script, "build_context", return_value=object()),
+            mock.patch.object(smoke_runner_script, "build_context", return_value=_FakeContext()),
             mock.patch.object(smoke_runner_script, "ManagedScriptRun", return_value=fake_run),
             mock.patch.object(
                 smoke_runner_script, "run_unit_tests", return_value=_SuccessfulTestResult()
@@ -77,7 +146,7 @@ class SmokeRunnerTests(unittest.TestCase):
             mock.patch.object(smoke_runner_script, "run_input_checks", return_value=report),
             mock.patch.object(smoke_runner_script, "_run_cli_smoke") as cli_smoke_mock,
         ):
-            result = smoke_runner_script.main()
+            result = smoke_runner_script.main([])
 
         self.assertEqual(result, 0)
         self.assertEqual(fake_run.metrics["smoke_skipped_missing_required_inputs"], 1)
@@ -104,7 +173,7 @@ class SmokeRunnerTests(unittest.TestCase):
             )
 
             with (
-                mock.patch.object(smoke_runner_script, "build_context", return_value=object()),
+                mock.patch.object(smoke_runner_script, "build_context", return_value=_FakeContext()),
                 mock.patch.object(smoke_runner_script, "ManagedScriptRun", return_value=fake_run),
                 mock.patch.object(
                     smoke_runner_script, "run_unit_tests", return_value=_SuccessfulTestResult()
@@ -113,7 +182,7 @@ class SmokeRunnerTests(unittest.TestCase):
                 mock.patch.object(smoke_runner_script, "_run_cli_smoke") as cli_smoke_mock,
             ):
                 with self.assertRaises(RuntimeError):
-                    smoke_runner_script.main()
+                    smoke_runner_script.main([])
 
         cli_smoke_mock.assert_not_called()
 
