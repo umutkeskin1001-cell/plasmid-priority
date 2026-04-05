@@ -26,5 +26,5 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q src scripts tests
 
-      - name: Run CI check
-        run: make ci
+      - name: Run Quality Gate
+        run: make quality

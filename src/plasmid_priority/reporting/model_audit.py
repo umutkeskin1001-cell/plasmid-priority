@@ -92,6 +92,24 @@ FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS: dict[str, float] = {
 }
 
 _CALIBRATION_METHODS: tuple[str, ...] = ("raw", "platt", "isotonic", "beta")
+ADAPTIVE_GATED_PUBLIC_COLUMNS: tuple[str, ...] = (
+    "backbone_id",
+    "adaptive_prediction",
+    "spread_label",
+    "knownness_score",
+    "knownness_half",
+    "knownness_quartile",
+    "model_name",
+    "base_model_name",
+    "specialist_model_name",
+    "gating_rule",
+    "prediction_source",
+    "specialist_weight_lower_half",
+    "base_oof_prediction",
+    "novelty_specialist_prediction",
+    "upper_half_route_prediction",
+    "lower_half_route_prediction",
+)
 
 
 annotate_candidate_explanation_fields = _annotate_candidate_explanation_fields
@@ -101,6 +119,18 @@ build_candidate_risk_table = _build_candidate_risk_table
 build_decision_yield_table = _build_decision_yield_table
 build_threshold_flip_table = _build_threshold_flip_table
 build_threshold_utility_table = _build_threshold_utility_table
+
+
+def sanitize_adaptive_gated_predictions(adaptive_predictions: pd.DataFrame) -> pd.DataFrame:
+    """Persist only the public adaptive-gating schema expected by reports and audits."""
+    if adaptive_predictions.empty:
+        return pd.DataFrame(columns=list(ADAPTIVE_GATED_PUBLIC_COLUMNS))
+
+    working = adaptive_predictions.copy()
+    for column in ADAPTIVE_GATED_PUBLIC_COLUMNS:
+        if column not in working.columns:
+            working[column] = np.nan
+    return working.loc[:, list(ADAPTIVE_GATED_PUBLIC_COLUMNS)].copy()
 
 
 def _stable_unit_interval(text: str, *, salt: str) -> float:
@@ -846,6 +876,9 @@ def build_knownness_audit_tables(
         summary_row["matched_strata_primary_weighted_roc_auc"] = weighted_primary
         summary_row["matched_strata_baseline_weighted_roc_auc"] = weighted_baseline
         summary_row["matched_strata_weighted_delta_roc_auc"] = weighted_primary - weighted_baseline
+
+    if strata.empty:
+        return pd.DataFrame([summary_row]), strata
 
     return pd.DataFrame([summary_row]), strata.sort_values(
         ["delta_roc_auc", "n_backbones"],

@@ -85,6 +85,7 @@ from plasmid_priority.reporting.model_audit import (
     build_temporal_drift_summary,
     build_temporal_rank_stability_table,
     build_variant_rank_consistency_table,
+    sanitize_adaptive_gated_predictions,
 )
 from plasmid_priority.reporting.overview import build_report_overview_table
 from plasmid_priority.reporting.pathogen_support import (
@@ -148,6 +149,7 @@ __all__ = [
     "build_score_axis_summary",
     "build_score_distribution_diagnostics",
     "build_selection_adjusted_permutation_null",
+    "sanitize_adaptive_gated_predictions",
     "build_source_balance_resampling_table",
     "build_sleeper_threat_table",
     "build_temporal_drift_summary",

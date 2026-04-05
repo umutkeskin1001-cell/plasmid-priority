@@ -52,6 +52,7 @@ from plasmid_priority.reporting import (
     build_permutation_null_tables,
     build_selection_adjusted_permutation_null,
     build_source_balance_resampling_table,
+    sanitize_adaptive_gated_predictions,
 )
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import (
@@ -770,26 +771,7 @@ def main() -> int:
             novelty_specialist_predictions_output, sep="\t", index=False
         )
 
-        adaptive_gated_predictions = pd.DataFrame(
-            columns=[
-                "backbone_id",
-                "adaptive_prediction",
-                "spread_label",
-                "knownness_score",
-                "knownness_half",
-                "knownness_quartile",
-                "model_name",
-                "base_model_name",
-                "specialist_model_name",
-                "gating_rule",
-                "prediction_source",
-                "specialist_weight_lower_half",
-                "base_oof_prediction",
-                "novelty_specialist_prediction",
-                "upper_half_route_prediction",
-                "lower_half_route_prediction",
-            ]
-        )
+        adaptive_gated_predictions = sanitize_adaptive_gated_predictions(pd.DataFrame())
         adaptive_gated_metrics = pd.DataFrame(
             columns=[
                 "model_name",
@@ -925,6 +907,9 @@ def main() -> int:
                 )
             if adaptive_frames:
                 adaptive_gated_predictions = pd.concat(adaptive_frames, ignore_index=True)
+                adaptive_gated_predictions = sanitize_adaptive_gated_predictions(
+                    adaptive_gated_predictions
+                )
             if adaptive_metrics_frames:
                 adaptive_gated_metrics = pd.concat(adaptive_metrics_frames, ignore_index=True)
             if not adaptive_gated_predictions.empty:

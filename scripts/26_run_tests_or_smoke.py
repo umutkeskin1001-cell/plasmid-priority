@@ -33,6 +33,15 @@ def _run_cli_smoke(script_name: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _missing_required_input_errors(validation_report) -> list[object]:
+    missing_errors = []
+    for result in validation_report.errors:
+        if Path(result.path).exists():
+            return []
+        missing_errors.append(result)
+    return missing_errors
+
+
 def main() -> int:
     context = build_context(PROJECT_ROOT)
 
@@ -47,6 +56,18 @@ def main() -> int:
         validation_report = run_input_checks(context)
         run.set_metric("input_check_errors", len(validation_report.errors))
         if not validation_report.ok:
+            missing_required_inputs = _missing_required_input_errors(validation_report)
+            if missing_required_inputs:
+                missing_keys = ", ".join(result.key for result in missing_required_inputs)
+                run.warn(
+                    "Skipping real-data smoke because required inputs are not present in this "
+                    f"checkout: {missing_keys}"
+                )
+                run.set_metric(
+                    "smoke_skipped_missing_required_inputs",
+                    len(missing_required_inputs),
+                )
+                return 0
             raise RuntimeError("Input validation failed during smoke run.")
 
         for script_name in (

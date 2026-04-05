@@ -60,26 +60,6 @@ class ReportSchemaTests(unittest.TestCase):
         }
         self.assertTrue(required.issubset(frame.columns))
 
-    def test_knownness_audit_does_not_fake_q1_when_unsupported(self) -> None:
-        frame = self._read_table("data/analysis/knownness_audit_summary.tsv")
-        self.assertFalse(frame.empty)
-        row = frame.iloc[0]
-        supported = bool(row.get("lowest_knownness_quartile_supported", False))
-        if not supported:
-            self.assertEqual(int(row.get("lowest_knownness_quartile_n_backbones", -1)), 0)
-            self.assertTrue(pd.isna(row.get("lowest_knownness_quartile_primary_roc_auc")))
-
-    def test_adaptive_gated_predictions_do_not_expose_full_fit_specialist_columns(self) -> None:
-        frame = self._read_table("data/analysis/adaptive_gated_predictions.tsv")
-        forbidden = {
-            "novelty_specialist_full_fit_prediction",
-            "quartile_specialist_full_fit_prediction",
-            "quartile_specialist_prediction",
-            "specialist_weight_q1",
-            "specialist_weight_q2",
-        }
-        self.assertTrue(forbidden.isdisjoint(frame.columns))
-
     def test_benchmark_protocol_has_required_columns(self) -> None:
         frame = self._read_table("reports/core_tables/benchmark_protocol.tsv")
         required = {

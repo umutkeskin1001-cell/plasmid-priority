@@ -47,6 +47,7 @@ from plasmid_priority.reporting import (
     build_threshold_flip_table,
     build_threshold_utility_table,
     build_variant_rank_consistency_table,
+    sanitize_adaptive_gated_predictions,
 )
 from plasmid_priority.validation import decision_utility_summary
 
@@ -78,6 +79,46 @@ class ModelAuditTests(unittest.TestCase):
         self.assertEqual(int(audit.iloc[0]["n_near_gate"]), 4)
         self.assertIn("mean_abs_route_delta_near_gate", audit.columns)
         self.assertGreaterEqual(float(audit.iloc[0]["route_spearman_near_gate"]), 0.9)
+
+    def test_sanitize_adaptive_gated_predictions_drops_internal_specialist_columns(self) -> None:
+        adaptive_predictions = pd.DataFrame(
+            {
+                "backbone_id": ["bb_1"],
+                "adaptive_prediction": [0.62],
+                "spread_label": [1],
+                "knownness_score": [0.23],
+                "knownness_half": ["lower_half"],
+                "knownness_quartile": ["q1_lowest"],
+                "model_name": ["adaptive_knownness_robust_priority"],
+                "base_model_name": ["knownness_robust_priority"],
+                "specialist_model_name": ["novelty_specialist_priority"],
+                "gating_rule": ["lower_half_specialist_switch"],
+                "prediction_source": ["novelty_specialist_priority"],
+                "specialist_weight_lower_half": [1.0],
+                "base_oof_prediction": [0.41],
+                "novelty_specialist_prediction": [0.62],
+                "upper_half_route_prediction": [0.41],
+                "lower_half_route_prediction": [0.62],
+                "novelty_specialist_full_fit_prediction": [0.88],
+                "quartile_specialist_full_fit_prediction": [0.91],
+                "quartile_specialist_prediction": [0.77],
+                "specialist_weight_q1": [1.0],
+                "specialist_weight_q2": [0.5],
+            }
+        )
+
+        sanitized = sanitize_adaptive_gated_predictions(adaptive_predictions)
+
+        forbidden = {
+            "novelty_specialist_full_fit_prediction",
+            "quartile_specialist_full_fit_prediction",
+            "quartile_specialist_prediction",
+            "specialist_weight_q1",
+            "specialist_weight_q2",
+        }
+        self.assertTrue(forbidden.isdisjoint(sanitized.columns))
+        self.assertIn("specialist_weight_lower_half", sanitized.columns)
+        self.assertEqual(float(sanitized.iloc[0]["adaptive_prediction"]), 0.62)
 
     def test_build_model_family_summary_keeps_priority_models(self) -> None:
         model_metrics = pd.DataFrame(
@@ -1464,6 +1505,38 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("matched_strata_weighted_delta_roc_auc", summary.columns)
         self.assertIn("top_k_lower_half_knownness_fraction", summary.columns)
         self.assertFalse(strata.empty)
+
+    def test_build_knownness_audit_tables_keeps_q1_empty_when_quartiles_unsupported(self) -> None:
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(12)],
+                "priority_index": np.linspace(0.1, 0.9, 12),
+                "log1p_member_count_train": [0.0] * 12,
+                "log1p_n_countries_train": [0.0] * 12,
+                "refseq_share_train": [0.0] * 12,
+            }
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(12)] * 2,
+                "model_name": ["proxy_light_priority"] * 12 + ["baseline_both"] * 12,
+                "oof_prediction": ([0.2, 0.8] * 6) + ([0.45, 0.55] * 6),
+                "spread_label": ([0, 1] * 6) * 2,
+            }
+        )
+
+        summary, _ = build_knownness_audit_tables(
+            predictions,
+            scored,
+            primary_model_name="proxy_light_priority",
+            baseline_model_name="baseline_both",
+            top_k=6,
+        )
+
+        row = summary.iloc[0]
+        self.assertFalse(bool(row["lowest_knownness_quartile_supported"]))
+        self.assertEqual(int(row["lowest_knownness_quartile_n_backbones"]), 0)
+        self.assertTrue(pd.isna(row["lowest_knownness_quartile_primary_roc_auc"]))
 
     def test_build_novelty_margin_summary_returns_watchlist_columns(self) -> None:
         scored = pd.DataFrame(

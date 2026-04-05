@@ -22,7 +22,7 @@ class CiWorkflowTests(unittest.TestCase):
         workflow = yaml.safe_load(CI_WORKFLOW_PATH.read_text(encoding="utf-8"))
         steps = workflow["jobs"]["quality"]["steps"]
         run_commands = {str(step.get("run", "")).strip() for step in steps}
-        self.assertTrue({"make quality", "make ci"} & run_commands)
+        self.assertIn("make quality", run_commands)
 
 
 if __name__ == "__main__":
