@@ -15,11 +15,11 @@ from plasmid_priority.utils.files import ensure_directory
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    canonical_path = context.root / "data/bronze/plsdb_canonical_metadata.tsv"
+    canonical_path = context.data_dir / "bronze/plsdb_canonical_metadata.tsv"
     typing_path = context.asset_path("plsdb_meta_tables_dir") / "typing.csv"
     biosample_path = context.asset_path("plsdb_meta_tables_dir") / "biosample.csv"
     plasmidfinder_path = context.asset_path("plsdb_meta_tables_dir") / "plasmidfinder.csv"
-    output_path = context.root / "data/silver/plasmid_harmonized.tsv"
+    output_path = context.data_dir / "silver/plasmid_harmonized.tsv"
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "04_harmonize_metadata") as run:

@@ -1,6 +1,6 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary analysis-refresh core-refresh support-refresh release-bundle experiments-registry analysis-refresh-sequential test smoke pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci
+.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local test smoke pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci
 
 check-inputs:
 	$(PYTHON) scripts/01_check_inputs.py
@@ -23,23 +23,11 @@ reports:
 tubitak-summary:
 	$(PYTHON) scripts/25_export_tubitak_summary.py
 
-analysis-refresh:
-	$(PYTHON) scripts/run_workflow.py analysis-refresh
+fast-local:
+	$(PYTHON) scripts/run_mode.py fast-local $(if $(SOURCE_DATA_ROOT),--source-data-root $(SOURCE_DATA_ROOT),)
 
-core-refresh:
-	$(PYTHON) scripts/run_workflow.py core-refresh
-
-support-refresh:
-	$(PYTHON) scripts/run_workflow.py support-refresh
-
-release-bundle:
-	$(PYTHON) scripts/run_workflow.py release
-
-experiments-registry:
-	$(PYTHON) scripts/29_build_experiment_registry.py
-
-analysis-refresh-sequential:
-	$(PYTHON) scripts/run_workflow.py analysis-refresh-sequential
+full-local:
+	$(PYTHON) scripts/run_mode.py full-local $(if $(DATA_ROOT),--data-root $(DATA_ROOT),)
 
 test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'

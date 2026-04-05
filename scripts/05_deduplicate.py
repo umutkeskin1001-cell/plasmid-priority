@@ -18,9 +18,9 @@ from plasmid_priority.utils.files import ensure_directory
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    harmonized_path = context.root / "data/silver/plasmid_harmonized.tsv"
+    harmonized_path = context.data_dir / "silver/plasmid_harmonized.tsv"
     identical_path = context.asset_path("plsdb_meta_tables_dir") / "nucc_identical.csv"
-    output_path = context.root / "data/silver/plasmid_deduplicated.tsv"
+    output_path = context.data_dir / "silver/plasmid_deduplicated.tsv"
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "05_deduplicate") as run:

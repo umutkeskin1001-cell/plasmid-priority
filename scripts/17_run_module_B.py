@@ -31,12 +31,12 @@ def _explode_classes(frame: pd.DataFrame) -> pd.DataFrame:
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "data/analysis/17_run_module_b.manifest.json"
-    output_path = context.root / "data/analysis/module_b_amr_class_comparison.tsv"
+    manifest_path = context.data_dir / "analysis/17_run_module_b.manifest.json"
+    output_path = context.data_dir / "analysis/module_b_amr_class_comparison.tsv"
     ensure_directory(output_path.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,

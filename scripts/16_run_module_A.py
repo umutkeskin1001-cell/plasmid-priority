@@ -63,14 +63,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    metrics_path = context.root / "data/analysis/module_a_metrics.json"
-    predictions_path = context.root / "data/analysis/module_a_predictions.tsv"
-    manifest_path = context.root / "data/analysis/16_run_module_a.manifest.json"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    metrics_path = context.data_dir / "analysis/module_a_metrics.json"
+    predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
+    manifest_path = context.data_dir / "analysis/16_run_module_a.manifest.json"
     config_path = context.root / "config.yaml"
-    raw_amr_path = context.root / "data/raw/amr.tsv"
-    mash_pairs_path = context.root / "data/raw/plsdb_mashdb_sim.tsv"
+    raw_amr_path = context.data_dir / "raw/amr.tsv"
+    mash_pairs_path = context.data_dir / "raw/plsdb_mashdb_sim.tsv"
     ensure_directory(metrics_path.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,

@@ -16,7 +16,7 @@ from plasmid_priority.utils.files import ensure_directory
 def main() -> int:
     context = build_context(PROJECT_ROOT)
     amr_path = context.asset_path("plsdb_meta_tables_dir") / "amr.tsv"
-    output_path = context.root / "data/silver/plasmid_amr_hits.tsv"
+    output_path = context.data_dir / "silver/plasmid_amr_hits.tsv"
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "07_annotate_amr") as run:

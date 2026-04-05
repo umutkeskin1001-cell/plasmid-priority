@@ -36,8 +36,11 @@ class DataAssetSpec(BaseModel):
     min_matches: int | None = None
     expected_release_files: list[str] = Field(default_factory=list)
 
-    def resolved_path(self, project_root: Path) -> Path:
-        return project_root / self.relative_path
+    def resolved_path(self, project_root: Path, data_root: Path | None = None) -> Path:
+        relative = Path(self.relative_path)
+        if data_root is not None and relative.parts and relative.parts[0] == "data":
+            return data_root / Path(*relative.parts[1:])
+        return project_root / relative
 
 
 class DataContract(BaseModel):

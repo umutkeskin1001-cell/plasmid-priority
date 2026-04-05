@@ -1,3 +1,0 @@
-priority_group	n_backbones	n_with_literature_support	n_with_cluster_support	mean_reported_host_range_taxid_count	median_reported_host_range_taxid_count	mean_cluster_taxid_count	mean_cluster_conjugative_fraction	mean_cluster_relaxase_presence_fraction
-high	247	102	233	0.5506072874493927	0.0	27.25910931174089	0.3577080394807035	0.6426428215743881
-low	247	21	140	0.10526315789473684	0.0	7.890688259109312	0.052845240359605396	0.12886466378526795

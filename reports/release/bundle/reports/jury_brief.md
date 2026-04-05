@@ -16,8 +16,8 @@ This framework retrospectively prioritizes plasmid backbone surveillance units u
 - Counts-only baseline: `baseline_both` | ROC AUC `0.722` | AP `0.647`.
 - Conservative benchmark: `parsimonious_priority` | ROC AUC `0.751` | AP `0.659`.
 - Source-only control: `source_only` | ROC AUC `0.452`.
-- Strongest audited metric model: `phylo-support fusion model` | ROC AUC `0.828` | AP `0.767`.
-- Governance watch-only: `phylo-support fusion model` | ROC AUC `0.828` | AP `0.767` | strict `fail`.
+- Strongest audited metric model: `phylo-support fusion model` | ROC AUC `0.827` | AP `0.767`.
+- Governance watch-only: `phylo-support fusion model` | ROC AUC `0.827` | AP `0.767` | strict `fail`.
 - Selection-adjusted official-model permutation audit for the headline ROC AUC: `p 0.005`; the older fixed-score label-permutation entry is retained only as an exploratory appendix diagnostic.
 - Delta vs counts-only baseline: `0.023, 95% CI [-0.020, 0.063]`.
 
@@ -59,7 +59,7 @@ This should be interpreted as a data-limited regime, not as evidence that the en
 
 - `candidate_rank_stability.tsv` records candidate rank stability across bootstrap resamples; the strongest stable backbone `AA175` remains in the top-`25` set at frequency `1.00`.
 - `candidate_variant_consistency.tsv` records candidate rank stability across model variants; the strongest stable backbone `AA324` remains in the top-`25` set at frequency `0.88`.
-- Discovery shortlist agreement with the strongest audited metric model: top-25 overlap: `7/25`; top-50 overlap: `20/50`.
+- Discovery shortlist agreement with the strongest audited metric model: top-25 overlap: `7/25`; top-50 overlap: `19/50`.
 - A knownness-gated audit model (`adaptive_natural_priority`) remains useful for lower-knownness stress testing but is not the headline benchmark.
 - Observed host-diversity terms should be interpreted cautiously because they partly behave like sampling saturation / knownness signals.
 - Supportive external layers are descriptive context only; AMRFinder is optional and not required for the headline benchmark.

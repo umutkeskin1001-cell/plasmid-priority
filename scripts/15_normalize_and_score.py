@@ -37,14 +37,14 @@ def _maybe_write_parquet(frame: pd.DataFrame, path: Path) -> bool:
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    backbone_path = context.root / "data/features/backbone_table.tsv"
-    t_path = context.root / "data/features/feature_T.tsv"
-    h_path = context.root / "data/features/feature_H.tsv"
-    a_path = context.root / "data/features/feature_A.tsv"
+    backbone_path = context.data_dir / "features/backbone_table.tsv"
+    t_path = context.data_dir / "features/feature_T.tsv"
+    h_path = context.data_dir / "features/feature_H.tsv"
+    a_path = context.data_dir / "features/feature_A.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "data/scores/15_normalize_and_score.manifest.json"
-    scored_tsv = context.root / "data/scores/backbone_scored.tsv"
-    scored_parquet = context.root / "data/scores/backbone_scored.parquet"
+    manifest_path = context.data_dir / "scores/15_normalize_and_score.manifest.json"
+    scored_tsv = context.data_dir / "scores/backbone_scored.tsv"
+    scored_parquet = context.data_dir / "scores/backbone_scored.parquet"
     ensure_directory(scored_tsv.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,

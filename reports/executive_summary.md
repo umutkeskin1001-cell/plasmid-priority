@@ -3,7 +3,7 @@
 Plasmid Priority is a retrospective surveillance ranking framework for plasmid backbone classes. It does not claim causal spread prediction; it asks whether pre-2016 genomic signals are associated with post-2015 international visibility increase.
 
 The Seer (headline model): `bio-clean model` | ROC AUC `0.745` | AP `0.654`.
-The Guard (governance watch-only): `phylo-support fusion model` | ROC AUC `0.828` | AP `0.767`.
+The Guard (governance watch-only): `phylo-support fusion model` | ROC AUC `0.827` | AP `0.767`.
 The Baseline: `counts-only baseline` | ROC AUC `0.722` | AP `0.647`.
 
 ## Method Overview

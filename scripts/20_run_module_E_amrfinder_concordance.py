@@ -53,24 +53,24 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
-    metrics_path = context.root / "data/analysis/module_a_metrics.json"
-    predictions_path = context.root / "data/analysis/module_a_predictions.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
+    metrics_path = context.data_dir / "analysis/module_a_metrics.json"
+    predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
     config_path = context.root / "config.yaml"
     manifest_path = (
-        context.root / "data/analysis/20_run_module_e_amrfinder_concordance.manifest.json"
+        context.data_dir / "analysis/20_run_module_e_amrfinder_concordance.manifest.json"
     )
     all_plasmids_fasta = context.asset_path("bronze_all_plasmids_fasta")
     amrfinder_db_root = context.asset_path("amrfinder_db_dir")
     amrfinder_executable = shutil.which("amrfinder")
 
-    probe_panel_path = context.root / "data/analysis/amrfinder_probe_panel.tsv"
-    probe_fasta_path = context.root / "data/tmp/amrfinder_probe_panel.fasta"
-    probe_hits_path = context.root / "data/analysis/amrfinder_probe_hits.tsv"
-    concordance_detail_path = context.root / "data/analysis/amrfinder_concordance_detail.tsv"
-    concordance_summary_path = context.root / "data/analysis/amrfinder_concordance_summary.tsv"
+    probe_panel_path = context.data_dir / "analysis/amrfinder_probe_panel.tsv"
+    probe_fasta_path = context.data_dir / "tmp/amrfinder_probe_panel.fasta"
+    probe_hits_path = context.data_dir / "analysis/amrfinder_probe_hits.tsv"
+    concordance_detail_path = context.data_dir / "analysis/amrfinder_concordance_detail.tsv"
+    concordance_summary_path = context.data_dir / "analysis/amrfinder_concordance_summary.tsv"
     ensure_directory(probe_panel_path.parent)
     ensure_directory(probe_fasta_path.parent)
     source_paths = project_python_source_paths(

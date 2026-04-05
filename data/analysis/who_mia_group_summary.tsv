@@ -1,3 +1,0 @@
-priority_group	n_backbones	n_with_any_who_support	n_with_hpecia_support	n_with_cia_support	n_with_hia_support	n_with_ia_support	mean_who_mia_mapped_fraction	median_who_mia_mapped_fraction	mean_who_mia_mapped_class_count
-high	247	170	92	140	140	19	0.38732951095905493	0.42857142857142855	4.032388663967612
-low	247	33	23	15	22	1	0.09077253156200524	0.0	0.4493927125506073

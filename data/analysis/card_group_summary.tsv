@@ -1,3 +1,0 @@
-priority_group	n_backbones	n_with_any_card_support	mean_card_match_fraction	median_card_match_fraction	mean_card_gene_family_count	mean_card_mechanism_count	mean_card_drug_class_count
-high	247	178	0.4888081897160292	0.5675675675675675	5.016194331983805	14.740890688259109	2.1376518218623484
-low	247	37	0.11519026522540998	0.0	0.46963562753036436	1.0202429149797572	0.3076923076923077

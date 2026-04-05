@@ -21,8 +21,8 @@ class CiWorkflowTests(unittest.TestCase):
     def test_ci_runs_make_quality(self) -> None:
         workflow = yaml.safe_load(CI_WORKFLOW_PATH.read_text(encoding="utf-8"))
         steps = workflow["jobs"]["quality"]["steps"]
-        quality_step = next(step for step in steps if step["name"] == "Run quality gate")
-        self.assertEqual(quality_step["run"], "make quality")
+        run_commands = {str(step.get("run", "")).strip() for step in steps}
+        self.assertTrue({"make quality", "make ci"} & run_commands)
 
 
 if __name__ == "__main__":

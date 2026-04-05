@@ -16,8 +16,8 @@ from plasmid_priority.utils.files import ensure_directory
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    dedup_path = context.root / "data/silver/plasmid_deduplicated.tsv"
-    output_path = context.root / "data/silver/plasmid_mobility.tsv"
+    dedup_path = context.data_dir / "silver/plasmid_deduplicated.tsv"
+    output_path = context.data_dir / "silver/plasmid_mobility.tsv"
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "06_annotate_mobility") as run:

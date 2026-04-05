@@ -25,14 +25,14 @@ from plasmid_priority.utils.files import (
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "data/analysis/23_run_module_f_enrichment.manifest.json"
-    identity_output = context.root / "data/analysis/module_f_backbone_identity.tsv"
-    enrichment_output = context.root / "data/analysis/module_f_enrichment.tsv"
-    top_hits_output = context.root / "data/analysis/module_f_top_hits.tsv"
+    manifest_path = context.data_dir / "analysis/23_run_module_f_enrichment.manifest.json"
+    identity_output = context.data_dir / "analysis/module_f_backbone_identity.tsv"
+    enrichment_output = context.data_dir / "analysis/module_f_enrichment.tsv"
+    top_hits_output = context.data_dir / "analysis/module_f_top_hits.tsv"
     ensure_directory(identity_output.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,

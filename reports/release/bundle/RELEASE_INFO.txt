@@ -1,8 +1,8 @@
 Plasmid Priority Release Bundle
 Version: 0.3.0
-Generated on: 2026-04-04
+Generated on: 2026-04-05
 Primary model: phylo_support_fusion_priority
-ROC AUC: 0.8277 [0.8012–0.8526]
-AP: 0.7667 [0.7260–0.8035]
+ROC AUC: 0.8272 [0.8005–0.8520]
+AP: 0.7665 [0.7251–0.8030]
 Selection-adjusted permutation p = 0.005 (n=0)
 Fixed-score permutation p NA (n=0)

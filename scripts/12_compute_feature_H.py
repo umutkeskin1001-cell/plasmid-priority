@@ -16,8 +16,8 @@ from plasmid_priority.utils.files import ensure_directory
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    output_path = context.root / "data/features/feature_H.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    output_path = context.data_dir / "features/feature_H.tsv"
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "12_compute_feature_H") as run:

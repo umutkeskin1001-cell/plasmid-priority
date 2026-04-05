@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from plasmid_priority.config import build_context, find_project_root, load_data_contract
+from plasmid_priority.config import (
+    DATA_ROOT_ENV_VAR,
+    build_context,
+    find_project_root,
+    load_data_contract,
+    resolve_data_root,
+)
 
 
 class ConfigTests(unittest.TestCase):
@@ -72,6 +80,45 @@ class ConfigTests(unittest.TestCase):
         self.assertAlmostEqual(context.pipeline_settings.host_phylo_breadth_weight, 0.65)
         self.assertAlmostEqual(context.pipeline_settings.host_phylo_dispersion_weight, 0.35)
         self.assertTrue(bool(models["fit_config"]["regime_stability_priority"]["preprocess_alpha_grouped"]))
+
+    def test_context_uses_explicit_external_data_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            external_data = root / "usb-data"
+            external_data.mkdir()
+            (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+            (root / "data/manifests").mkdir(parents=True)
+            (root / "data/manifests/data_contract.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "created_on": "2026-03-22",
+                        "download_date": "2026-03-22",
+                        "assets": [
+                            {
+                                "key": "x",
+                                "relative_path": "data/x.txt",
+                                "kind": "file",
+                                "stage": "core",
+                                "required": True,
+                                "description": "x",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = build_context(root, data_root=external_data)
+            self.assertEqual(context.data_dir, external_data.resolve())
+            self.assertEqual(context.asset_path("x"), (external_data / "x.txt").resolve())
+
+    def test_resolve_data_root_reads_environment_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            external = root / "external-data"
+            external.mkdir()
+            with mock.patch.dict(os.environ, {DATA_ROOT_ENV_VAR: str(external)}, clear=False):
+                self.assertEqual(resolve_data_root(root), external.resolve())
 
 
 if __name__ == "__main__":

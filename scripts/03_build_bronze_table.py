@@ -73,9 +73,9 @@ def main() -> int:
     taxonomy_csv = context.asset_path("plsdb_meta_tables_dir") / "taxonomy.csv"
     refseq_fasta = context.asset_path("refseq_plasmids_fasta")
 
-    canonical_output = context.root / "data/bronze/plsdb_canonical_metadata.tsv"
-    inventory_output = context.root / "data/bronze/bronze_plasmid_inventory.tsv"
-    manifest_path = context.root / "data/bronze/bronze_table_manifest.json"
+    canonical_output = context.data_dir / "bronze/plsdb_canonical_metadata.tsv"
+    inventory_output = context.data_dir / "bronze/bronze_plasmid_inventory.tsv"
+    manifest_path = context.data_dir / "bronze/bronze_table_manifest.json"
 
     _check_overwrite(canonical_output, args.overwrite)
     _check_overwrite(inventory_output, args.overwrite)

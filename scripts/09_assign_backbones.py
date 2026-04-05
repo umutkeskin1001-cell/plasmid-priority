@@ -25,8 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     context = build_context(PROJECT_ROOT)
-    dedup_path = context.root / "data/silver/plasmid_deduplicated.tsv"
-    output_path = context.root / "data/silver/plasmid_backbones.tsv"
+    dedup_path = context.data_dir / "silver/plasmid_deduplicated.tsv"
+    output_path = context.data_dir / "silver/plasmid_backbones.tsv"
     config_path = context.root / "config.yaml"
     ensure_directory(output_path.parent)
 

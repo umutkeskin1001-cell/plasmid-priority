@@ -4783,136 +4783,136 @@ def _write_jury_brief(
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
-    metrics_path = context.root / "data/analysis/module_a_metrics.json"
-    sensitivity_path = context.root / "data/analysis/sensitivity_summary.json"
-    module_b_path = context.root / "data/analysis/module_b_amr_class_comparison.tsv"
-    module_c_path = context.root / "data/analysis/pathogen_detection_support.tsv"
-    module_c_group_path = context.root / "data/analysis/pathogen_detection_group_summary.tsv"
-    module_c_clinical_path = context.root / "data/analysis/pathogen_detection_clinical_support.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
+    metrics_path = context.data_dir / "analysis/module_a_metrics.json"
+    sensitivity_path = context.data_dir / "analysis/sensitivity_summary.json"
+    module_b_path = context.data_dir / "analysis/module_b_amr_class_comparison.tsv"
+    module_c_path = context.data_dir / "analysis/pathogen_detection_support.tsv"
+    module_c_group_path = context.data_dir / "analysis/pathogen_detection_group_summary.tsv"
+    module_c_clinical_path = context.data_dir / "analysis/pathogen_detection_clinical_support.tsv"
     module_c_clinical_group_path = (
-        context.root / "data/analysis/pathogen_detection_clinical_group_summary.tsv"
+        context.data_dir / "analysis/pathogen_detection_clinical_group_summary.tsv"
     )
     module_c_environmental_path = (
-        context.root / "data/analysis/pathogen_detection_environmental_support.tsv"
+        context.data_dir / "analysis/pathogen_detection_environmental_support.tsv"
     )
     module_c_environmental_group_path = (
-        context.root / "data/analysis/pathogen_detection_environmental_group_summary.tsv"
+        context.data_dir / "analysis/pathogen_detection_environmental_group_summary.tsv"
     )
     module_c_strata_group_path = (
-        context.root / "data/analysis/pathogen_detection_strata_group_summary.tsv"
+        context.data_dir / "analysis/pathogen_detection_strata_group_summary.tsv"
     )
-    who_detail_path = context.root / "data/analysis/who_mia_support.tsv"
-    who_summary_path = context.root / "data/analysis/who_mia_group_summary.tsv"
-    who_category_path = context.root / "data/analysis/who_mia_category_comparison.tsv"
-    who_reference_path = context.root / "data/analysis/who_mia_reference_catalog.tsv"
-    card_detail_path = context.root / "data/analysis/card_gene_support.tsv"
-    card_summary_path = context.root / "data/analysis/card_group_summary.tsv"
-    card_family_path = context.root / "data/analysis/card_gene_family_comparison.tsv"
-    card_mechanism_path = context.root / "data/analysis/card_mechanism_comparison.tsv"
-    mobsuite_detail_path = context.root / "data/analysis/mobsuite_host_range_support.tsv"
-    mobsuite_summary_path = context.root / "data/analysis/mobsuite_host_range_group_summary.tsv"
-    amrfinder_probe_panel_path = context.root / "data/analysis/amrfinder_probe_panel.tsv"
-    amrfinder_probe_hits_path = context.root / "data/analysis/amrfinder_probe_hits.tsv"
-    amrfinder_detail_path = context.root / "data/analysis/amrfinder_concordance_detail.tsv"
-    amrfinder_summary_path = context.root / "data/analysis/amrfinder_concordance_summary.tsv"
-    source_validation_path = context.root / "data/analysis/source_stratified_consistency.tsv"
-    calibration_path = context.root / "data/analysis/calibration_table.tsv"
-    family_summary_path = context.root / "data/analysis/model_family_summary.tsv"
-    subgroup_performance_path = context.root / "data/analysis/model_subgroup_performance.tsv"
-    comparison_path = context.root / "data/analysis/model_comparison_summary.tsv"
-    calibration_metrics_path = context.root / "data/analysis/calibration_metrics.tsv"
+    who_detail_path = context.data_dir / "analysis/who_mia_support.tsv"
+    who_summary_path = context.data_dir / "analysis/who_mia_group_summary.tsv"
+    who_category_path = context.data_dir / "analysis/who_mia_category_comparison.tsv"
+    who_reference_path = context.data_dir / "analysis/who_mia_reference_catalog.tsv"
+    card_detail_path = context.data_dir / "analysis/card_gene_support.tsv"
+    card_summary_path = context.data_dir / "analysis/card_group_summary.tsv"
+    card_family_path = context.data_dir / "analysis/card_gene_family_comparison.tsv"
+    card_mechanism_path = context.data_dir / "analysis/card_mechanism_comparison.tsv"
+    mobsuite_detail_path = context.data_dir / "analysis/mobsuite_host_range_support.tsv"
+    mobsuite_summary_path = context.data_dir / "analysis/mobsuite_host_range_group_summary.tsv"
+    amrfinder_probe_panel_path = context.data_dir / "analysis/amrfinder_probe_panel.tsv"
+    amrfinder_probe_hits_path = context.data_dir / "analysis/amrfinder_probe_hits.tsv"
+    amrfinder_detail_path = context.data_dir / "analysis/amrfinder_concordance_detail.tsv"
+    amrfinder_summary_path = context.data_dir / "analysis/amrfinder_concordance_summary.tsv"
+    source_validation_path = context.data_dir / "analysis/source_stratified_consistency.tsv"
+    calibration_path = context.data_dir / "analysis/calibration_table.tsv"
+    family_summary_path = context.data_dir / "analysis/model_family_summary.tsv"
+    subgroup_performance_path = context.data_dir / "analysis/model_subgroup_performance.tsv"
+    comparison_path = context.data_dir / "analysis/model_comparison_summary.tsv"
+    calibration_metrics_path = context.data_dir / "analysis/calibration_metrics.tsv"
     blocked_holdout_calibration_path = (
-        context.root / "data/analysis/blocked_holdout_calibration_summary.tsv"
+        context.data_dir / "analysis/blocked_holdout_calibration_summary.tsv"
     )
-    coefficient_path = context.root / "data/analysis/primary_model_coefficients.tsv"
+    coefficient_path = context.data_dir / "analysis/primary_model_coefficients.tsv"
     coefficient_stability_path = (
-        context.root / "data/analysis/primary_model_coefficient_stability.tsv"
+        context.data_dir / "analysis/primary_model_coefficient_stability.tsv"
     )
-    coefficient_stability_cv_path = context.root / "data/analysis/coefficient_stability_cv.tsv"
-    dropout_path = context.root / "data/analysis/feature_dropout_importance.tsv"
-    source_balance_resampling_path = context.root / "data/analysis/source_balance_resampling.tsv"
-    group_holdout_path = context.root / "data/analysis/group_holdout_performance.tsv"
-    permutation_detail_path = context.root / "data/analysis/permutation_null_distribution.tsv"
-    permutation_summary_path = context.root / "data/analysis/permutation_null_summary.tsv"
+    coefficient_stability_cv_path = context.data_dir / "analysis/coefficient_stability_cv.tsv"
+    dropout_path = context.data_dir / "analysis/feature_dropout_importance.tsv"
+    source_balance_resampling_path = context.data_dir / "analysis/source_balance_resampling.tsv"
+    group_holdout_path = context.data_dir / "analysis/group_holdout_performance.tsv"
+    permutation_detail_path = context.data_dir / "analysis/permutation_null_distribution.tsv"
+    permutation_summary_path = context.data_dir / "analysis/permutation_null_summary.tsv"
     selection_adjusted_permutation_detail_path = (
-        context.root / "data/analysis/selection_adjusted_permutation_null_distribution.tsv"
+        context.data_dir / "analysis/selection_adjusted_permutation_null_distribution.tsv"
     )
     selection_adjusted_permutation_summary_path = (
-        context.root / "data/analysis/selection_adjusted_permutation_null_summary.tsv"
+        context.data_dir / "analysis/selection_adjusted_permutation_null_summary.tsv"
     )
-    negative_control_path = context.root / "data/analysis/negative_control_audit.tsv"
-    future_sentinel_path = context.root / "data/analysis/future_sentinel_audit.tsv"
-    logistic_impl_path = context.root / "data/analysis/logistic_implementation_audit.tsv"
-    logistic_convergence_path = context.root / "data/analysis/logistic_convergence_audit.tsv"
-    simplicity_path = context.root / "data/analysis/model_simplicity_summary.tsv"
-    knownness_summary_path = context.root / "data/analysis/knownness_audit_summary.tsv"
-    knownness_strata_path = context.root / "data/analysis/knownness_stratified_performance.tsv"
-    country_quality_path = context.root / "data/analysis/country_quality_summary.tsv"
-    purity_atlas_path = context.root / "data/analysis/backbone_purity_atlas.tsv"
-    assignment_confidence_path = context.root / "data/analysis/assignment_confidence_summary.tsv"
-    incremental_value_path = context.root / "data/analysis/incremental_value_over_baseline.tsv"
-    novelty_specialist_metrics_path = context.root / "data/analysis/novelty_specialist_metrics.tsv"
+    negative_control_path = context.data_dir / "analysis/negative_control_audit.tsv"
+    future_sentinel_path = context.data_dir / "analysis/future_sentinel_audit.tsv"
+    logistic_impl_path = context.data_dir / "analysis/logistic_implementation_audit.tsv"
+    logistic_convergence_path = context.data_dir / "analysis/logistic_convergence_audit.tsv"
+    simplicity_path = context.data_dir / "analysis/model_simplicity_summary.tsv"
+    knownness_summary_path = context.data_dir / "analysis/knownness_audit_summary.tsv"
+    knownness_strata_path = context.data_dir / "analysis/knownness_stratified_performance.tsv"
+    country_quality_path = context.data_dir / "analysis/country_quality_summary.tsv"
+    purity_atlas_path = context.data_dir / "analysis/backbone_purity_atlas.tsv"
+    assignment_confidence_path = context.data_dir / "analysis/assignment_confidence_summary.tsv"
+    incremental_value_path = context.data_dir / "analysis/incremental_value_over_baseline.tsv"
+    novelty_specialist_metrics_path = context.data_dir / "analysis/novelty_specialist_metrics.tsv"
     novelty_specialist_predictions_path = (
-        context.root / "data/analysis/novelty_specialist_predictions.tsv"
+        context.data_dir / "analysis/novelty_specialist_predictions.tsv"
     )
-    adaptive_gated_metrics_path = context.root / "data/analysis/adaptive_gated_metrics.tsv"
-    adaptive_gated_predictions_path = context.root / "data/analysis/adaptive_gated_predictions.tsv"
-    gate_consistency_audit_path = context.root / "data/analysis/gate_consistency_audit.tsv"
+    adaptive_gated_metrics_path = context.data_dir / "analysis/adaptive_gated_metrics.tsv"
+    adaptive_gated_predictions_path = context.data_dir / "analysis/adaptive_gated_predictions.tsv"
+    gate_consistency_audit_path = context.data_dir / "analysis/gate_consistency_audit.tsv"
     knownness_matched_validation_path = (
-        context.root / "data/analysis/knownness_matched_validation.tsv"
+        context.data_dir / "analysis/knownness_matched_validation.tsv"
     )
     matched_propensity_audit_path = (
-        context.root / "data/analysis/matched_stratum_propensity_audit.tsv"
+        context.data_dir / "analysis/matched_stratum_propensity_audit.tsv"
     )
-    nonlinear_deconfounding_path = context.root / "data/analysis/nonlinear_deconfounding_audit.tsv"
+    nonlinear_deconfounding_path = context.data_dir / "analysis/nonlinear_deconfounding_audit.tsv"
     operational_risk_dictionary_path = (
-        context.root / "data/analysis/operational_risk_dictionary.tsv"
+        context.data_dir / "analysis/operational_risk_dictionary.tsv"
     )
-    country_upload_propensity_path = context.root / "data/analysis/country_upload_propensity.tsv"
-    macro_region_jump_path = context.root / "data/analysis/macro_region_jump_outcome.tsv"
+    country_upload_propensity_path = context.data_dir / "analysis/country_upload_propensity.tsv"
+    macro_region_jump_path = context.data_dir / "analysis/macro_region_jump_outcome.tsv"
     secondary_outcome_performance_path = (
-        context.root / "data/analysis/secondary_outcome_performance.tsv"
+        context.data_dir / "analysis/secondary_outcome_performance.tsv"
     )
     weighted_country_outcome_path = (
-        context.root / "data/analysis/weighted_country_outcome_audit.tsv"
+        context.data_dir / "analysis/weighted_country_outcome_audit.tsv"
     )
-    count_outcome_audit_path = context.root / "data/analysis/new_country_count_audit.tsv"
-    metadata_quality_summary_path = context.root / "data/analysis/metadata_quality_summary.tsv"
-    event_timing_outcomes_path = context.root / "data/analysis/event_timing_outcomes.tsv"
+    count_outcome_audit_path = context.data_dir / "analysis/new_country_count_audit.tsv"
+    metadata_quality_summary_path = context.data_dir / "analysis/metadata_quality_summary.tsv"
+    event_timing_outcomes_path = context.data_dir / "analysis/event_timing_outcomes.tsv"
     exposure_adjusted_event_path = (
-        context.root / "data/analysis/exposure_adjusted_event_outcomes.tsv"
+        context.data_dir / "analysis/exposure_adjusted_event_outcomes.tsv"
     )
     exposure_adjusted_outcome_audit_path = (
-        context.root / "data/analysis/exposure_adjusted_outcome_audit.tsv"
+        context.data_dir / "analysis/exposure_adjusted_outcome_audit.tsv"
     )
-    ordinal_outcome_audit_path = context.root / "data/analysis/ordinal_outcome_audit.tsv"
-    country_missingness_bounds_path = context.root / "data/analysis/country_missingness_bounds.tsv"
+    ordinal_outcome_audit_path = context.data_dir / "analysis/ordinal_outcome_audit.tsv"
+    country_missingness_bounds_path = context.data_dir / "analysis/country_missingness_bounds.tsv"
     country_missingness_sensitivity_path = (
-        context.root / "data/analysis/country_missingness_sensitivity.tsv"
+        context.data_dir / "analysis/country_missingness_sensitivity.tsv"
     )
-    geographic_jump_path = context.root / "data/analysis/geographic_jump_distance_outcome.tsv"
-    duplicate_quality_path = context.root / "data/analysis/duplicate_completeness_change_audit.tsv"
-    amr_uncertainty_path = context.root / "data/analysis/amr_uncertainty_summary.tsv"
-    mash_graph_path = context.root / "data/analysis/mash_similarity_graph.tsv"
+    geographic_jump_path = context.data_dir / "analysis/geographic_jump_distance_outcome.tsv"
+    duplicate_quality_path = context.data_dir / "analysis/duplicate_completeness_change_audit.tsv"
+    amr_uncertainty_path = context.data_dir / "analysis/amr_uncertainty_summary.tsv"
+    mash_graph_path = context.data_dir / "analysis/mash_similarity_graph.tsv"
     counterfactual_shortlist_path = (
-        context.root / "data/analysis/counterfactual_shortlist_comparison.tsv"
+        context.data_dir / "analysis/counterfactual_shortlist_comparison.tsv"
     )
-    module_f_identity_path = context.root / "data/analysis/module_f_backbone_identity.tsv"
-    module_f_enrichment_path = context.root / "data/analysis/module_f_enrichment.tsv"
-    module_f_top_hits_path = context.root / "data/analysis/module_f_top_hits.tsv"
-    rolling_temporal_path = context.root / "data/analysis/rolling_temporal_validation.tsv"
+    module_f_identity_path = context.data_dir / "analysis/module_f_backbone_identity.tsv"
+    module_f_enrichment_path = context.data_dir / "analysis/module_f_enrichment.tsv"
+    module_f_top_hits_path = context.data_dir / "analysis/module_f_top_hits.tsv"
+    rolling_temporal_path = context.data_dir / "analysis/rolling_temporal_validation.tsv"
     rolling_assignment_diagnostic_path = (
-        context.root / "data/analysis/rolling_assignment_diagnostics.tsv"
+        context.data_dir / "analysis/rolling_assignment_diagnostics.tsv"
     )
-    rank_stability_path = context.root / "data/analysis/candidate_rank_stability.tsv"
-    variant_consistency_path = context.root / "data/analysis/candidate_variant_consistency.tsv"
-    prospective_freeze_path = context.root / "data/analysis/prospective_candidate_freeze.tsv"
-    annual_freeze_summary_path = context.root / "data/analysis/annual_candidate_freeze_summary.tsv"
-    predictions_path = context.root / "data/analysis/module_a_predictions.tsv"
-    analysis_dir = context.root / "data/analysis"
+    rank_stability_path = context.data_dir / "analysis/candidate_rank_stability.tsv"
+    variant_consistency_path = context.data_dir / "analysis/candidate_variant_consistency.tsv"
+    prospective_freeze_path = context.data_dir / "analysis/prospective_candidate_freeze.tsv"
+    annual_freeze_summary_path = context.data_dir / "analysis/annual_candidate_freeze_summary.tsv"
+    predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
+    analysis_dir = context.data_dir / "analysis"
 
     class TableRouter:
         def __init__(self, core_dir, diag_dir, analysis_dir):
@@ -4950,21 +4950,21 @@ def main() -> int:
                 return self.core_dir / name
             return self.diag_dir / name
 
-    core_dir = context.root / "reports/core_tables"
-    diag_dir = context.root / "reports/diagnostic_tables"
+    core_dir = context.reports_dir / "core_tables"
+    diag_dir = context.reports_dir / "diagnostic_tables"
     ensure_directory(core_dir)
     ensure_directory(diag_dir)
     final_tables_dir = TableRouter(core_dir, diag_dir, analysis_dir)
 
-    figures_dir = context.root / "reports/_figure_router"
-    jury_brief_path = context.root / "reports/jury_brief.md"
-    turkish_summary_path = context.root / "reports/ozet_tr.md"
-    executive_summary_path = context.root / "reports/executive_summary.md"
-    pitch_notes_path = context.root / "reports/pitch_notes.md"
-    headline_summary_path = context.root / "reports/headline_validation_summary.md"
+    figures_dir = context.reports_dir / "_figure_router"
+    jury_brief_path = context.reports_dir / "jury_brief.md"
+    turkish_summary_path = context.reports_dir / "ozet_tr.md"
+    executive_summary_path = context.reports_dir / "executive_summary.md"
+    pitch_notes_path = context.reports_dir / "pitch_notes.md"
+    headline_summary_path = context.reports_dir / "headline_validation_summary.md"
     stale_turkiye_context_path = diag_dir / "turkiye_candidate_context.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "reports/24_build_reports.manifest.json"
+    manifest_path = context.reports_dir / "24_build_reports.manifest.json"
     source_paths = project_python_source_paths(
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/24_build_reports.py",
@@ -7100,7 +7100,7 @@ def main() -> int:
             rank_stability=rank_stability,
             variant_consistency=variant_consistency,
         )
-        legacy_detailed_summary = context.root / "reports/tubitak_detayli_proje_ozeti_tr.txt"
+        legacy_detailed_summary = context.reports_dir / "tubitak_detayli_proje_ozeti_tr.txt"
         if legacy_detailed_summary.exists():
             legacy_detailed_summary.unlink()
 

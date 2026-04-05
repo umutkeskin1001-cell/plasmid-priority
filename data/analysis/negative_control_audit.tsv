@@ -1,7 +1,0 @@
-audit_name	feature_columns	n_features	roc_auc	average_precision	brier_score	delta_roc_auc_vs_primary	delta_average_precision_vs_primary	delta_brier_vs_primary
-primary_model	T_raw_norm,H_obs_specialization_norm,A_raw_norm,orit_support	4	0.7455171076863429	0.6536467698480192	0.18845102271575573	0.0	0.0	0.0
-negative_control_noise_a_only	negative_control_noise_a	1	0.513019112321235	0.36540110192922876	0.23377287837869626	-0.23249799536510796	-0.2882456679187904	0.04532185566294053
-negative_control_noise_ab_only	negative_control_noise_a,negative_control_noise_b	2	0.4981407562099624	0.3554619917959705	0.23453174434264973	-0.24737635147638054	-0.2981847780520487	0.046080721626894
-negative_control_length_only	negative_control_length	1	0.505359644717016	0.3650592714027808	0.23379057863305722	-0.24015746296932694	-0.28858749844523834	0.04533955591730149
-primary_plus_negative_control_a	T_raw_norm,H_obs_specialization_norm,A_raw_norm,orit_support,negative_control_noise_a	5	0.7467022654577177	0.6512801458707882	0.1883244845135098	0.001185157771374734	-0.002366623977230975	-0.00012653820224592383
-primary_plus_negative_control_ab	T_raw_norm,H_obs_specialization_norm,A_raw_norm,orit_support,negative_control_noise_a,negative_control_noise_b	6	0.7435389075400707	0.6492707277194696	0.1889632825811567	-0.0019782001462722576	-0.004376042128549584	0.0005122598654009602

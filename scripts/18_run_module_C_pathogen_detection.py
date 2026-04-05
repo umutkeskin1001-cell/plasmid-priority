@@ -69,29 +69,29 @@ def _run_pathogen_support(
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
-    metrics_path = context.root / "data/analysis/module_a_metrics.json"
-    predictions_path = context.root / "data/analysis/module_a_predictions.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
+    metrics_path = context.data_dir / "analysis/module_a_metrics.json"
+    predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "data/analysis/18_run_module_c_pathogen_detection.manifest.json"
+    manifest_path = context.data_dir / "analysis/18_run_module_c_pathogen_detection.manifest.json"
     pd_metadata_path = context.asset_path("pathogen_detection_metadata")
     pd_clinical_path = context.asset_path("pathogen_detection_clinical")
     pd_environmental_path = context.asset_path("pathogen_detection_environmental")
-    detail_path = context.root / "data/analysis/pathogen_detection_support.tsv"
-    summary_path = context.root / "data/analysis/pathogen_detection_group_summary.tsv"
-    clinical_detail_path = context.root / "data/analysis/pathogen_detection_clinical_support.tsv"
+    detail_path = context.data_dir / "analysis/pathogen_detection_support.tsv"
+    summary_path = context.data_dir / "analysis/pathogen_detection_group_summary.tsv"
+    clinical_detail_path = context.data_dir / "analysis/pathogen_detection_clinical_support.tsv"
     clinical_summary_path = (
-        context.root / "data/analysis/pathogen_detection_clinical_group_summary.tsv"
+        context.data_dir / "analysis/pathogen_detection_clinical_group_summary.tsv"
     )
     environmental_detail_path = (
-        context.root / "data/analysis/pathogen_detection_environmental_support.tsv"
+        context.data_dir / "analysis/pathogen_detection_environmental_support.tsv"
     )
     environmental_summary_path = (
-        context.root / "data/analysis/pathogen_detection_environmental_group_summary.tsv"
+        context.data_dir / "analysis/pathogen_detection_environmental_group_summary.tsv"
     )
-    strata_summary_path = context.root / "data/analysis/pathogen_detection_strata_group_summary.tsv"
+    strata_summary_path = context.data_dir / "analysis/pathogen_detection_strata_group_summary.tsv"
     ensure_directory(detail_path.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,

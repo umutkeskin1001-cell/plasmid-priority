@@ -16,10 +16,10 @@ from plasmid_priority.utils.files import ensure_directory
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
-    canonical_output = context.root / "data/features/training_canonical_table.tsv"
-    feature_output = context.root / "data/features/feature_T.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
+    canonical_output = context.data_dir / "features/training_canonical_table.tsv"
+    feature_output = context.data_dir / "features/feature_T.tsv"
     ensure_directory(feature_output.parent)
 
     with ManagedScriptRun(context, "11_compute_feature_T") as run:

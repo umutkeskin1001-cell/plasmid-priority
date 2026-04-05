@@ -557,23 +557,23 @@ def _evaluate_rolling_mode_task(
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_hits_path = context.root / "data/silver/plasmid_amr_hits.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_hits_path = context.data_dir / "silver/plasmid_amr_hits.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "data/analysis/22_run_sensitivity.manifest.json"
-    output_path = context.root / "data/analysis/sensitivity_summary.json"
-    rolling_output_path = context.root / "data/analysis/rolling_temporal_validation.tsv"
+    manifest_path = context.data_dir / "analysis/22_run_sensitivity.manifest.json"
+    output_path = context.data_dir / "analysis/sensitivity_summary.json"
+    rolling_output_path = context.data_dir / "analysis/rolling_temporal_validation.tsv"
     rolling_diagnostic_output_path = (
-        context.root / "data/analysis/rolling_assignment_diagnostics.tsv"
+        context.data_dir / "analysis/rolling_assignment_diagnostics.tsv"
     )
-    rank_stability_output_path = context.root / "data/analysis/candidate_rank_stability.tsv"
+    rank_stability_output_path = context.data_dir / "analysis/candidate_rank_stability.tsv"
     variant_consistency_output_path = (
-        context.root / "data/analysis/candidate_variant_consistency.tsv"
+        context.data_dir / "analysis/candidate_variant_consistency.tsv"
     )
-    freeze_output_path = context.root / "data/analysis/prospective_candidate_freeze.tsv"
+    freeze_output_path = context.data_dir / "analysis/prospective_candidate_freeze.tsv"
     annual_freeze_summary_output_path = (
-        context.root / "data/analysis/annual_candidate_freeze_summary.tsv"
+        context.data_dir / "analysis/annual_candidate_freeze_summary.tsv"
     )
     ensure_directory(output_path.parent)
     source_paths = project_python_source_paths(

@@ -206,7 +206,7 @@ def run_input_checks(context: ProjectContext) -> ValidationReport:
     results: list[AssetCheckResult] = []
 
     for asset in context.contract.assets:
-        path = asset.resolved_path(context.root)
+        path = asset.resolved_path(context.root, context.data_dir)
 
         if not path.exists():
             results.append(

@@ -52,12 +52,12 @@ from plasmid_priority.utils.files import (
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    predictions_path = context.root / "data/analysis/module_a_predictions.tsv"
-    adaptive_predictions_path = context.root / "data/analysis/adaptive_gated_predictions.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
+    adaptive_predictions_path = context.data_dir / "analysis/adaptive_gated_predictions.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "data/analysis/27_run_advanced_audits.manifest.json"
+    manifest_path = context.data_dir / "analysis/27_run_advanced_audits.manifest.json"
     raw_dir = context.asset_path("plsdb_meta_tables_dir")
     assembly_path = raw_dir / "assembly.csv"
     biosample_path = raw_dir / "biosample.csv"
@@ -66,36 +66,36 @@ def main() -> int:
     raw_amr_path = raw_dir / "amr.tsv"
     mash_pairs_path = raw_dir / "plsdb_mashdb_sim.tsv"
 
-    knownness_matched_output = context.root / "data/analysis/knownness_matched_validation.tsv"
-    matched_propensity_output = context.root / "data/analysis/matched_stratum_propensity_audit.tsv"
-    nonlinear_output = context.root / "data/analysis/nonlinear_deconfounding_audit.tsv"
-    country_propensity_output = context.root / "data/analysis/country_upload_propensity.tsv"
-    macro_region_jump_output = context.root / "data/analysis/macro_region_jump_outcome.tsv"
-    secondary_outcome_output = context.root / "data/analysis/secondary_outcome_performance.tsv"
-    weighted_outcome_output = context.root / "data/analysis/weighted_country_outcome_audit.tsv"
-    count_outcome_output = context.root / "data/analysis/new_country_count_audit.tsv"
-    metadata_quality_output = context.root / "data/analysis/metadata_quality_summary.tsv"
-    event_timing_output = context.root / "data/analysis/event_timing_outcomes.tsv"
-    exposure_event_output = context.root / "data/analysis/exposure_adjusted_event_outcomes.tsv"
+    knownness_matched_output = context.data_dir / "analysis/knownness_matched_validation.tsv"
+    matched_propensity_output = context.data_dir / "analysis/matched_stratum_propensity_audit.tsv"
+    nonlinear_output = context.data_dir / "analysis/nonlinear_deconfounding_audit.tsv"
+    country_propensity_output = context.data_dir / "analysis/country_upload_propensity.tsv"
+    macro_region_jump_output = context.data_dir / "analysis/macro_region_jump_outcome.tsv"
+    secondary_outcome_output = context.data_dir / "analysis/secondary_outcome_performance.tsv"
+    weighted_outcome_output = context.data_dir / "analysis/weighted_country_outcome_audit.tsv"
+    count_outcome_output = context.data_dir / "analysis/new_country_count_audit.tsv"
+    metadata_quality_output = context.data_dir / "analysis/metadata_quality_summary.tsv"
+    event_timing_output = context.data_dir / "analysis/event_timing_outcomes.tsv"
+    exposure_event_output = context.data_dir / "analysis/exposure_adjusted_event_outcomes.tsv"
     exposure_outcome_audit_output = (
-        context.root / "data/analysis/exposure_adjusted_outcome_audit.tsv"
+        context.data_dir / "analysis/exposure_adjusted_outcome_audit.tsv"
     )
-    ordinal_outcome_output = context.root / "data/analysis/ordinal_outcome_audit.tsv"
+    ordinal_outcome_output = context.data_dir / "analysis/ordinal_outcome_audit.tsv"
     country_missingness_bounds_output = (
-        context.root / "data/analysis/country_missingness_bounds.tsv"
+        context.data_dir / "analysis/country_missingness_bounds.tsv"
     )
     country_missingness_sensitivity_output = (
-        context.root / "data/analysis/country_missingness_sensitivity.tsv"
+        context.data_dir / "analysis/country_missingness_sensitivity.tsv"
     )
-    geographic_jump_output = context.root / "data/analysis/geographic_jump_distance_outcome.tsv"
+    geographic_jump_output = context.data_dir / "analysis/geographic_jump_distance_outcome.tsv"
     duplicate_quality_output = (
-        context.root / "data/analysis/duplicate_completeness_change_audit.tsv"
+        context.data_dir / "analysis/duplicate_completeness_change_audit.tsv"
     )
-    amr_uncertainty_output = context.root / "data/analysis/amr_uncertainty_summary.tsv"
-    mash_graph_output = context.root / "data/analysis/mash_similarity_graph.tsv"
-    counterfactual_output = context.root / "data/analysis/counterfactual_shortlist_comparison.tsv"
-    operational_risk_output = context.root / "data/analysis/operational_risk_dictionary.tsv"
-    coefficient_stability_cv_output = context.root / "data/analysis/coefficient_stability_cv.tsv"
+    amr_uncertainty_output = context.data_dir / "analysis/amr_uncertainty_summary.tsv"
+    mash_graph_output = context.data_dir / "analysis/mash_similarity_graph.tsv"
+    counterfactual_output = context.data_dir / "analysis/counterfactual_shortlist_comparison.tsv"
+    operational_risk_output = context.data_dir / "analysis/operational_risk_dictionary.tsv"
+    coefficient_stability_cv_output = context.data_dir / "analysis/coefficient_stability_cv.tsv"
     ensure_directory(knownness_matched_output.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,

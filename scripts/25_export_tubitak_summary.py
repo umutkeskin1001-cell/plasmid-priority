@@ -74,13 +74,13 @@ def _format_pvalue(value: float | None) -> str:
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    audit_json = context.root / "data/analysis/module_a_metrics.json"
-    permutation_summary_path = context.root / "data/analysis/permutation_null_summary.tsv"
+    audit_json = context.data_dir / "analysis/module_a_metrics.json"
+    permutation_summary_path = context.data_dir / "analysis/permutation_null_summary.tsv"
     selection_adjusted_permutation_summary_path = (
-        context.root / "data/analysis/selection_adjusted_permutation_null_summary.tsv"
+        context.data_dir / "analysis/selection_adjusted_permutation_null_summary.tsv"
     )
-    count_outcome_audit_path = context.root / "data/analysis/new_country_count_audit.tsv"
-    text_output_path = context.root / "reports/tubitak_final_metrics.txt"
+    count_outcome_audit_path = context.data_dir / "analysis/new_country_count_audit.tsv"
+    text_output_path = context.reports_dir / "tubitak_final_metrics.txt"
     manifest_path = text_output_path.with_suffix(text_output_path.suffix + ".manifest.json")
     ensure_directory(text_output_path.parent)
     config_path = context.root / "config.yaml"

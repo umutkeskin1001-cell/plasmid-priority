@@ -17,7 +17,7 @@ This is the canonical one-page validation surface for jury review.
 | Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | ECE | Max CE | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |
 | --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |
 | discovery_primary | bio_clean_priority | 0.745 | [0.714, 0.778] | 0.654 | [0.605, 0.709] | 0.188 | 0.188 | 0.063 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | <0.001 | 0.023 ([-0.020, 0.063]) | 0.731 | 989 | 362 |
-| governance_watch_only | phylo_support_fusion_priority | 0.828 | [0.801, 0.853] | 0.767 | [0.726, 0.803] | 0.166 | 0.285 | 0.085 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | NA | NA | 0.821 | 989 | 362 |
+| governance_watch_only | phylo_support_fusion_priority | 0.827 | [0.800, 0.852] | 0.767 | [0.725, 0.803] | 0.166 | 0.284 | 0.085 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | NA | NA | 0.821 | 989 | 362 |
 | counts_baseline | baseline_both | 0.722 | [0.689, 0.756] | 0.647 | [0.596, 0.698] | 0.186 | 0.198 | 0.039 | NA | fail | fail:matched_knownness | 0.005 | <0.001 | NA | 0.740 | 989 | 362 |
 
 ## Rolling-Origin Validation

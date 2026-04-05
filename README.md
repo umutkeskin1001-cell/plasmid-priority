@@ -97,7 +97,7 @@ The results of the pipeline are structured to be directly usable for scientific 
 6. **Experimental Artifacts** (`data/experiments/`): Model-search outputs, exploratory sweeps, and their checksum registry.
 7. **Compact Summary Output**: `reports/tubitak_final_metrics.txt` carries the exact TÜBİTAK-ready headline metrics.
 
-Canonical outputs live under `reports/`. Frozen release snapshots live under `reports/release/bundle/`. Each `make release-bundle` run refreshes the snapshot from the current canonical report surface; `reports/release/` stays git-ignored by design because it is a generated export layer.
+Canonical outputs live under `reports/`. Frozen release snapshots live under `reports/release/bundle/`. Each release workflow run refreshes the snapshot from the current canonical report surface; `reports/release/` stays git-ignored by design because it is a generated export layer.
 
 The release surface also includes `blocked_holdout_summary.tsv` for the blocked-holdout stress test and `calibration_threshold_summary.png` for the combined calibration/threshold view, and the jury brief now points directly to those artifacts.
 
@@ -111,35 +111,26 @@ make pipeline
 
 If `.venv/` exists, the `Makefile` automatically uses `.venv/bin/python`.
 
-For fast iteration after backbone scores and models already exist, run only the analysis/reporting tail:
-
-```bash
-make analysis-refresh
-```
-
 To just rebuild the TÜBİTAK summary output after modifying how metrics are pulled:
 ```bash
 make tubitak-summary
 ```
 
+## Runtime Modes
+
+The pipeline now supports an external data root via `PLASMID_PRIORITY_DATA_ROOT`.
+This lets you keep large `data/*` trees on an external USB volume while leaving
+`reports/*` on the laptop.
+
+- `make fast-local SOURCE_DATA_ROOT=/Volumes/PLASMID_USB/data`: refresh the small local report cache from a full data root, then render reports from that cache. If `SOURCE_DATA_ROOT` is omitted, the command uses the already-seeded local cache.
+- `make full-local DATA_ROOT=/Volumes/PLASMID_USB/data`: run against an explicit external `data` root. If `DATA_ROOT` is omitted in an interactive shell, the runner prompts for it. If the path is unavailable, the command fails fast.
+
+Both modes keep `reports/` under the repository on the laptop. Only `data/*`
+is redirected. If scoring/features/backbone logic changes, use `full-local`.
+
 To run the same local quality gate used by CI:
 ```bash
 make quality
-```
-
-To refresh only the headline scientific core without supportive appendix layers:
-```bash
-make core-refresh
-```
-
-To refresh only the descriptive/supportive modules and then rebuild the report:
-```bash
-make support-refresh
-```
-
-To build a curated release bundle plus experiment registry:
-```bash
-make release-bundle
 ```
 
 To remove stale generated clutter before a fresh rebuild:

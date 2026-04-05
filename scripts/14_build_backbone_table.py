@@ -18,9 +18,9 @@ from plasmid_priority.utils.files import ensure_directory
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    coherence_path = context.root / "data/features/backbone_coherence.tsv"
-    output_path = context.root / "data/features/backbone_table.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    coherence_path = context.data_dir / "features/backbone_coherence.tsv"
+    output_path = context.data_dir / "features/backbone_table.tsv"
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "14_build_backbone_table") as run:

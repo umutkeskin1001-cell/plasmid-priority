@@ -240,64 +240,64 @@ def _summarize_prediction_frame(
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
-    raw_amr_path = context.root / "data/raw/amr.tsv"
-    mash_pairs_path = context.root / "data/raw/plsdb_mashdb_sim.tsv"
-    metrics_path = context.root / "data/analysis/module_a_metrics.json"
-    module_a_predictions = context.root / "data/analysis/module_a_predictions.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
+    raw_amr_path = context.data_dir / "raw/amr.tsv"
+    mash_pairs_path = context.data_dir / "raw/plsdb_mashdb_sim.tsv"
+    metrics_path = context.data_dir / "analysis/module_a_metrics.json"
+    module_a_predictions = context.data_dir / "analysis/module_a_predictions.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "data/analysis/21_run_validation.manifest.json"
-    source_output = context.root / "data/analysis/source_stratified_consistency.tsv"
-    calibration_output = context.root / "data/analysis/calibration_table.tsv"
-    subgroup_output = context.root / "data/analysis/model_subgroup_performance.tsv"
-    family_summary_output = context.root / "data/analysis/model_family_summary.tsv"
-    comparison_output = context.root / "data/analysis/model_comparison_summary.tsv"
-    calibration_metrics_output = context.root / "data/analysis/calibration_metrics.tsv"
+    manifest_path = context.data_dir / "analysis/21_run_validation.manifest.json"
+    source_output = context.data_dir / "analysis/source_stratified_consistency.tsv"
+    calibration_output = context.data_dir / "analysis/calibration_table.tsv"
+    subgroup_output = context.data_dir / "analysis/model_subgroup_performance.tsv"
+    family_summary_output = context.data_dir / "analysis/model_family_summary.tsv"
+    comparison_output = context.data_dir / "analysis/model_comparison_summary.tsv"
+    calibration_metrics_output = context.data_dir / "analysis/calibration_metrics.tsv"
     blocked_holdout_calibration_output = (
-        context.root / "data/analysis/blocked_holdout_calibration_metrics.tsv"
+        context.data_dir / "analysis/blocked_holdout_calibration_metrics.tsv"
     )
     blocked_holdout_calibration_summary_output = (
-        context.root / "data/analysis/blocked_holdout_calibration_summary.tsv"
+        context.data_dir / "analysis/blocked_holdout_calibration_summary.tsv"
     )
-    coefficients_output = context.root / "data/analysis/primary_model_coefficients.tsv"
+    coefficients_output = context.data_dir / "analysis/primary_model_coefficients.tsv"
     coefficient_stability_output = (
-        context.root / "data/analysis/primary_model_coefficient_stability.tsv"
+        context.data_dir / "analysis/primary_model_coefficient_stability.tsv"
     )
-    dropout_output = context.root / "data/analysis/feature_dropout_importance.tsv"
-    source_balance_resampling_output = context.root / "data/analysis/source_balance_resampling.tsv"
-    group_holdout_output = context.root / "data/analysis/group_holdout_performance.tsv"
-    permutation_detail_output = context.root / "data/analysis/permutation_null_distribution.tsv"
-    permutation_summary_output = context.root / "data/analysis/permutation_null_summary.tsv"
+    dropout_output = context.data_dir / "analysis/feature_dropout_importance.tsv"
+    source_balance_resampling_output = context.data_dir / "analysis/source_balance_resampling.tsv"
+    group_holdout_output = context.data_dir / "analysis/group_holdout_performance.tsv"
+    permutation_detail_output = context.data_dir / "analysis/permutation_null_distribution.tsv"
+    permutation_summary_output = context.data_dir / "analysis/permutation_null_summary.tsv"
     selection_adjusted_permutation_detail_output = (
-        context.root / "data/analysis/selection_adjusted_permutation_null_distribution.tsv"
+        context.data_dir / "analysis/selection_adjusted_permutation_null_distribution.tsv"
     )
     selection_adjusted_permutation_summary_output = (
-        context.root / "data/analysis/selection_adjusted_permutation_null_summary.tsv"
+        context.data_dir / "analysis/selection_adjusted_permutation_null_summary.tsv"
     )
-    negative_control_output = context.root / "data/analysis/negative_control_audit.tsv"
-    logistic_impl_output = context.root / "data/analysis/logistic_implementation_audit.tsv"
-    logistic_convergence_output = context.root / "data/analysis/logistic_convergence_audit.tsv"
-    simplicity_output = context.root / "data/analysis/model_simplicity_summary.tsv"
-    knownness_summary_output = context.root / "data/analysis/knownness_audit_summary.tsv"
-    knownness_strata_output = context.root / "data/analysis/knownness_stratified_performance.tsv"
-    country_quality_output = context.root / "data/analysis/country_quality_summary.tsv"
-    purity_atlas_output = context.root / "data/analysis/backbone_purity_atlas.tsv"
-    assignment_confidence_output = context.root / "data/analysis/assignment_confidence_summary.tsv"
-    incremental_value_output = context.root / "data/analysis/incremental_value_over_baseline.tsv"
+    negative_control_output = context.data_dir / "analysis/negative_control_audit.tsv"
+    logistic_impl_output = context.data_dir / "analysis/logistic_implementation_audit.tsv"
+    logistic_convergence_output = context.data_dir / "analysis/logistic_convergence_audit.tsv"
+    simplicity_output = context.data_dir / "analysis/model_simplicity_summary.tsv"
+    knownness_summary_output = context.data_dir / "analysis/knownness_audit_summary.tsv"
+    knownness_strata_output = context.data_dir / "analysis/knownness_stratified_performance.tsv"
+    country_quality_output = context.data_dir / "analysis/country_quality_summary.tsv"
+    purity_atlas_output = context.data_dir / "analysis/backbone_purity_atlas.tsv"
+    assignment_confidence_output = context.data_dir / "analysis/assignment_confidence_summary.tsv"
+    incremental_value_output = context.data_dir / "analysis/incremental_value_over_baseline.tsv"
     novelty_specialist_metrics_output = (
-        context.root / "data/analysis/novelty_specialist_metrics.tsv"
+        context.data_dir / "analysis/novelty_specialist_metrics.tsv"
     )
     novelty_specialist_predictions_output = (
-        context.root / "data/analysis/novelty_specialist_predictions.tsv"
+        context.data_dir / "analysis/novelty_specialist_predictions.tsv"
     )
-    adaptive_gated_metrics_output = context.root / "data/analysis/adaptive_gated_metrics.tsv"
+    adaptive_gated_metrics_output = context.data_dir / "analysis/adaptive_gated_metrics.tsv"
     adaptive_gated_predictions_output = (
-        context.root / "data/analysis/adaptive_gated_predictions.tsv"
+        context.data_dir / "analysis/adaptive_gated_predictions.tsv"
     )
-    gate_consistency_output = context.root / "data/analysis/gate_consistency_audit.tsv"
-    future_sentinel_output = context.root / "data/analysis/future_sentinel_audit.tsv"
+    gate_consistency_output = context.data_dir / "analysis/gate_consistency_audit.tsv"
+    future_sentinel_output = context.data_dir / "analysis/future_sentinel_audit.tsv"
     ensure_directory(source_output.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,

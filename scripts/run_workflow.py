@@ -214,6 +214,11 @@ RELEASE_STEP_NAMES: tuple[str, ...] = (
     "29_build_experiment_registry",
 )
 
+REPORTS_ONLY_STEP_NAMES: tuple[str, ...] = (
+    "24_build_reports",
+    "25_export_tubitak_summary",
+)
+
 SEQUENTIAL_WORKFLOW_MODES = {"pipeline-sequential", "analysis-refresh-sequential"}
 
 
@@ -224,6 +229,7 @@ MODE_STEP_NAMES: dict[str, tuple[str, ...]] = {
     "analysis-refresh-sequential": ANALYSIS_REFRESH_STEP_NAMES,
     "core-refresh": CORE_REFRESH_STEP_NAMES,
     "support-refresh": SUPPORT_REFRESH_STEP_NAMES,
+    "reports-only": REPORTS_ONLY_STEP_NAMES,
     "release": RELEASE_STEP_NAMES,
 }
 

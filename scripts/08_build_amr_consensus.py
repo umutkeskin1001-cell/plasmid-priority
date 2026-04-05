@@ -16,8 +16,8 @@ from plasmid_priority.utils.files import ensure_directory
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    hits_path = context.root / "data/silver/plasmid_amr_hits.tsv"
-    output_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
+    hits_path = context.data_dir / "silver/plasmid_amr_hits.tsv"
+    output_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "08_build_amr_consensus") as run:

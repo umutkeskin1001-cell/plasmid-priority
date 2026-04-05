@@ -23,7 +23,7 @@ def main() -> int:
         report = run_input_checks(context)
 
         for asset in context.contract.assets:
-            run.record_input(asset.resolved_path(context.root))
+            run.record_input(asset.resolved_path(context.root, context.data_dir))
 
         for note in context.contract.notes:
             run.note(note)

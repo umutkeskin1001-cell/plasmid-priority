@@ -30,27 +30,27 @@ from plasmid_priority.utils.files import (
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
-    scored_path = context.root / "data/scores/backbone_scored.tsv"
-    backbones_path = context.root / "data/silver/plasmid_backbones.tsv"
-    amr_consensus_path = context.root / "data/silver/plasmid_amr_consensus.tsv"
-    metrics_path = context.root / "data/analysis/module_a_metrics.json"
-    predictions_path = context.root / "data/analysis/module_a_predictions.tsv"
+    scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
+    amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
+    metrics_path = context.data_dir / "analysis/module_a_metrics.json"
+    predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
     config_path = context.root / "config.yaml"
-    manifest_path = context.root / "data/analysis/19_run_module_d_external_support.manifest.json"
+    manifest_path = context.data_dir / "analysis/19_run_module_d_external_support.manifest.json"
     card_archive_path = context.asset_path("card_archive")
     mobsuite_tar_path = context.asset_path("mobsuite_db_tar")
     who_text_path = context.asset_path("who_mia_text")
 
-    card_detail_path = context.root / "data/analysis/card_gene_support.tsv"
-    card_summary_path = context.root / "data/analysis/card_group_summary.tsv"
-    card_family_path = context.root / "data/analysis/card_gene_family_comparison.tsv"
-    card_mechanism_path = context.root / "data/analysis/card_mechanism_comparison.tsv"
-    mobsuite_detail_path = context.root / "data/analysis/mobsuite_host_range_support.tsv"
-    mobsuite_summary_path = context.root / "data/analysis/mobsuite_host_range_group_summary.tsv"
-    who_detail_path = context.root / "data/analysis/who_mia_support.tsv"
-    who_summary_path = context.root / "data/analysis/who_mia_group_summary.tsv"
-    who_category_path = context.root / "data/analysis/who_mia_category_comparison.tsv"
-    who_reference_path = context.root / "data/analysis/who_mia_reference_catalog.tsv"
+    card_detail_path = context.data_dir / "analysis/card_gene_support.tsv"
+    card_summary_path = context.data_dir / "analysis/card_group_summary.tsv"
+    card_family_path = context.data_dir / "analysis/card_gene_family_comparison.tsv"
+    card_mechanism_path = context.data_dir / "analysis/card_mechanism_comparison.tsv"
+    mobsuite_detail_path = context.data_dir / "analysis/mobsuite_host_range_support.tsv"
+    mobsuite_summary_path = context.data_dir / "analysis/mobsuite_host_range_group_summary.tsv"
+    who_detail_path = context.data_dir / "analysis/who_mia_support.tsv"
+    who_summary_path = context.data_dir / "analysis/who_mia_group_summary.tsv"
+    who_category_path = context.data_dir / "analysis/who_mia_category_comparison.tsv"
+    who_reference_path = context.data_dir / "analysis/who_mia_reference_catalog.tsv"
     ensure_directory(card_detail_path.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,

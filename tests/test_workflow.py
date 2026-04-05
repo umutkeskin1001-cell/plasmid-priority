@@ -107,6 +107,11 @@ class WorkflowTests(unittest.TestCase):
         release_step = next(step for step in steps if step.name == "28_build_release_bundle")
         self.assertEqual(release_step.deps, ("24_build_reports", "25_export_tubitak_summary"))
 
+    def test_reports_only_workflow_keeps_report_tail(self) -> None:
+        steps = run_workflow_script._workflow_steps("reports-only")
+        names = [step.name for step in steps]
+        self.assertEqual(names, ["24_build_reports", "25_export_tubitak_summary"])
+
     def test_auto_job_cap_splits_cpu_budget_across_workers(self) -> None:
         with mock.patch.object(run_workflow_script.os, "cpu_count", return_value=12):
             self.assertEqual(run_workflow_script._auto_job_cap(4), 3)

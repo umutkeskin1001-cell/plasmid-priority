@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +15,7 @@ DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD = 3
 DEFAULT_HOST_EVENNESS_BIAS_POWER = 0.5
 DEFAULT_HOST_PHYLO_BREADTH_WEIGHT = 0.65
 DEFAULT_HOST_PHYLO_DISPERSION_WEIGHT = 0.35
+DATA_ROOT_ENV_VAR = "PLASMID_PRIORITY_DATA_ROOT"
 ROOT_MARKERS = (
     Path("pyproject.toml"),
     Path("data/manifests/data_contract.json"),
@@ -124,10 +126,11 @@ class ProjectContext:
 
     root: Path
     contract: DataContract
+    data_root: Path | None = None
 
     @property
     def data_dir(self) -> Path:
-        return self.root / "data"
+        return (self.data_root or (self.root / "data")).resolve()
 
     @property
     def config(self) -> dict:
@@ -159,6 +162,9 @@ class ProjectContext:
     def release_dir(self) -> Path:
         return self.reports_dir / "release"
 
+    def resolve_path(self, relative_path: str | Path) -> Path:
+        return _resolve_project_path(self.root, self.data_dir, relative_path)
+
     def asset(self, key: str) -> DataAssetSpec:
         try:
             return self.contract.asset_map()[key]
@@ -166,10 +172,45 @@ class ProjectContext:
             raise KeyError(f"Unknown asset key: {key}") from exc
 
     def asset_path(self, key: str) -> Path:
-        return self.asset(key).resolved_path(self.root)
+        return self.asset(key).resolved_path(self.root, self.data_dir)
 
 
-def build_context(project_root: Path | None = None) -> ProjectContext:
+def _resolve_project_path(project_root: Path, data_root: Path, relative_path: str | Path) -> Path:
+    candidate = Path(relative_path)
+    if candidate.is_absolute():
+        return candidate.resolve()
+    if candidate.parts and candidate.parts[0] == "data":
+        return (data_root / Path(*candidate.parts[1:])).resolve()
+    return (project_root / candidate).resolve()
+
+
+def resolve_data_root(
+    project_root: Path,
+    data_root: str | Path | None = None,
+    *,
+    env: dict[str, str] | None = None,
+) -> Path | None:
+    raw_value = data_root
+    if raw_value is None:
+        raw_value = (env or os.environ).get(DATA_ROOT_ENV_VAR)
+    if raw_value in (None, ""):
+        return None
+    candidate = Path(str(raw_value)).expanduser()
+    if not candidate.is_absolute():
+        candidate = project_root / candidate
+    return candidate.resolve()
+
+
+def build_context(
+    project_root: Path | None = None,
+    *,
+    data_root: str | Path | None = None,
+) -> ProjectContext:
     """Construct a project context rooted at the repository root."""
     root = find_project_root(project_root)
-    return ProjectContext(root=root, contract=load_data_contract(root))
+    resolved_data_root = resolve_data_root(root, data_root)
+    return ProjectContext(
+        root=root,
+        contract=load_data_contract(root),
+        data_root=resolved_data_root,
+    )
