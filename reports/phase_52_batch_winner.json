@@ -1,0 +1,15 @@
+{
+  "recommended_winner_after_gates": "discovery_12f_class_balanced",
+  "reported_ci": [
+    0.7613864376960676,
+    0.8406123786663688
+  ],
+  "reported_selection_adjusted_auc": 0.8028951921071723,
+  "selected_config_name": "discovery_12f_class_balanced",
+  "selected_config_raw_auc": 0.8130755064456722,
+  "top_k_config_names": [
+    "discovery_12f_class_balanced",
+    "discovery_12f_source",
+    "discovery_9f_source"
+  ]
+}

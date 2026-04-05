@@ -357,6 +357,34 @@ MODULE_A_MODEL_TRACKS: dict[str, str] = _build_model_track_registry()
 _validate_module_a_feature_surface()
 
 
+def assert_all_discovery_safe(feature_names: list[str]) -> None:
+    """Raise ValueError if any feature is not in _DISCOVERY_FEATURES ∪ _BASELINE_FEATURES.
+
+    This is a code-level enforcement guard callable from tests and scripts before
+    any new discovery feature set is run. It ensures that discovery models only
+    use features that are safe for the discovery track.
+
+    Args:
+        feature_names: List of feature names to validate.
+
+    Raises:
+        ValueError: If any feature is not in _DISCOVERY_FEATURES or _BASELINE_FEATURES.
+
+    Example:
+        >>> assert_all_discovery_safe(["T_eff_norm", "H_obs_specialization_norm"])
+        # No error raised - all features are discovery-safe
+        >>> assert_all_discovery_safe(["H_external_host_range_support"])
+        ValueError: Non-discovery features detected: H_external_host_range_support
+    """
+    allowed = _DISCOVERY_FEATURES | _BASELINE_FEATURES
+    invalid = [name for name in feature_names if name not in allowed]
+    if invalid:
+        raise ValueError(
+            f"Non-discovery features detected: {', '.join(sorted(invalid))}. "
+            f"These features belong to the governance track and cannot be used in discovery models."
+        )
+
+
 def _fit_kwarg_value(
     fit_kwargs: Mapping[str, object] | None,
     key: str,

@@ -1,0 +1,3 @@
+model_name	role	raw_auc	ece	temporal_evidence_status	promotion_status	rationale_short
+phylo_support_fusion_priority	official	0.8272	0.0852	partially_evaluated	RETAIN_OFFICIAL	Maintains best AUC; no compelling replacement evidence; temporal evidence partial but baseline retention appropriate
+governance_15f_pruned	challenger	0.8234	0.0896	partially_evaluated	HOLD_AS_CHALLENGER	Stability-preserving (AUC loss -0.0037 within tolerance) but not superior; temporal evidence insufficient for promotion; retained for future reconsideration

@@ -1,0 +1,3 @@
+surface	official_model	challenger_model	decision	current_status	evidence_basis	next_action
+discovery	discovery_12f_source	discovery_12f_class_balanced	PROMOTED_TO_OFFICIAL	ACTIVE	AUC 0.8036 (+0.0582 vs baseline), ECE 0.0491 acceptable, paired_delong_p 9.15e-08 significant	No immediate action; monitor challenger calibration
+governance	phylo_support_fusion_priority	governance_15f_pruned	DEFER_PROMOTION	RETAIN_OFFICIAL	AUC 0.8272 (baseline higher than challenger -0.0037), paired_delong_p 0.405 not significant, temporal evidence partially_evaluated (1 window only)	NO_IMMEDIATE_ACTION; optional future: governance hybrid stretch or stronger-hardware temporal validation

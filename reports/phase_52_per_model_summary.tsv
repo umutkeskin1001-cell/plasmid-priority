@@ -1,0 +1,4 @@
+model_name	raw_auc	auc_ci	ece	paired_delong_p	delta_vs_baseline	gain_class	discovery_contract_pass	leakage_review_status	gate_overall
+discovery_9f_source	0.7920158256011702	[0.761, 0.820]	0.04144773943788959	2.822702584585223e-06	0.04658683373426031	MEANINGFUL	True	required	True
+discovery_12f_source	0.8035942442746746	[0.775, 0.831]	0.04912106163779555	9.149290690126258e-08	0.05816525240776471	MEANINGFUL	True	required	True
+discovery_12f_class_balanced	0.8130755064456722	[0.785, 0.841]	0.09383384809334477	3.694215786876612e-08	0.06764651457876225	MEANINGFUL	True	required	True

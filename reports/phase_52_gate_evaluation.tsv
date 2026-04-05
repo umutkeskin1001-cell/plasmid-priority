@@ -1,0 +1,4 @@
+model_name	ece_pass	paired_delong_p_pass	discovery_contract_pass	leakage_review_status	overall
+discovery_9f_source	True	True	True	required	True
+discovery_12f_source	True	True	True	required	True
+discovery_12f_class_balanced	True	True	True	required	True

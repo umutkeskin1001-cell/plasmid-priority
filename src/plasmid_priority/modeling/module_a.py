@@ -1519,6 +1519,26 @@ def get_feature_track(feature_name: str) -> str:
     return FEATURE_PROVENANCE_REGISTRY[str(feature_name)].track
 
 
+def get_research_models_by_track(track: str) -> tuple[str, ...]:
+    """Filter RESEARCH_MODEL_NAMES by inferred track.
+
+    Args:
+        track: The track to filter by ('discovery' | 'governance' | 'baseline')
+
+    Returns:
+        Tuple of model names belonging to the specified track.
+
+    Usage note: Discovery scripts must call get_research_models_by_track("discovery")
+    rather than iterating over raw RESEARCH_MODEL_NAMES to avoid mixing governance
+    candidates into discovery sweeps.
+    """
+    _ensure_config_loaded()
+    return tuple(
+        name for name in RESEARCH_MODEL_NAMES
+        if MODULE_A_MODEL_TRACKS.get(str(name)) == str(track)
+    )
+
+
 def _ensure_feature_columns(scored: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     working = scored.copy()
     needs_h_obs_norm = any(

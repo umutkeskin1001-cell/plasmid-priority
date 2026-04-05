@@ -8,7 +8,7 @@ pipeline:
   host_phylo_dispersion_weight: 0.35
 
 models:
-  primary_model_name: "bio_clean_priority"
+  primary_model_name: "discovery_12f_source"
   primary_model_fallback: "parsimonious_priority"
   conservative_model_name: "parsimonious_priority"
   governance_model_name: "phylo_support_fusion_priority"
@@ -50,6 +50,13 @@ models:
     - "label_noise_aware_priority"
     - "graph_evidence_priority"
     - "nonlinear_deconfounded_priority"
+    - "discovery_4f_hybrid"
+    - "discovery_5f_phylo"
+    - "discovery_9f_source"
+    - "discovery_12f_source"
+    - "discovery_12f_class_balanced"
+    - "discovery_15f_synergy"
+    - "governance_15f_pruned"
 
   ablation_model_names:
     - "T_only"
@@ -101,6 +108,20 @@ models:
     H_plus_A: ["H_eff_norm", "A_eff_norm"]
     T_plus_H_plus_A: ["T_eff_norm", "H_eff_norm", "A_eff_norm"]
     source_only: ["refseq_share_train"]
+    # Phase 5.1.A: 4f hybrid baseline
+    discovery_4f_hybrid: ["T_eff_norm", "H_obs_specialization_norm", "A_eff_norm", "orit_support"]
+    # Phase 5.1.C: 5f with phylogenetic H
+    discovery_5f_phylo: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support"]
+    # Phase 5.2.A: 9f source-balanced
+    discovery_9f_source: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm"]
+    # Phase 5.2.B: 12f source-balanced
+    discovery_12f_source: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "A_recurrence_norm"]
+    # Phase 5.2.C: 12f class-balanced (same features, different weight mode)
+    discovery_12f_class_balanced: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "A_recurrence_norm"]
+    # Phase 7.1: 15f with synergy features (low priority)
+    discovery_15f_synergy: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "A_recurrence_norm", "T_A_synergy_norm", "H_A_synergy_norm", "T_H_obs_synergy_norm"]
+    # Phase 6.1: 15f pruned governance (stability-first)
+    governance_15f_pruned: ["T_eff_norm", "H_obs_specialization_norm", "H_phylogenetic_specialization_norm", "host_phylogenetic_dispersion_norm", "A_eff_norm", "coherence_score", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "A_recurrence_norm", "plasmidfinder_complexity_norm", "H_external_host_range_support", "evolutionary_jump_score_norm"]
 
   fit_config:
     visibility_adjusted_priority: {l2: 3.0, sample_weight_mode: "source_balanced"}
@@ -128,6 +149,15 @@ models:
     label_noise_aware_priority: {l2: 5.0, sample_weight_mode: "class_balanced+knownness_balanced+pu_negative_downweight", pu_negative_min_weight: 0.25, pu_negative_power: 1.5}
     graph_evidence_priority: {l2: 5.0, sample_weight_mode: "class_balanced+knownness_balanced"}
     nonlinear_deconfounded_priority: {l2: 4.0, sample_weight_mode: "class_balanced+knownness_balanced", preprocess_mode: "knownness_residualized", preprocess_alpha: "auto", preprocess_alpha_grid: [0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0], preprocess_alpha_grouped: true, preprocess_alpha_T: 0.1, preprocess_alpha_H: 2.0, preprocess_alpha_A: 1.0}
+    # Discovery track experiment configs
+    discovery_4f_hybrid: {l2: 2.5, sample_weight_mode: "source_balanced"}
+    discovery_5f_phylo: {l2: 2.5, sample_weight_mode: "source_balanced"}
+    discovery_9f_source: {l2: 3.0, sample_weight_mode: "source_balanced"}
+    discovery_12f_source: {l2: 3.0, sample_weight_mode: "source_balanced"}
+    discovery_12f_class_balanced: {l2: 3.0, sample_weight_mode: "class_balanced"}
+    discovery_15f_synergy: {l2: 3.0, sample_weight_mode: "source_balanced"}
+    # Governance track experiment configs
+    governance_15f_pruned: {l2: 1.5, sample_weight_mode: "class_balanced"}
 
   novelty_specialist:
     features: ["T_eff_norm", "A_raw_norm", "A_eff_norm", "orit_support", "H_specialization_norm", "replicon_architecture_norm", "mash_neighbor_distance_train_norm", "clinical_context_sparse_penalty_norm", "external_t_synergy_norm"]

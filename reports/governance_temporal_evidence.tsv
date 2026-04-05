@@ -1,0 +1,3 @@
+model_name	temporal_evidence_status	mean_rolling_auc	rolling_auc_std	mean_ece	mean_temporal_gap_vs_oof	n_windows_evaluated	baseline_comparison	recommendation_class
+phylo_support_fusion_priority	partially_evaluated	0.8271696317639906		0.3660262891809909	-3.0368236009437055e-05	1	baseline	OFFICIAL_BASELINE
+governance_15f_pruned	partially_evaluated	0.8243521284376184		0.3660262891809909	0.0009521284376183825	1	challenger	CHALLENGER_ONLY
