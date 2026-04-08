@@ -18,13 +18,11 @@ Required models:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -36,9 +34,7 @@ from plasmid_priority.modeling import (
     assert_all_discovery_safe,
     assert_feature_columns_present,
     build_discovery_input_contract,
-    evaluate_model_name,
     get_model_track,
-    get_research_models_by_track,
     run_module_a,
     validate_discovery_input_contract,
 )
@@ -51,7 +47,6 @@ from plasmid_priority.modeling.experiment_gates import (
     interpret_gain,
 )
 from plasmid_priority.reporting import ManagedScriptRun
-from plasmid_priority.reporting.model_audit import build_selection_adjusted_permutation_null
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import (
     atomic_write_json,
@@ -60,7 +55,7 @@ from plasmid_priority.utils.files import (
     project_python_source_paths,
     write_signature_manifest,
 )
-from plasmid_priority.validation import paired_auc_delong, roc_auc_score
+from plasmid_priority.validation import paired_auc_delong
 
 # Phase 5.2 explicit model list
 PHASE_52_MODELS = [
@@ -156,7 +151,11 @@ def compute_selection_adjusted_p_value(
     Returns:
         p-value from paired DeLong test (candidate vs baseline).
     """
-    from plasmid_priority.modeling.module_a import _oof_predictions_from_eligible, _ensure_feature_columns, _model_fit_kwargs
+    from plasmid_priority.modeling.module_a import (
+        _ensure_feature_columns,
+        _model_fit_kwargs,
+        _oof_predictions_from_eligible,
+    )
 
     # Get OOF predictions for baseline
     baseline_columns = MODULE_A_FEATURE_SETS[baseline_name]

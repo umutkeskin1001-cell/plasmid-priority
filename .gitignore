@@ -8,9 +8,12 @@ __pycache__/
 .venv-*/
 .conda-*/
 .env
+.env.*
 .pytest_cache/
+.hypothesis/
 .coverage
 .mypy_cache/
+.ruff_cache/
 .ipynb_checkpoints/
 *.egg-info/
 dist/
@@ -27,6 +30,9 @@ Thumbs.db
 .agents/
 .cursorignore
 .cursorrules
+.windsurf/
+.code-review-graph/
+.python-version
 
 # ==========================================
 # 📊 Veri (Data) - Sadece Tanımları Tutalım

@@ -1,3 +1,0 @@
-model_name	raw_auc	auc_ci	ece	comparison_p_name	comparison_p_value	delta_vs_baseline	rolling_origin_status	rolling_origin_gap	gate_overall	classification
-phylo_support_fusion_priority	0.8271564143910757	[0.800, 0.852]	0.08524510143830172	baseline_reference		0.0	not_evaluated			BASELINE
-governance_15f_pruned	0.8234423326019721	[0.795, 0.849]	0.08956073412397655	paired_delong_p	0.40505638630378094	-0.003714081789103596	not_evaluated		False	STABILITY_PRESERVING

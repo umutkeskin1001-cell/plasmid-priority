@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 from plasmid_priority.schemas import DataAssetSpec, DataContract
@@ -132,9 +133,9 @@ class ProjectContext:
     def data_dir(self) -> Path:
         return (self.data_root or (self.root / "data")).resolve()
 
-    @property
+    @cached_property
     def config(self) -> dict:
-        import yaml
+        import yaml  # type: ignore[import-untyped]
 
         config_path = self.root / "config.yaml"
         if not config_path.exists():
@@ -142,7 +143,7 @@ class ProjectContext:
         with config_path.open("r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
-    @property
+    @cached_property
     def pipeline_settings(self) -> PipelineSettings:
         return _pipeline_settings_from_config(self.config)
 

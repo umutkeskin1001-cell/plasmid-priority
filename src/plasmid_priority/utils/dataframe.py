@@ -44,3 +44,31 @@ def coalescing_left_merge(
         merged[column] = merged[column].where(merged[column].notna(), merged[incoming])
         merged = merged.drop(columns=incoming)
     return merged
+
+
+def clean_text_series(series: pd.Series) -> pd.Series:
+    """Clean a pandas Series by filling NA values and stripping whitespace.
+
+    This is the canonical implementation used across the project for consistent
+    text cleaning in dataframes.
+    """
+    return series.fillna("").astype(str).str.strip()
+
+
+def dominant_share(series: pd.Series) -> float:
+    """Compute the dominant value share (0.0-1.0) for a pandas Series.
+
+    This is the canonical implementation used across the project for computing
+    the share of the most frequent non-empty value in a series.
+
+    Args:
+        series: A pandas Series of values (typically strings)
+
+    Returns:
+        The share of the most frequent non-empty value, or 0.0 if empty
+    """
+    cleaned = clean_text_series(series)
+    cleaned = cleaned.loc[cleaned.ne("")]
+    if cleaned.empty:
+        return 0.0
+    return float(cleaned.value_counts(normalize=True).iloc[0])

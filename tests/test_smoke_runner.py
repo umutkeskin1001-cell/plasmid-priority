@@ -4,6 +4,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
 from unittest import mock
 
@@ -42,12 +43,16 @@ class _FakeRun:
         self.metrics[key] = value
 
 
+@dataclass
 class _SuccessfulTestResult:
-    testsRun = 1
-    failures: list[object] = []
-    errors: list[object] = []
+    tests_run: int = 1
+    test_failures: int = 0
+    test_errors: int = 0
+    returncode: int = 0
+    stdout: str = ""
+    stderr: str = ""
 
-    def wasSuccessful(self) -> bool:
+    def was_successful(self) -> bool:
         return True
 
 
@@ -140,15 +145,45 @@ class SmokeRunnerTests(unittest.TestCase):
         with (
             mock.patch.object(smoke_runner_script, "build_context", return_value=_FakeContext()),
             mock.patch.object(smoke_runner_script, "ManagedScriptRun", return_value=fake_run),
+            mock.patch.object(smoke_runner_script, "run_input_checks", return_value=report),
+            mock.patch.object(smoke_runner_script, "_run_cli_smoke") as cli_smoke_mock,
+        ):
+            with self.assertRaises(RuntimeError):
+                smoke_runner_script.main([])
+
+        self.assertEqual(fake_run.metrics["smoke_skipped_missing_required_inputs"], 1)
+        self.assertTrue(fake_run.warnings)
+        cli_smoke_mock.assert_not_called()
+
+    def test_smoke_skip_is_allowed_when_tests_have_run(self) -> None:
+        fake_run = _FakeRun()
+        report = ValidationReport(
+            results=[
+                AssetCheckResult(
+                    key="plsdb_sequences_fasta",
+                    path=str(PROJECT_ROOT / "data/raw/plsdb_sequences.fasta"),
+                    status="error",
+                    required=True,
+                    stage="raw",
+                    details=["missing"],
+                )
+            ],
+            contract_notes=[],
+        )
+
+        with (
+            mock.patch.object(smoke_runner_script, "build_context", return_value=_FakeContext()),
+            mock.patch.object(smoke_runner_script, "ManagedScriptRun", return_value=fake_run),
             mock.patch.object(
                 smoke_runner_script, "run_unit_tests", return_value=_SuccessfulTestResult()
             ),
             mock.patch.object(smoke_runner_script, "run_input_checks", return_value=report),
             mock.patch.object(smoke_runner_script, "_run_cli_smoke") as cli_smoke_mock,
         ):
-            result = smoke_runner_script.main([])
+            result = smoke_runner_script.main(["--with-tests"])
 
         self.assertEqual(result, 0)
+        self.assertEqual(fake_run.metrics["tests_run"], 1)
         self.assertEqual(fake_run.metrics["smoke_skipped_missing_required_inputs"], 1)
         self.assertTrue(fake_run.warnings)
         cli_smoke_mock.assert_not_called()

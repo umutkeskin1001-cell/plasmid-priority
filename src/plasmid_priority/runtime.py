@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from plasmid_priority.config import DATA_ROOT_ENV_VAR
+from plasmid_priority.config import DATA_ROOT_ENV_VAR, find_project_root
 
 MODE_DEFAULT_WORKFLOW: dict[str, str] = {
     "fast-local": "reports-only",
@@ -27,6 +27,9 @@ MODE_ALLOWED_WORKFLOWS: dict[str, tuple[str, ...]] = {
 }
 
 
+_RUNTIME_PROJECT_ROOT = find_project_root(Path(__file__).resolve())
+
+
 def default_mode_data_root(mode: str) -> Path:
     return Path.home() / ".cache" / "plasmid-priority" / mode / "data"
 
@@ -34,7 +37,9 @@ def default_mode_data_root(mode: str) -> Path:
 def resolve_mode_data_root(mode: str, explicit_data_root: str | Path | None = None) -> Path:
     if explicit_data_root not in (None, ""):
         candidate = Path(str(explicit_data_root)).expanduser()
-        return candidate.resolve() if candidate.is_absolute() else candidate.absolute().resolve()
+        if not candidate.is_absolute():
+            candidate = _RUNTIME_PROJECT_ROOT / candidate
+        return candidate.resolve()
     if mode == "full-local":
         raise ValueError(
             f"{DATA_ROOT_ENV_VAR} must be set or --data-root must be provided for full-local mode."

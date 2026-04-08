@@ -6,6 +6,14 @@ from plasmid_priority.modeling.discovery_contract import (
     discovery_model_names,
     validate_discovery_input_contract,
 )
+from plasmid_priority.modeling.experiment_gates import (
+    ConfigCandidate,
+    ExperimentAcceptanceGates,
+    HonestModelResult,
+    compute_honest_result,
+    evaluate_experiment_gates,
+    interpret_gain,
+)
 from plasmid_priority.modeling.module_a import (
     ABLATION_MODEL_NAMES,
     CONSERVATIVE_MODEL_NAME,
@@ -43,14 +51,6 @@ from plasmid_priority.modeling.module_a import (
 from plasmid_priority.modeling.module_a_support import (
     assert_all_discovery_safe,
     get_active_model_names,
-)
-from plasmid_priority.modeling.experiment_gates import (
-    ConfigCandidate,
-    ExperimentAcceptanceGates,
-    HonestModelResult,
-    compute_honest_result,
-    evaluate_experiment_gates,
-    interpret_gain,
 )
 
 __all__ = [

@@ -1,6 +1,6 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local test smoke pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci
+.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local test smoke code-review-graph-check pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci
 
 check-inputs:
 	$(PYTHON) scripts/01_check_inputs.py
@@ -30,7 +30,7 @@ full-local:
 	$(PYTHON) scripts/run_mode.py full-local $(if $(DATA_ROOT),--data-root $(DATA_ROOT),)
 
 test:
-	$(PYTHON) -m unittest discover -s tests -p 'test_*.py'
+	$(PYTHON) -m pytest tests/ -x -q --tb=short
 
 lint:
 	$(PYTHON) -m ruff check src/ scripts/ tests/
@@ -46,11 +46,14 @@ check: lint test
 
 verify-pipeline:
 	$(PYTHON) scripts/01_check_inputs.py
-	$(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
+	$(PYTHON) -m pytest tests/ -x -q --tb=short
 	@echo "Pipeline doğrulama tamamlandı."
 
 smoke:
-	$(PYTHON) scripts/26_run_tests_or_smoke.py
+	$(PYTHON) scripts/26_run_tests_or_smoke.py --with-tests
+
+code-review-graph-check:
+	$(PYTHON) scripts/check_code_review_graph.py
 
 quality: check typecheck smoke
 	@echo "Kalite kapilari gecti."

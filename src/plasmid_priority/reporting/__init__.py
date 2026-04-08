@@ -37,6 +37,11 @@ from plasmid_priority.reporting.enrichment import (
     build_module_f_enrichment_table,
     build_module_f_top_hits,
 )
+from plasmid_priority.reporting.epv_audit import (
+    build_epv_audit_table,
+    compute_epv_for_model,
+    summarize_epv_concerns,
+)
 from plasmid_priority.reporting.external_support import (
     build_card_support,
     build_mobsuite_support,
@@ -47,6 +52,16 @@ from plasmid_priority.reporting.external_support import (
     normalize_gene_symbol,
     select_priority_groups,
     split_field_tokens,
+)
+from plasmid_priority.reporting.hardening_summary import (
+    build_hardening_audit_summary,
+    format_hardening_summary_markdown,
+)
+from plasmid_priority.reporting.lead_time_bias_audit import (
+    build_lead_time_bias_audit,
+    build_visibility_decile_table,
+    compute_lead_time_bias_metrics,
+    summarize_lead_time_bias_findings,
 )
 from plasmid_priority.reporting.model_audit import (
     build_amrfinder_coverage_table,
@@ -115,12 +130,21 @@ __all__ = [
     "build_calibration_metric_table",
     "build_component_floor_diagnostics",
     "build_confirmatory_cohort_summary",
+    "build_epv_audit_table",
+    "compute_epv_for_model",
+    "summarize_epv_concerns",
+    "build_hardening_audit_summary",
+    "format_hardening_summary_markdown",
     "build_frozen_scientific_acceptance_audit",
     "build_future_sentinel_audit",
     "build_group_holdout_performance",
     "build_gate_consistency_audit",
     "build_h_feature_diagnostics",
     "build_knownness_audit_tables",
+    "build_lead_time_bias_audit",
+    "build_visibility_decile_table",
+    "compute_lead_time_bias_metrics",
+    "summarize_lead_time_bias_findings",
     "build_logistic_implementation_audit",
     "build_magic_number_sensitivity_table",
     "build_mobsuite_support",

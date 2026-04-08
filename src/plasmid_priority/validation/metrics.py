@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pandas as pd
 
 
 def _calibration_bins(
@@ -706,3 +707,114 @@ def paired_auc_delong(
         "z_score": z_score,
         "p_value": p_value,
     }
+
+
+def benjamini_hochberg_correction(p_values: np.ndarray, *, alpha: float = 0.05) -> np.ndarray:
+    """Compute Benjamini-Hochberg FDR-adjusted q-values.
+
+    The Benjamini-Hochberg procedure controls the false discovery rate (FDR),
+    which is the expected proportion of false discoveries among all rejected
+    hypotheses. This is less conservative than family-wise error rate control.
+
+    Args:
+        p_values: Array of p-values to correct
+        alpha: Target FDR level (default 0.05 for 5% FDR)
+
+    Returns:
+        Array of q-values (FDR-adjusted p-values) of same shape as input.
+        q-values are monotonic and q[i] <= p[i] is not guaranteed (unlike Bonferroni).
+        NaN positions in input are preserved as NaN in output.
+
+    References:
+        Benjamini, Y., & Hochberg, Y. (1995). Controlling the false discovery
+        rate: a practical and powerful approach to multiple testing.
+        Journal of the Royal Statistical Society: Series B, 57(1), 289-300.
+    """
+    p_values = np.asarray(p_values, dtype=float)
+    if p_values.size == 0:
+        return p_values.copy()
+
+    # Flatten for processing, restore shape at end
+    original_shape = p_values.shape
+    p_flat = p_values.ravel()
+
+    # Track NaN positions to preserve them in output
+    nan_mask = ~np.isfinite(p_flat)
+    n_nan = int(nan_mask.sum())
+
+    if n_nan == len(p_flat):
+        # All NaN - return copy with same NaN positions
+        return p_values.copy()
+
+    # Get finite p-values for BH correction
+    finite_mask = ~nan_mask
+    p_finite = p_flat[finite_mask]
+    n_finite = len(p_finite)
+
+    if n_finite == 0:
+        return p_values.copy()
+
+    # Sort finite p-values and track original positions
+    order = np.argsort(p_finite)
+    p_sorted = p_finite[order]
+
+    # Compute adjusted p-values (q-values) for finite values
+    # BH procedure: q_i = min_{j >= i} (m/j * p_j)
+    ranks = np.arange(1, n_finite + 1)
+    adjusted = n_finite / ranks * p_sorted
+
+    # Ensure monotonicity by backward pass
+    q_sorted = np.minimum.accumulate(adjusted[::-1])[::-1]
+    q_sorted = np.clip(q_sorted, 0.0, 1.0)
+
+    # Restore original order for finite values
+    q_finite = np.empty_like(q_sorted)
+    q_finite[order] = q_sorted
+
+    # Build output array preserving NaN positions
+    q_values = np.empty_like(p_flat)
+    q_values[nan_mask] = np.nan
+    q_values[finite_mask] = q_finite
+
+    return q_values.reshape(original_shape)
+
+
+def fdr_adjust_model_comparison(
+    comparison_table: pd.DataFrame,
+    *,
+    p_value_column: str = "delta_roc_auc_delong_pvalue",
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """Add FDR-adjusted q-values to model comparison table.
+
+    This is a conservative additive audit layer that adds q-value reporting
+    without changing existing p-values or comparison semantics.
+
+    Args:
+        comparison_table: DataFrame with model comparison results
+        p_value_column: Column name containing p-values to adjust
+        alpha: Target FDR level
+
+    Returns:
+        Copy of comparison_table with added q_value column
+    """
+    if comparison_table.empty:
+        return comparison_table.copy()
+
+    if p_value_column not in comparison_table.columns:
+        return comparison_table.copy()
+
+    result = comparison_table.copy()
+    p_values = pd.to_numeric(result[p_value_column], errors="coerce").to_numpy()
+
+    # Compute q-values
+    q_values = benjamini_hochberg_correction(p_values, alpha=alpha)
+
+    # Add q-value column
+    result["q_value_bh"] = q_values
+    result["fdr_alpha"] = alpha
+
+    # Add interpretation flag (non-rejection gate - just for reporting)
+    result["fdr_significant_at_alpha"] = q_values <= alpha
+
+    return result

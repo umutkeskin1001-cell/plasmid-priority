@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -25,6 +27,7 @@ from plasmid_priority.utils.files import (
     project_python_source_paths,
     write_signature_manifest,
 )
+from plasmid_priority.validation.missingness import audit_backbone_tables, format_missingness_report
 
 
 def _maybe_write_parquet(frame: pd.DataFrame, path: Path) -> bool:
@@ -36,6 +39,14 @@ def _maybe_write_parquet(frame: pd.DataFrame, path: Path) -> bool:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Normalize and score backbone table")
+    parser.add_argument(
+        "--audit-missingness",
+        action="store_true",
+        help="Run missingness audit and write artifacts to reports/audits/",
+    )
+    args = parser.parse_args()
+
     context = build_context(PROJECT_ROOT)
     backbone_path = context.data_dir / "features/backbone_table.tsv"
     t_path = context.data_dir / "features/feature_T.tsv"
@@ -73,6 +84,11 @@ def main() -> int:
         ):
             run.note("Inputs, code, and config unchanged; reusing cached scored backbone tables.")
             run.set_metric("cache_hit", True)
+
+            # Still run missingness audit on cached data if requested
+            if args.audit_missingness:
+                scored = read_tsv(scored_tsv)
+                _run_missingness_audit(context, scored, run)
             return 0
 
         backbone_table = read_tsv(backbone_path)
@@ -121,7 +137,36 @@ def main() -> int:
 
         run.set_rows_out("backbone_scored_rows", int(len(scored)))
         run.set_metric("cache_hit", False)
+
+        # Light missingness audit (opt-in, non-invasive)
+        if args.audit_missingness:
+            _run_missingness_audit(context, scored, run)
+
     return 0
+
+
+def _run_missingness_audit(context, scored: pd.DataFrame, run) -> None:
+    """Run missingness audit on scored table and write artifacts."""
+    audit_dir = context.reports_dir / "audits"
+    ensure_directory(audit_dir)
+
+    audit_result = audit_backbone_tables(scored_backbone_table=scored)
+
+    # Write machine-readable JSON
+    json_path = audit_dir / "missingness_scored_backbone.json"
+    with open(json_path, "w") as f:
+        json.dump(audit_result.get("scored_backbone_table", audit_result), f, indent=2)
+
+    # Write human-readable report
+    txt_path = audit_dir / "missingness_scored_backbone.txt"
+    with open(txt_path, "w") as f:
+        if "scored_backbone_table" in audit_result:
+            f.write(format_missingness_report(audit_result["scored_backbone_table"]))
+        else:
+            f.write("No scored_backbone_table audit data available.\n")
+
+    run.note(f"Missingness audit written to {audit_dir}")
+    run.set_metric("missingness_audit_status", audit_result.get("overall_status", "unknown"))
 
 
 if __name__ == "__main__":

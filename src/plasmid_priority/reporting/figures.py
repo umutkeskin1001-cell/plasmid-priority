@@ -15,7 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.metrics import average_precision_score, precision_recall_curve, roc_curve
+from sklearn.metrics import precision_recall_curve, roc_curve
 from sklearn.metrics import roc_auc_score as skl_roc_auc_score
 
 from plasmid_priority.reporting.figure_style import (
@@ -52,6 +52,7 @@ from plasmid_priority.reporting.figure_style import (
     style as _style,
 )
 from plasmid_priority.utils.files import ensure_directory
+from plasmid_priority.validation.metrics import average_precision
 
 
 def plot_score_distribution(scored: pd.DataFrame, output_path: Path) -> None:
@@ -270,7 +271,10 @@ def plot_pr_curve(predictions: pd.DataFrame, output_path: Path, model_names: lis
         precision, recall, _ = precision_recall_curve(
             frame["spread_label"], frame["oof_prediction"]
         )
-        ap = float(average_precision_score(frame["spread_label"], frame["oof_prediction"]))
+        ap = float(average_precision(
+            frame["spread_label"].to_numpy(),
+            frame["oof_prediction"].to_numpy()
+        ))
         lift = ap - prevalence
         ax.plot(
             recall,
@@ -1028,7 +1032,10 @@ def plot_threshold_roc_pr_curves(
         fpr, tpr, _ = roc_curve(labels, merged["oof_prediction"])
         precision, recall, _ = precision_recall_curve(labels, merged["oof_prediction"])
         auc = float(skl_roc_auc_score(labels, merged["oof_prediction"]))
-        ap = float(average_precision_score(labels, merged["oof_prediction"]))
+        ap = float(average_precision(
+            labels.to_numpy(),
+            merged["oof_prediction"].to_numpy()
+        ))
         prevalence = float(labels.mean())
         axes[0].plot(
             fpr, tpr, color=color, linewidth=2.2, label=f"threshold >= {threshold} (AUC {auc:.3f})"

@@ -1237,7 +1237,8 @@ def _build_candidate_brief_table(
     official_conservative_model = str(selection_row.get("conservative_model_name", "") or "").strip()
 
     rows: list[dict[str, object]] = []
-    candidate_ids = candidate_portfolio["backbone_id"].astype(str).tolist()
+    # Preserve first-seen order while guaranteeing unique categorical categories.
+    candidate_ids = list(dict.fromkeys(candidate_portfolio["backbone_id"].astype(str).tolist()))
     for row in candidate_portfolio.to_dict(orient="records"):
         backbone_id = str(row["backbone_id"])
         frame = merged.loc[merged["backbone_id"].astype(str) == backbone_id].copy()
@@ -1640,6 +1641,63 @@ def _add_visibility_alias(frame: pd.DataFrame) -> pd.DataFrame:
     aliased = frame.copy()
     aliased["visibility_expansion_label"] = aliased["spread_label"]
     return aliased
+
+
+def _deduplicate_backbone_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    """Ensure one row per backbone_id while keeping the strongest-ranked row first."""
+    if frame.empty or "backbone_id" not in frame.columns:
+        return frame
+    working = frame.copy()
+    working["backbone_id"] = working["backbone_id"].astype(str)
+    if not working["backbone_id"].duplicated().any():
+        return working
+
+    sort_columns: list[str] = []
+    ascending: list[bool] = []
+
+    if "portfolio_track" in working.columns:
+        sort_columns.append("portfolio_track")
+        ascending.append(True)
+    if "track_rank" in working.columns:
+        working["_track_rank_order"] = pd.to_numeric(working["track_rank"], errors="coerce").fillna(
+            np.inf
+        )
+        sort_columns.append("_track_rank_order")
+        ascending.append(True)
+    if "candidate_confidence_score" in working.columns:
+        working["_candidate_confidence_order"] = pd.to_numeric(
+            working["candidate_confidence_score"], errors="coerce"
+        ).fillna(-np.inf)
+        sort_columns.append("_candidate_confidence_order")
+        ascending.append(False)
+    if "multiverse_stability_score" in working.columns:
+        working["_multiverse_stability_order"] = pd.to_numeric(
+            working["multiverse_stability_score"], errors="coerce"
+        ).fillna(-np.inf)
+        sort_columns.append("_multiverse_stability_order")
+        ascending.append(False)
+
+    sort_columns.append("backbone_id")
+    ascending.append(True)
+
+    deduped = (
+        working.sort_values(sort_columns, ascending=ascending)
+        .drop_duplicates("backbone_id", keep="first")
+        .drop(
+            columns=[
+                column
+                for column in (
+                    "_track_rank_order",
+                    "_candidate_confidence_order",
+                    "_multiverse_stability_order",
+                )
+                if column in working.columns
+            ],
+            errors="ignore",
+        )
+        .reset_index(drop=True)
+    )
+    return deduped
 
 
 def _build_candidate_evidence_matrix(
@@ -6546,6 +6604,7 @@ def main() -> int:
             candidate_dossiers = coalescing_left_merge(
                 candidate_dossiers, candidate_signature_context, on="backbone_id"
             )
+        candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
         candidate_portfolio = _add_visibility_alias(candidate_portfolio)
         high_confidence_export = candidate_stability.loc[
             candidate_stability["high_confidence_candidate"].fillna(False)
@@ -6655,6 +6714,8 @@ def main() -> int:
                 )
         candidate_dossiers = annotate_candidate_explanation_fields(candidate_dossiers)
         candidate_portfolio = annotate_candidate_explanation_fields(candidate_portfolio)
+        candidate_dossiers = _deduplicate_backbone_rows(candidate_dossiers)
+        candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
         operational_risk_watchlist = _build_operational_risk_watchlist(
             operational_risk_dictionary,
             primary_model_name=primary_model_name,
@@ -6938,6 +6999,7 @@ def main() -> int:
         candidate_portfolio = _attach_official_benchmark_context(
             candidate_portfolio, official_benchmark_context
         )
+        candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
         candidate_universe.to_csv(
             final_tables_dir / "candidate_universe.tsv", sep="\t", index=False
         )

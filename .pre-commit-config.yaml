@@ -1,0 +1,48 @@
+# Pre-commit hooks for plasmid-priority
+#
+# This is a lightweight, practical pre-commit setup that improves repo hygiene
+# without overwhelming the workflow. To use:
+#   1. Install pre-commit: pip install pre-commit
+#   2. Install hooks: pre-commit install
+#   3. (Optional) Run on all files: pre-commit run --all-files
+#
+# Note: mypy is NOT included because the codebase has mixed type health.
+# Type-cleanup work should be done in a dedicated batch before enabling mypy.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      # General file hygiene
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
+
+      # Whitespace and formatting
+      - id: trailing-whitespace
+        exclude: '(\.tsv$|\.csv$)'
+      - id: end-of-file-fixer
+        exclude: '(\.tsv$|\.csv$)'
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.10
+    hooks:
+      # Run the linter (matches pyproject.toml config)
+      - id: ruff
+        args: [--fix]
+      # Run the formatter
+      - id: ruff-format
+
+  # Note: mypy is excluded for now. The repo has:
+  #   - partial type coverage
+  #   - complex numpy/pandas typing
+  #   - dynamic imports that confuse mypy
+  # Enable only after a dedicated type-cleanup batch.

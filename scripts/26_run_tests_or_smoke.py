@@ -7,7 +7,9 @@ import argparse
 import itertools
 import subprocess
 import sys
-import unittest
+import tempfile
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -19,9 +21,67 @@ from plasmid_priority.qc import run_input_checks
 from plasmid_priority.reporting import ManagedScriptRun
 
 
-def run_unit_tests() -> unittest.result.TestResult:
-    suite = unittest.defaultTestLoader.discover(str(PROJECT_ROOT / "tests"), pattern="test_*.py")
-    return unittest.TextTestRunner(verbosity=2).run(suite)
+@dataclass(frozen=True)
+class TestRunSummary:
+    tests_run: int
+    test_failures: int
+    test_errors: int
+    returncode: int
+    stdout: str
+    stderr: str
+
+    def was_successful(self) -> bool:
+        return self.returncode == 0
+
+
+def _extract_pytest_counts(junit_xml: Path) -> tuple[int, int, int]:
+    if not junit_xml.exists():
+        return 0, 0, 0
+    try:
+        root = ET.parse(junit_xml).getroot()
+    except ET.ParseError:
+        return 0, 0, 0
+
+    suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
+    tests_run = 0
+    test_failures = 0
+    test_errors = 0
+    for suite in suites:
+        tests_run += int(suite.attrib.get("tests", "0") or 0)
+        test_failures += int(suite.attrib.get("failures", "0") or 0)
+        test_errors += int(suite.attrib.get("errors", "0") or 0)
+    return tests_run, test_failures, test_errors
+
+
+def run_unit_tests() -> TestRunSummary:
+    with tempfile.NamedTemporaryFile(
+        suffix=".xml", prefix="pytest-smoke-", delete=False
+    ) as temp_file:
+        junit_path = Path(temp_file.name)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            str(PROJECT_ROOT / "tests"),
+            f"--junitxml={junit_path}",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    tests_run, test_failures, test_errors = _extract_pytest_counts(junit_path)
+    junit_path.unlink(missing_ok=True)
+    return TestRunSummary(
+        tests_run=tests_run,
+        test_failures=test_failures,
+        test_errors=test_errors,
+        returncode=int(completed.returncode),
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+    )
 
 
 def _run_cli_smoke(script_name: str) -> subprocess.CompletedProcess[str]:
@@ -58,19 +118,27 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args([] if argv is None else argv)
     context = build_context(PROJECT_ROOT)
+    tests_run_count = 0
 
     with ManagedScriptRun(context, "26_run_tests_or_smoke") as run:
         if args.with_tests:
             test_result = run_unit_tests()
-            run.set_metric("tests_run", test_result.testsRun)
-            run.set_metric("test_failures", len(test_result.failures))
-            run.set_metric("test_errors", len(test_result.errors))
-            if not test_result.wasSuccessful():
+            run.set_metric("tests_run", test_result.tests_run)
+            run.set_metric("test_failures", test_result.test_failures)
+            run.set_metric("test_errors", test_result.test_errors)
+            tests_run_count = test_result.tests_run
+            if test_result.tests_run <= 0:
+                raise RuntimeError(
+                    "Pytest did not execute any tests in --with-tests mode; failing closed."
+                )
+            if not test_result.was_successful():
+                run.warn(test_result.stderr.strip() or test_result.stdout.strip() or "pytest failed")
                 raise RuntimeError("Unit tests failed.")
         else:
             run.set_metric("tests_run", 0)
             run.set_metric("test_failures", 0)
             run.set_metric("test_errors", 0)
+            tests_run_count = 0
 
         validation_report = run_input_checks(context)
         run.set_metric("input_check_errors", len(validation_report.errors))
@@ -86,6 +154,10 @@ def main(argv: list[str] | None = None) -> int:
                     "smoke_skipped_missing_required_inputs",
                     len(missing_required_inputs),
                 )
+                if tests_run_count <= 0:
+                    raise RuntimeError(
+                        "No meaningful validation executed: required inputs missing and tests were not run."
+                    )
                 return 0
             raise RuntimeError("Input validation failed during smoke run.")
 

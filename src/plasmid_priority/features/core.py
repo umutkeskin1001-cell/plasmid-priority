@@ -11,16 +11,52 @@ import numpy as np
 import pandas as pd
 
 from plasmid_priority.config import PipelineSettings, build_context, find_project_root
+from plasmid_priority.utils.dataframe import clean_text_series as _clean_text_series
+from plasmid_priority.utils.dataframe import dominant_share as _dominant_share_impl
 from plasmid_priority.utils.geography import country_to_macro_region
 
+# Module-level storage for injected settings (for testing)
+_injected_settings: PipelineSettings | None = None
 
-@lru_cache(maxsize=1)
-def _pipeline_settings() -> PipelineSettings:
+
+def _pipeline_settings(settings: PipelineSettings | None = None) -> PipelineSettings:
+    """Get pipeline settings, with optional injection for testing.
+
+    This function supports dependency injection for testing:
+    - If settings argument provided, uses it (and stores for subsequent calls)
+    - If settings previously injected, returns cached settings
+    - Otherwise, loads from disk on first call
+
+    Args:
+        settings: Optional settings to inject. If provided, replaces any cached settings.
+
+    Returns:
+        PipelineSettings instance
+    """
+    global _injected_settings
+    if settings is not None:
+        _injected_settings = settings
+        return settings
+    if _injected_settings is not None:
+        return _injected_settings
+    # Lazy load from disk only on first uncached call
     return build_context(find_project_root(Path(__file__).resolve())).pipeline_settings
+
+
+# For backward compatibility: keep a no-arg wrapper
+@lru_cache(maxsize=1)
+def _cached_pipeline_settings() -> PipelineSettings:
+    """Cached wrapper for backward compatibility."""
+    return _pipeline_settings()
 
 
 def _support_factor(n: int, pseudocount: float = 3.0) -> float:
     return float(n / (n + pseudocount)) if n > 0 else 0.0
+
+
+def _dominant_share(values: pd.Series) -> float:
+    """Backward-compatible alias for dominant-share utility."""
+    return _dominant_share_impl(values)
 
 
 def _split_values(cell: object) -> set[str]:
@@ -59,10 +95,6 @@ def _gene_family(token: object) -> str:
         rest = re.sub(r"[^A-Za-z]+", "", cleaned[3:])
         return f"bla{rest[:6]}".upper() if rest else "BLA"
     return prefix[:8].upper()
-
-
-def _clean_text_series(series: pd.Series) -> pd.Series:
-    return series.fillna("").astype(str).str.strip()
 
 
 HOST_RANGE_RANK_SCORES = {
@@ -342,14 +374,6 @@ def _context_label_from_row(row: pd.Series) -> str:
     if _contains_any(lowered, HOST_ASSOCIATED_CONTEXT_TERMS):
         return "host_associated"
     return "other"
-
-
-def _dominant_share(series: pd.Series) -> float:
-    values = _clean_text_series(series)
-    values = values.loc[values.ne("")]
-    if values.empty:
-        return 0.0
-    return float(values.value_counts(normalize=True).iloc[0])
 
 
 def _grouped_dominant_share(backbone_ids: pd.Series, values: pd.Series) -> pd.Series:

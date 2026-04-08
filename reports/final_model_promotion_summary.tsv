@@ -1,7 +1,0 @@
-surface	model_name	role	raw_auc	ece	comparison_p_name	comparison_p_value	temporal_evidence_status	promotion_status	rationale_short
-discovery	bio_clean_priority	baseline	0.7454	0.0634	baseline_reference			REPLACED	Superseded by discovery candidates
-discovery	discovery_9f_source	candidate	0.7920	0.0414	paired_delong_p	2.82e-06	not_evaluated	REJECTED	Weaker AUC than 12f alternatives
-discovery	discovery_12f_source	candidate	0.8036	0.0491	paired_delong_p	9.15e-08	not_evaluated	OFFICIAL	Strong AUC + acceptable calibration
-discovery	discovery_12f_class_balanced	candidate	0.8131	0.0938	paired_delong_p	3.69e-08	not_evaluated	CHALLENGER	Highest AUC but calibration near threshold
-governance	phylo_support_fusion_priority	baseline	0.8272	0.0852	baseline_reference			OFFICIAL	Maintains best AUC, no compelling replacement evidence
-governance	governance_15f_pruned	candidate	0.8234	0.0896	paired_delong_p	0.40505638630378094	not_evaluated	CHALLENGER	Stability-preserving but temporal evidence incomplete

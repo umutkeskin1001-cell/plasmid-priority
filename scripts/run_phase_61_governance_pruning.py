@@ -24,13 +24,11 @@ we do not fabricate boolean passes for unavailable evidence.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -40,7 +38,6 @@ from plasmid_priority.config import build_context
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     assert_feature_columns_present,
-    evaluate_model_name,
     get_model_track,
     run_module_a,
 )
@@ -132,9 +129,9 @@ def compute_paired_delong_p(
         p-value from paired DeLong test (candidate vs baseline).
     """
     from plasmid_priority.modeling.module_a import (
-        _oof_predictions_from_eligible,
         _ensure_feature_columns,
         _model_fit_kwargs,
+        _oof_predictions_from_eligible,
     )
 
     # Get OOF predictions for baseline
@@ -550,11 +547,11 @@ def write_phase_61_artifacts(
 
 ## Overview
 
-**Execution Date**: Auto-generated from batch artifacts  
-**Phase**: 6.1 Governance Pruning  
-**Models Evaluated**: 2 (1 governance baseline + 1 pruning candidate)  
-**Governance Baseline**: {GOVERNANCE_BASELINE}  
-**Pruning Candidate**: {GOVERNANCE_CANDIDATE}  
+**Execution Date**: Auto-generated from batch artifacts
+**Phase**: 6.1 Governance Pruning
+**Models Evaluated**: 2 (1 governance baseline + 1 pruning candidate)
+**Governance Baseline**: {GOVERNANCE_BASELINE}
+**Pruning Candidate**: {GOVERNANCE_CANDIDATE}
 
 **Governance Decision Semantics**: This is a stability-first governance decision, not raw AUC maximization.
 
@@ -644,7 +641,7 @@ Classification Rules:
     else:
         recommendation_text += "Unable to determine classification. Review metrics manually."
 
-    recommendation_text += f"""
+    recommendation_text += """
 
 ---
 

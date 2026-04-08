@@ -2,7 +2,7 @@
 
 This is the canonical one-page validation surface for jury review.
 
-- Discovery primary: `bio_clean_priority`
+- Discovery primary: `parsimonious_priority`
 - Governance watch-only: `phylo_support_fusion_priority`
 - Baseline comparator: `baseline_both`
 - Permutation entries below include the selection-adjusted official-model null; the fixed-score label-permutation audit is retained only as an exploratory appendix diagnostic.
@@ -16,8 +16,8 @@ This is the canonical one-page validation surface for jury review.
 
 | Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | ECE | Max CE | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |
 | --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |
-| discovery_primary | bio_clean_priority | 0.745 | [0.714, 0.778] | 0.654 | [0.605, 0.709] | 0.188 | 0.188 | 0.063 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | <0.001 | 0.023 ([-0.020, 0.063]) | 0.731 | 989 | 362 |
-| governance_watch_only | phylo_support_fusion_priority | 0.827 | [0.800, 0.852] | 0.767 | [0.725, 0.803] | 0.166 | 0.284 | 0.085 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | NA | NA | 0.821 | 989 | 362 |
+| discovery_primary | parsimonious_priority | 0.751 | [0.719, 0.784] | 0.659 | [0.609, 0.712] | 0.187 | 0.195 | 0.046 | NA | not_scored | missing:selection_adjusted_empirical_p_roc_auc | NA | <0.001 | NA | 0.741 | 989 | 362 |
+| governance_watch_only | phylo_support_fusion_priority | 0.828 | [0.801, 0.853] | 0.767 | [0.726, 0.803] | 0.166 | 0.285 | 0.085 | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | NA | NA | 0.821 | 989 | 362 |
 | counts_baseline | baseline_both | 0.722 | [0.689, 0.756] | 0.647 | [0.596, 0.698] | 0.186 | 0.198 | 0.039 | NA | fail | fail:matched_knownness | 0.005 | <0.001 | NA | 0.740 | 989 | 362 |
 
 ## Rolling-Origin Validation
@@ -28,11 +28,11 @@ Mean Brier score across the successful outer splits is 0.095.
 
 ## Blocked Holdout Audit
 
-- bio-clean model blocked holdout audit (dominant_region_train + dominant_source): weighted ROC AUC `0.719` across `7` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.626`.
+- parsimonious_priority blocked holdout audit (dominant_region_train + dominant_source): weighted ROC AUC `0.738` across `7` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.655`.
 
 ## Country Missingness
 
-- bio-clean model country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.741 to 0.754 and AP 0.654 to 0.728..
+- parsimonious_priority country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.746 to 0.756 and AP 0.659 to 0.745..
 
 ## Ranking Stability
 

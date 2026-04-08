@@ -88,7 +88,12 @@ def main(argv: list[str] | None = None) -> int:
     validate_mode_workflow(args.mode, workflow)
 
     if args.mode == "full-local" and args.data_root in (None, ""):
-        args.data_root = prompt_for_data_root()
+        # Check env var first before prompting
+        env_data_root = os.environ.get(DATA_ROOT_ENV_VAR)
+        if env_data_root:
+            args.data_root = env_data_root
+        else:
+            args.data_root = prompt_for_data_root()
 
     data_root = _prepare_data_root(args.mode, resolve_mode_data_root(args.mode, args.data_root))
     if args.mode == "fast-local":

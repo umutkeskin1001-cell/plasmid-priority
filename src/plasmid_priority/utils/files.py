@@ -8,6 +8,7 @@ import math
 import os
 import tempfile
 from collections.abc import Iterable
+from functools import lru_cache
 from numbers import Integral, Real
 from pathlib import Path
 from typing import Any
@@ -201,6 +202,139 @@ def write_signature_manifest(
             "source_signatures": [path_signature(path) for path in resolved_sources],
         },
     )
+
+
+def file_sha256(path: Path, *, chunk_size: int = 8192) -> str:
+    """Compute SHA-256 hex digest for a file (full file, no size limit).
+
+    This function performs a complete SHA-256 hash of the entire file content
+    using chunked reading for memory efficiency. Unlike path_signature_with_hash,
+    this function has no size limit and always computes the full cryptographic
+    hash regardless of file size.
+
+    Args:
+        path: Path to the file to hash
+        chunk_size: Number of bytes to read per chunk (default: 8192)
+
+    Returns:
+        Lowercase hexadecimal string of the SHA-256 digest (64 characters)
+
+    Raises:
+        ValueError: If the path is not a file
+        OSError: If the file cannot be read
+    """
+    resolved = path.resolve()
+    if not resolved.is_file():
+        raise ValueError(f"Path is not a file: {resolved}")
+    stat = resolved.stat()
+    return _file_sha256_cached(
+        str(resolved),
+        int(stat.st_size),
+        int(stat.st_mtime_ns),
+        chunk_size,
+    )
+
+
+@lru_cache(maxsize=4096)
+def _file_sha256_cached(
+    path_str: str,
+    file_size: int,
+    mtime_ns: int,
+    chunk_size: int,
+) -> str:
+    """Cached SHA-256 by stable file identity (path, size, mtime)."""
+    # file_size/mtime_ns are part of cache key for invalidation by content changes.
+    del file_size, mtime_ns
+    digest = hashlib.sha256()
+    with open(path_str, "rb") as f:
+        while chunk := f.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def path_signature_with_hash(
+    path: Path, *, include_file_hash: bool = True, max_file_size_mb: float = 100.0
+) -> dict[str, object]:
+    """Return a filesystem signature with optional SHA-256 content hash.
+
+    For files under max_file_size_mb: includes a full SHA-256 content hash.
+    For files over max_file_size_mb: omits sha256 field (returns metadata only).
+    For directories: computes a cumulative hash of metadata (not full content).
+
+    Size-Limit Behavior:
+        The max_file_size_mb parameter controls when full cryptographic hashing
+        is performed. Files larger than this limit receive metadata-only
+        signatures (path, size, mtime_ns) without the sha256 content hash.
+        This prevents excessive I/O and memory usage for large files while
+        still providing full cryptographic verification for smaller files.
+
+        The default limit is 100 MB. To force hashing regardless of size,
+        set max_file_size_mb to a very large value (e.g., float('inf')).
+        To disable content hashing entirely, set include_file_hash=False.
+
+    Args:
+        path: Path to file or directory to sign
+        include_file_hash: Whether to include content hashing (when size permits)
+        max_file_size_mb: Size threshold in MB for content hashing (default: 100.0)
+
+    Returns:
+        Dictionary with signature fields:
+        - For files under limit: {path, size, mtime_ns, kind, sha256}
+        - For files over limit: {path, size, mtime_ns, kind}
+        - For directories: {path, digest, entry_count, kind}
+    """
+    resolved = path.resolve()
+    if resolved.is_dir():
+        digest = hashlib.sha256()
+        entry_count = 0
+        for current_root, dirnames, filenames in os.walk(resolved):
+            dirnames.sort()
+            filenames.sort()
+            root_path = Path(current_root)
+            for dirname in dirnames:
+                child = root_path / dirname
+                child_stat = child.stat()
+                relative = child.relative_to(resolved)
+                digest.update(
+                    f"D\t{relative}\t{child_stat.st_size}\t{child_stat.st_mtime_ns}\n".encode(
+                        "utf-8"
+                    )
+                )
+                entry_count += 1
+            for filename in filenames:
+                child = root_path / filename
+                child_stat = child.stat()
+                relative = child.relative_to(resolved)
+                digest.update(
+                    f"F\t{relative}\t{child_stat.st_size}\t{child_stat.st_mtime_ns}\n".encode(
+                        "utf-8"
+                    )
+                )
+                entry_count += 1
+        return {
+            "path": str(resolved),
+            "digest": digest.hexdigest(),
+            "entry_count": entry_count,
+            "kind": "directory",
+        }
+
+    stat = resolved.stat()
+    result: dict[str, object] = {
+        "path": str(resolved),
+        "size": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
+        "kind": "file",
+    }
+
+    # Include content hash for files under size limit
+    max_bytes = max_file_size_mb * 1024 * 1024
+    if include_file_hash and stat.st_size <= max_bytes:
+        try:
+            result["sha256"] = file_sha256(resolved)
+        except (OSError, ValueError):
+            pass  # Leave sha256 absent if hashing fails
+
+    return result
 
 
 def relative_path_str(path: Path, root: Path) -> str:

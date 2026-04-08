@@ -4,9 +4,11 @@ import json
 import os
 import tempfile
 import unittest
+from importlib import reload
 from pathlib import Path
 from unittest import mock
 
+import plasmid_priority.config as config_module
 from plasmid_priority.config import (
     DATA_ROOT_ENV_VAR,
     build_context,
@@ -71,7 +73,7 @@ class ConfigTests(unittest.TestCase):
     def test_project_config_declares_governance_track(self) -> None:
         context = build_context()
         models = context.config["models"]
-        self.assertEqual(models["primary_model_name"], "bio_clean_priority")
+        self.assertEqual(models["primary_model_name"], "discovery_12f_source")
         self.assertEqual(models["conservative_model_name"], "parsimonious_priority")
         self.assertEqual(models["governance_model_name"], "phylo_support_fusion_priority")
         self.assertEqual(models["governance_model_fallback"], "support_synergy_priority")
@@ -119,6 +121,32 @@ class ConfigTests(unittest.TestCase):
             external.mkdir()
             with mock.patch.dict(os.environ, {DATA_ROOT_ENV_VAR: str(external)}, clear=False):
                 self.assertEqual(resolve_data_root(root), external.resolve())
+
+    def test_project_context_config_is_cached(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+            (root / "config.yaml").write_text("models:\n  primary_model_name: test\n", encoding="utf-8")
+            (root / "data/manifests").mkdir(parents=True)
+            (root / "data/manifests/data_contract.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "created_on": "2026-03-22",
+                        "download_date": "2026-03-22",
+                        "assets": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            # Ensure fresh module state for the cached_property test.
+            reload(config_module)
+            context = config_module.build_context(root)
+            with mock.patch("yaml.safe_load", wraps=__import__("yaml").safe_load) as safe_load_mock:
+                first = context.config
+                second = context.config
+            self.assertEqual(first, second)
+            self.assertEqual(safe_load_mock.call_count, 1)
 
 
 if __name__ == "__main__":

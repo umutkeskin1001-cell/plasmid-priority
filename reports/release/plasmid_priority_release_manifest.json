@@ -3,68 +3,68 @@
   "files": [
     {
       "relative_path": "reports/executive_summary.md",
-      "sha256": "a2abb58669c71d1f4268ddbf222e93931dd8326aa450d230c0fd554d0727b80b",
-      "size_bytes": 4161
+      "sha256": "1cdb513648427c725ec13a0c00833f1d78f4d4526c058a5932cb0146bbeae11e",
+      "size_bytes": 4173
     },
     {
       "relative_path": "reports/jury_brief.md",
-      "sha256": "6bcb21917f4cc3bef990e604a62c0d815937e18b218a49be723274dbc9f01df5",
-      "size_bytes": 8297
+      "sha256": "10924a5ea9c9b150e66d7fb8c30b83ebaa0cba4faf67fe3c82e9a535418fd186",
+      "size_bytes": 8244
     },
     {
       "relative_path": "reports/ozet_tr.md",
-      "sha256": "90882e3aefa50bdeadc14cb41d95996be53a5edd6fc765fabff1dd9746fe7fb2",
-      "size_bytes": 7358
+      "sha256": "a375a5aa0d69bfc2d7e136ef51f46a21628edc3a159ac20a7c2bc3a534579a56",
+      "size_bytes": 7336
     },
     {
       "relative_path": "reports/pitch_notes.md",
-      "sha256": "8149a3cefade5a29c250aee910155a0059bf9065c0f9ead9b024adc7e7c5d05a",
-      "size_bytes": 1599
+      "sha256": "07729ff9129d14ded140dd3bf105f6ccee5013ee35b3c60bb5a81dcef4adfb57",
+      "size_bytes": 1581
     },
     {
       "relative_path": "reports/tubitak_final_metrics.txt",
-      "sha256": "6315a25b107578addca5aabaf5d3f3cc09fa20a364e6e3ddf3bbcf838bc1d946",
-      "size_bytes": 910
+      "sha256": "0cc74c8ac574e7ff9dbf3631359cfcc0cd712715af85ca1349959701e170580d",
+      "size_bytes": 907
     },
     {
       "relative_path": "reports/core_tables/model_metrics.tsv",
-      "sha256": "24d2849a6ce45f141b307e46306a3dd68a5d154c9e9bba627f45a6e282eca2dd",
-      "size_bytes": 21712
+      "sha256": "9f1650b42e2b496648d430a1abdf47597dfa6dc1dd96c60b646765a7fb71faf8",
+      "size_bytes": 21520
     },
     {
       "relative_path": "reports/core_tables/model_selection_summary.tsv",
-      "sha256": "5798ec92796615efb1bb8033ccb0285083548d6add5210fbdc3422ec14e327af",
-      "size_bytes": 9068
+      "sha256": "79037656242fb0038a139dd7332a430db5ad302716c4011150e98a44e447dad0",
+      "size_bytes": 9062
     },
     {
       "relative_path": "reports/core_tables/model_selection_scorecard.tsv",
-      "sha256": "9887622db8dd3a56dab16141349e7e50351a444937f9d6149dbfb2bfaead4996",
-      "size_bytes": 15092
+      "sha256": "74579b6eb4a703df78d9384b1c6316ff0684fbee33230bfde980df25d0d0c4fb",
+      "size_bytes": 15093
     },
     {
       "relative_path": "reports/core_tables/candidate_portfolio.tsv",
-      "sha256": "b37edb1f66021347b81ec88dd9b0281b555c623b4537245aa22573dc4a0100e4",
-      "size_bytes": 39268
+      "sha256": "d8d392415132c53238fe7fd4899f2d391117ed0714f053adf872ed3db86dd71e",
+      "size_bytes": 36533
     },
     {
       "relative_path": "reports/core_tables/candidate_evidence_matrix.tsv",
-      "sha256": "bd66871aa0b2f700c5b3b00cc838c507968e1242cc10d7868042aecca617bc9d",
-      "size_bytes": 18660
+      "sha256": "4eb17bcd137bdcd12b8d1a2a3ad3f24a853f044790a7825a823ded4476e508ee",
+      "size_bytes": 18082
     },
     {
       "relative_path": "reports/core_tables/consensus_shortlist.tsv",
-      "sha256": "5c0e68c623e3b9bb3197a720ec088ddb65855f6d71670023db4a0b0c2cadbb68",
-      "size_bytes": 6304
+      "sha256": "00449a7b890ec4abcf059f88facc66394028082fee61b529725295d0df00f2b0",
+      "size_bytes": 4806
     },
     {
       "relative_path": "reports/core_figures/roc_curve.png",
-      "sha256": "345207a3a12d6d3baedf94f35076425b3ed04876c2cbcb1e86a421f83321ce56",
-      "size_bytes": 146636
+      "sha256": "7da649e822bc8346659750fa5d91108b400b204dad4630607a6a427d9cd7e5e6",
+      "size_bytes": 144799
     },
     {
       "relative_path": "reports/core_figures/pr_curve.png",
-      "sha256": "99b52d374261d9c889c7f615a50f69d659d9806b02811f2ddd5a45fde313dc0d",
-      "size_bytes": 188305
+      "sha256": "826846c66a01041d6afe8c048d0eb301b075eb7d7300c5b645fda7346ffc6dc7",
+      "size_bytes": 189866
     },
     {
       "relative_path": "reports/core_figures/score_distribution.png",
@@ -78,11 +78,11 @@
     },
     {
       "relative_path": "reports/core_figures/knownness_vs_oof_score_scatter.png",
-      "sha256": "002c666ceb19300d61a5057b3c8f1c4f794e65c5593f02c5bded46289e91ff8b",
-      "size_bytes": 256307
+      "sha256": "4b7bfa7c6f38b2992f0dea003762643a091680b2047284871232be731e68c386",
+      "size_bytes": 261648
     }
   ],
-  "generated_at_utc": "2026-04-04T21:51:39+00:00",
+  "generated_at_utc": "2026-04-08T17:25:18+00:00",
   "missing_files": [],
   "n_files": 16,
   "project_root": "/Users/umut/Projeler/plasmid-priority"

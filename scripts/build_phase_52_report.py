@@ -106,9 +106,7 @@ def determine_recommendation(
     - STOP: No candidate shows meaningful progress, or serious issues
     """
     # Check passing candidates
-    passing_candidates = gate_evaluation.loc[
-        gate_evaluation["overall"] == True
-    ]["model_name"].tolist()
+    passing_candidates = gate_evaluation.loc[gate_evaluation["overall"]]["model_name"].tolist()
 
     if not passing_candidates:
         # Check if any candidate is close but has ECE issues
@@ -189,11 +187,11 @@ def build_recommendation_report(
         "",
         "## Overview",
         "",
-        f"**Execution Date**: Auto-generated from batch artifacts  ",
-        f"**Batch**: Phase 5.2 Discovery  ",
-        f"**Models Evaluated**: 4 (1 baseline + 3 discovery candidates)  ",
-        f"**Baseline**: bio_clean_priority  ",
-        f"**Discovery Candidates**: discovery_9f_source, discovery_12f_source, discovery_12f_class_balanced",
+        "**Execution Date**: Auto-generated from batch artifacts  ",
+        "**Batch**: Phase 5.2 Discovery  ",
+        "**Models Evaluated**: 4 (1 baseline + 3 discovery candidates)  ",
+        "**Baseline**: bio_clean_priority  ",
+        "**Discovery Candidates**: discovery_9f_source, discovery_12f_source, discovery_12f_class_balanced",
         "",
         "---",
         "",
@@ -395,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
     missing_artifacts = [p for p in required_artifacts if not p.exists()]
     if missing_artifacts:
         print(
-            f"ERROR: Required Phase 5.2 artifacts not found:\n"
+            "ERROR: Required Phase 5.2 artifacts not found:\n"
             + "\n".join(f"  - {p}" for p in missing_artifacts)
             + "\n\nReport generation CANNOT proceed without batch execution results.\n"
             "To generate these artifacts, first run:\n"

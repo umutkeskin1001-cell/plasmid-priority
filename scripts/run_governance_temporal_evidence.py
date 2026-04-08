@@ -28,7 +28,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from plasmid_priority.config import build_context
 from plasmid_priority.modeling import (
-    MODULE_A_FEATURE_SETS,
     evaluate_model_name,
 )
 from plasmid_priority.utils.dataframe import read_tsv
@@ -116,7 +115,7 @@ def _evaluate_governance_model_task(
 
         # Calculate ECE on eligible data
         y_true = eligible["spread_label"].astype(int).to_numpy()
-        
+
         # Get predictions from result - handle different result structures
         try:
             preds_df = result.predictions
@@ -129,7 +128,7 @@ def _evaluate_governance_model_task(
         except Exception:
             # Fallback: use zeros if predictions unavailable
             y_score = np.zeros(len(eligible))
-        
+
         ece = expected_calibration_error(y_true, y_score, n_bins=10)
 
         return {
@@ -499,8 +498,8 @@ def main() -> int:
 
     md_content = f"""# Governance Temporal Evidence Report
 
-**Date**: Auto-generated from batch artifacts  
-**Evaluation**: Rolling temporal validation for governance models  
+**Date**: Auto-generated from batch artifacts
+**Evaluation**: Rolling temporal validation for governance models
 **Status**: {recommendation}
 
 ---
@@ -592,12 +591,12 @@ or incomplete coverage. The recommended next step is to consider hybrid experime
 (Phase 6.2) to strengthen the evidence base before making a promotion decision.
 """
     else:  # STOP
-        md_content += f"""Temporal evaluation could not be completed reliably due to missing
+        md_content += """Temporal evaluation could not be completed reliably due to missing
 inputs, insufficient data, or evaluation errors. Do not proceed with governance promotion
 decisions based on incomplete evidence. Re-run when data issues are resolved.
 """
 
-    md_content += f"""
+    md_content += """
 ---
 
 ## Artifact Locations
@@ -615,7 +614,7 @@ decisions based on incomplete evidence. Re-run when data issues are resolved.
         f.write(md_content)
     print(f"Wrote recommendation markdown: {recommendation_md_path}")
 
-    print(f"\n=== GOVERNANCE TEMPORAL EVIDENCE COMPLETE ===")
+    print("\n=== GOVERNANCE TEMPORAL EVIDENCE COMPLETE ===")
     print(f"Recommendation: {recommendation}")
     print(f"Windows evaluated successfully: {(rolling_df['status'] == 'ok').sum()} / {len(rolling_tasks)}")
 

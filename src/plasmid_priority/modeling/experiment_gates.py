@@ -11,7 +11,6 @@ from typing import Any
 
 import numpy as np
 
-
 # Thresholds for gain interpretation (from v7 optimization plan)
 TIE_NOISE_THRESHOLD = 0.015  # AUC differences < 0.015 are indistinguishable from noise
 MEANINGFUL_GAIN_THRESHOLD = 0.025  # AUC gains >= 0.025 are considered meaningful

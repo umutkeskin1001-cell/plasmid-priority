@@ -4,19 +4,19 @@ from __future__ import annotations
 
 import unittest
 
+from plasmid_priority.modeling import (
+    assert_all_discovery_safe,
+    get_research_models_by_track,
+)
 from plasmid_priority.modeling.experiment_gates import (
-    TIE_NOISE_THRESHOLD,
     MEANINGFUL_GAIN_THRESHOLD,
+    TIE_NOISE_THRESHOLD,
     ConfigCandidate,
     ExperimentAcceptanceGates,
     HonestModelResult,
     compute_honest_result,
     evaluate_experiment_gates,
     interpret_gain,
-)
-from plasmid_priority.modeling import (
-    assert_all_discovery_safe,
-    get_research_models_by_track,
 )
 from plasmid_priority.reporting.model_audit import FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS
 

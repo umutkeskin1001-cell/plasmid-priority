@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pandas as pd
 
+# Import the canonical country source of truth from shared constants
+from plasmid_priority.utils.country_constants import COUNTRY_ALIAS_GROUPS
+
 MACRO_REGION_ORDER = [
     "Europe",
     "North America",
@@ -13,6 +16,66 @@ MACRO_REGION_ORDER = [
     "Middle East and West Asia",
     "Oceania",
 ]
+
+# Additional macro-region mappings for countries in COUNTRY_ALIAS_GROUPS
+# but not yet in COUNTRY_TO_MACRO_REGION
+_ADDITIONAL_COUNTRY_TO_MACRO_REGION = {
+    "Andorra": "Europe",
+    "Angola": "Africa",
+    "Antigua and Barbuda": "Latin America and Caribbean",
+    "Aruba": "Latin America and Caribbean",
+    "Azerbaijan": "Middle East and West Asia",
+    "Belize": "Latin America and Caribbean",
+    "Benin": "Africa",
+    "Bermuda": "North America",
+    "Bhutan": "Asia",
+    "Bosnia and Herzegovina": "Europe",
+    "Brunei": "Asia",
+    "Cape Verde": "Africa",
+    "Cayman Islands": "Latin America and Caribbean",
+    "Cyprus": "Europe",
+    "Djibouti": "Africa",
+    "Dominica": "Latin America and Caribbean",
+    "Equatorial Guinea": "Africa",
+    "Eritrea": "Africa",
+    "Eswatini": "Africa",
+    "Fiji": "Oceania",
+    "French Guiana": "Latin America and Caribbean",
+    "French Polynesia": "Oceania",
+    "Gibraltar": "Europe",
+    "Grenada": "Latin America and Caribbean",
+    "Guam": "Oceania",
+    "Guinea": "Africa",
+    "Guyana": "Latin America and Caribbean",
+    "Isle of Man": "Europe",
+    "Ivory Coast": "Africa",
+    "Kosovo": "Europe",
+    "Latvia": "Europe",
+    "Lesotho": "Africa",
+    "Liberia": "Africa",
+    "Liechtenstein": "Europe",
+    "Macau": "Asia",
+    "Maldives": "Asia",
+    "Malta": "Europe",
+    "Mauritania": "Africa",
+    "Moldova": "Europe",
+    "Monaco": "Europe",
+    "Mozambique": "Africa",
+    "North Korea": "Asia",
+    "North Macedonia": "Europe",
+    "Paraguay": "Latin America and Caribbean",
+    "Saint Kitts and Nevis": "Latin America and Caribbean",
+    "Saint Lucia": "Latin America and Caribbean",
+    "Saint Vincent and the Grenadines": "Latin America and Caribbean",
+    "San Marino": "Europe",
+    "Sao Tome and Principe": "Africa",
+    "Seychelles": "Africa",
+    "Tajikistan": "Asia",
+    "Togo": "Africa",
+    "Turkmenistan": "Asia",
+    "Uzbekistan": "Asia",
+    "Virgin Islands, U.S.": "Latin America and Caribbean",
+}
 
 COUNTRY_TO_MACRO_REGION = {
     "Afghanistan": "Asia",
@@ -170,6 +233,8 @@ COUNTRY_TO_MACRO_REGION = {
     "Yemen": "Middle East and West Asia",
     "Zambia": "Africa",
     "Zimbabwe": "Africa",
+    # Merge in the additional mappings to ensure full coverage
+    **_ADDITIONAL_COUNTRY_TO_MACRO_REGION,
 }
 
 
@@ -179,6 +244,18 @@ def country_to_macro_region(country: object) -> str:
     if not text:
         return ""
     return COUNTRY_TO_MACRO_REGION.get(text, "")
+
+
+def validate_country_macro_region_coverage() -> list[str]:
+    """Return list of canonical countries missing from COUNTRY_TO_MACRO_REGION.
+
+    This validates that all countries defined in COUNTRY_ALIAS_GROUPS
+    have a corresponding macro-region mapping. An empty list indicates
+    full coverage.
+    """
+    canonical_countries = set(COUNTRY_ALIAS_GROUPS.keys())
+    mapped_countries = set(COUNTRY_TO_MACRO_REGION.keys())
+    return sorted(canonical_countries - mapped_countries)
 
 
 def dominant_macro_region_table(

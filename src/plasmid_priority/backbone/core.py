@@ -7,6 +7,13 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from plasmid_priority.utils.dataframe import dominant_share as _dominant_share_impl
+
+
+def _dominant_share(values: pd.Series) -> float:
+    """Backward-compatible alias for dominant-share utility."""
+    return _dominant_share_impl(values)
+
 
 def _length_bin(length_val: float) -> str:
     try:
@@ -181,15 +188,6 @@ def assign_backbone_ids(records: pd.DataFrame) -> pd.DataFrame:
     assigned["backbone_assignment_mode"] = "all_records"
     assigned["backbone_assignment_split_year"] = pd.NA
     return assigned
-
-
-def _dominant_share(series: pd.Series) -> float:
-    values = series.fillna("").astype(str).str.strip()
-    values = values[values != ""]
-    if values.empty:
-        return 0.0
-    counts = values.value_counts()
-    return float(counts.iloc[0] / counts.sum())
 
 
 def _dominant_share_by_backbone(

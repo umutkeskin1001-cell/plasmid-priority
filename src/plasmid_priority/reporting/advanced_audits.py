@@ -9,6 +9,7 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
 from plasmid_priority.modeling import annotate_knownness_metadata, evaluate_feature_columns
+from plasmid_priority.utils.dataframe import clean_text_series as _clean_text
 from plasmid_priority.utils.geography import country_to_macro_region
 from plasmid_priority.validation import (
     average_precision,
@@ -19,10 +20,6 @@ from plasmid_priority.validation import (
     positive_prevalence,
     roc_auc_score,
 )
-
-
-def _clean_text(series: pd.Series) -> pd.Series:
-    return series.fillna("").astype(str).str.strip()
 
 
 def _series_or_default(frame: pd.DataFrame, column: str, default: object = "") -> pd.Series:

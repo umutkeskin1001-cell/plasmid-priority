@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 from plasmid_priority.config import ProjectContext
-from plasmid_priority.utils.files import atomic_write_json, ensure_directory, relative_path_str
+from plasmid_priority.utils.files import (
+    atomic_write_json,
+    ensure_directory,
+    path_signature_with_hash,
+    relative_path_str,
+)
 
 
 def _utc_now() -> str:
@@ -26,6 +31,7 @@ class ManagedScriptRun:
     status: str = "running"
     input_files_checked: list[str] = field(default_factory=list)
     output_files_written: list[str] = field(default_factory=list)
+    input_manifest: dict[str, dict[str, Any]] = field(default_factory=dict, repr=False)
     n_rows_in: dict[str, int] = field(default_factory=dict)
     n_rows_out: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
@@ -52,8 +58,31 @@ class ManagedScriptRun:
     def summary_path(self) -> Path:
         return self.context.logs_dir / f"{self.script_name}_summary.json"
 
-    def record_input(self, path: Path) -> None:
-        self.input_files_checked.append(relative_path_str(path, self.context.root))
+    def record_input(self, path: Path, *, include_hash: bool = True) -> None:
+        """Record an input file path with optional cryptographic hash.
+
+        The cryptographic hash is computed using path_signature_with_hash which
+        applies a 100 MB default size limit. Files larger than this limit are
+        recorded with metadata only (size, mtime) without the sha256 hash.
+        This is a practical trade-off to avoid excessive I/O for large files.
+        """
+        rel_path = relative_path_str(path, self.context.root)
+        self.input_files_checked.append(rel_path)
+        if include_hash:
+            try:
+                sig = path_signature_with_hash(path, include_file_hash=True)
+                self.input_manifest[rel_path] = {
+                    "path": sig.get("path", str(path)),
+                    "size": sig.get("size"),
+                    "sha256": sig.get("sha256"),
+                }
+            except (OSError, ValueError):
+                pass  # Hashing optional; skip if it fails
+
+    def record_input_manifest(self, paths: list[Path], *, include_hash: bool = True) -> None:
+        """Record multiple input files with their cryptographic hashes."""
+        for path in paths:
+            self.record_input(path, include_hash=include_hash)
 
     def record_output(self, path: Path) -> None:
         self.output_files_written.append(relative_path_str(path, self.context.root))
@@ -74,7 +103,7 @@ class ManagedScriptRun:
         self.n_rows_out[key] = value
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "script_name": self.script_name,
             "start_time": self.start_time,
             "end_time": self.end_time,
@@ -88,3 +117,6 @@ class ManagedScriptRun:
             "metrics": self.metrics,
             "notes": self.notes,
         }
+        if self.input_manifest:
+            result["input_manifest"] = self.input_manifest
+        return result
