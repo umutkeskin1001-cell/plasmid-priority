@@ -48,6 +48,7 @@ from plasmid_priority.reporting import (
     build_threshold_utility_table,
     build_variant_rank_consistency_table,
     sanitize_adaptive_gated_predictions,
+    validate_audit_artifact,
 )
 from plasmid_priority.validation import decision_utility_summary
 
@@ -1419,6 +1420,77 @@ class ModelAuditTests(unittest.TestCase):
         )
         self.assertIn("selection_adjusted_empirical_p_roc_auc", summary.columns)
         self.assertIn("modal_selected_model_name", summary.columns)
+
+    def test_build_selection_adjusted_permutation_null_records_effective_permutations_and_ci(
+        self,
+    ) -> None:
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(12)],
+                "spread_label": [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+                "log1p_member_count_train": [
+                    0.0,
+                    0.1,
+                    0.2,
+                    0.2,
+                    0.3,
+                    0.4,
+                    1.1,
+                    1.2,
+                    1.3,
+                    1.2,
+                    1.1,
+                    1.0,
+                ],
+                "log1p_n_countries_train": [
+                    0.0,
+                    0.1,
+                    0.1,
+                    0.2,
+                    0.2,
+                    0.3,
+                    0.8,
+                    0.9,
+                    0.9,
+                    1.0,
+                    1.0,
+                    1.1,
+                ],
+                "T_eff_norm": [0.1, 0.2, 0.1, 0.2, 0.3, 0.3, 0.8, 0.7, 0.8, 0.9, 0.8, 0.9],
+                "H_eff_norm": [0.2, 0.2, 0.3, 0.3, 0.2, 0.1, 0.7, 0.8, 0.7, 0.8, 0.9, 0.8],
+                "A_eff_norm": [0.1, 0.2, 0.2, 0.1, 0.2, 0.3, 0.7, 0.8, 0.8, 0.7, 0.9, 0.8],
+                "coherence_score": [0.3, 0.3, 0.4, 0.4, 0.3, 0.2, 0.7, 0.8, 0.8, 0.9, 0.8, 0.9],
+                "orit_support": [0.2, 0.2, 0.1, 0.2, 0.3, 0.2, 0.7, 0.8, 0.9, 0.8, 0.7, 0.9],
+            }
+        )
+
+        detail, summary = build_selection_adjusted_permutation_null(
+            scored,
+            model_names=["enhanced_priority", "baseline_both"],
+            primary_model_name="enhanced_priority",
+            n_permutations=3,
+            n_splits=3,
+            n_repeats=1,
+            seed=7,
+            minimum_effective_permutations=3,
+            selection_adjusted_p_max=0.01,
+            allow_sequential_stopping=False,
+        )
+
+        self.assertIn("effective_permutations", detail.columns)
+        self.assertIn("effective_permutations", summary.columns)
+        self.assertIn("p_ci_lower", summary.columns)
+        self.assertIn("p_ci_upper", summary.columns)
+        self.assertIn("stopping_reason", summary.columns)
+        self.assertIn("benchmark_surface_hash", summary.columns)
+        self.assertTrue((summary["effective_permutations"] == 3).all())
+        self.assertTrue((summary["p_ci_lower"] <= summary["p_ci_upper"]).all())
+        validate_audit_artifact(
+            detail, artifact_name="selection_adjusted_permutation_detail"
+        )
+        validate_audit_artifact(
+            summary, artifact_name="selection_adjusted_permutation_summary"
+        )
 
     def test_build_priority_bootstrap_stability_table_returns_candidate_rows(self) -> None:
         scored = pd.DataFrame(

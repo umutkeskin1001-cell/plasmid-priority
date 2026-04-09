@@ -16,7 +16,7 @@ from plasmid_priority.runtime import (
     MODE_DEFAULT_WORKFLOW,
     prompt_for_data_root,
     resolve_mode_data_root,
-    validate_mode_workflow,
+    resolve_mode_workflow,
 )
 from plasmid_priority.snapshots import profile_has_content, sync_profile_outputs
 
@@ -84,8 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
-    workflow = args.workflow or MODE_DEFAULT_WORKFLOW[args.mode]
-    validate_mode_workflow(args.mode, workflow)
+    workflow = resolve_mode_workflow(args.mode, args.workflow)
 
     if args.mode == "full-local" and args.data_root in (None, ""):
         # Check env var first before prompting
@@ -104,6 +103,10 @@ def main(argv: list[str] | None = None) -> int:
             raise FileNotFoundError(
                 "Fast-local cache is empty. Provide --source-data-root once to seed the local report cache."
             )
+    print(
+        f"[run-mode] mode={args.mode} workflow={workflow} data_root={data_root}",
+        flush=True,
+    )
     return _run_workflow_command(
         workflow,
         data_root=data_root,

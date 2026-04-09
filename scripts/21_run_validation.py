@@ -29,13 +29,13 @@ from plasmid_priority.modeling import (
     evaluate_model_name,
     get_conservative_model_name,
     get_governance_model_name,
-    get_official_model_names,
     get_primary_model_name,
     validate_discovery_input_contract,
 )
 from plasmid_priority.reporting import (
     ManagedScriptRun,
     augment_scored_with_structural_audit_features,
+    build_artifact_provenance,
     build_blocked_holdout_calibration_summary,
     build_blocked_holdout_calibration_table,
     build_calibration_metric_table,
@@ -52,7 +52,10 @@ from plasmid_priority.reporting import (
     build_permutation_null_tables,
     build_selection_adjusted_permutation_null,
     build_source_balance_resampling_table,
+    get_official_model_names,
     sanitize_adaptive_gated_predictions,
+    validate_audit_artifact,
+    write_provenance_json,
 )
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import (
@@ -241,6 +244,7 @@ def _summarize_prediction_frame(
 
 def main() -> int:
     context = build_context(PROJECT_ROOT)
+    protocol = context.protocol
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
     backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
     amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
@@ -250,6 +254,7 @@ def main() -> int:
     module_a_predictions = context.data_dir / "analysis/module_a_predictions.tsv"
     config_path = context.root / "config.yaml"
     manifest_path = context.data_dir / "analysis/21_run_validation.manifest.json"
+    provenance_path = context.data_dir / "analysis/21_run_validation.provenance.json"
     source_output = context.data_dir / "analysis/source_stratified_consistency.tsv"
     calibration_output = context.data_dir / "analysis/calibration_table.tsv"
     subgroup_output = context.data_dir / "analysis/model_subgroup_performance.tsv"
@@ -323,8 +328,15 @@ def main() -> int:
             ),
         }
     }
+    provenance = build_artifact_provenance(
+        protocol=protocol,
+        artifact_family="validation_surface",
+        input_paths=input_paths,
+        source_paths=source_paths,
+    )
 
     with ManagedScriptRun(context, "21_run_validation") as run:
+        run.set_provenance(provenance)
         for path in (
             scored_path,
             backbones_path,
@@ -1115,7 +1127,7 @@ def main() -> int:
         permutation_detail.to_csv(permutation_detail_output, sep="\t", index=False)
         permutation_summary.to_csv(permutation_summary_output, sep="\t", index=False)
 
-        official_model_names = get_official_model_names(
+        official_model_names = protocol.resolve_official_model_names(
             [
                 primary_model_name,
                 get_governance_model_name(model_metrics["model_name"].astype(str).tolist()),
@@ -1127,11 +1139,24 @@ def main() -> int:
                 scored,
                 model_names=list(official_model_names),
                 primary_model_name=primary_model_name,
-                n_permutations=200,
+                n_permutations=1000,
                 n_splits=5,
                 n_repeats=5,
                 seed=42,
+                minimum_effective_permutations=1000,
+                selection_adjusted_p_max=float(
+                    protocol.acceptance_thresholds["selection_adjusted_p_max"]
+                ),
+                allow_sequential_stopping=False,
             )
+        )
+        validate_audit_artifact(
+            selection_adjusted_detail,
+            artifact_name="selection_adjusted_permutation_detail",
+        )
+        validate_audit_artifact(
+            selection_adjusted_summary,
+            artifact_name="selection_adjusted_permutation_summary",
         )
         selection_adjusted_detail.to_csv(
             selection_adjusted_permutation_detail_output, sep="\t", index=False
@@ -1212,10 +1237,15 @@ def main() -> int:
         run.set_rows_out("adaptive_gated_metrics_rows", int(len(adaptive_gated_metrics)))
         run.set_rows_out("adaptive_gated_prediction_rows", int(len(adaptive_gated_predictions)))
         run.set_rows_out("knownness_strata_rows", int(len(knownness_strata)))
+        write_provenance_json(provenance_path, provenance)
+        run.record_output(provenance_path)
         write_signature_manifest(
             manifest_path,
             input_paths=input_paths,
-            output_paths=materialize_recorded_paths(context.root, run.output_files_written),
+            output_paths=[
+                *materialize_recorded_paths(context.root, run.output_files_written),
+                provenance_path,
+            ],
             source_paths=source_paths,
             metadata=cache_metadata,
         )

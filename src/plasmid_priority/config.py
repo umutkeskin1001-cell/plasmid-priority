@@ -9,6 +9,7 @@ from functools import cached_property
 from pathlib import Path
 
 from plasmid_priority.schemas import DataAssetSpec, DataContract
+from plasmid_priority.protocol import ScientificProtocol
 
 DEFAULT_CONTRACT_PATH = Path("data/manifests/data_contract.json")
 DEFAULT_PIPELINE_SPLIT_YEAR = 2015
@@ -146,6 +147,10 @@ class ProjectContext:
     @cached_property
     def pipeline_settings(self) -> PipelineSettings:
         return _pipeline_settings_from_config(self.config)
+
+    @cached_property
+    def protocol(self) -> ScientificProtocol:
+        return ScientificProtocol.from_config(self.config)
 
     @property
     def reports_dir(self) -> Path:

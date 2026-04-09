@@ -2456,6 +2456,10 @@ def build_selection_adjusted_permutation_null(
     n_splits: int = 5,
     n_repeats: int = 5,
     seed: int = 42,
+    minimum_effective_permutations: int = 0,
+    selection_adjusted_p_max: float | None = None,
+    allow_sequential_stopping: bool = False,
+    stopping_check_interval: int = 50,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build a model-selection-adjusted null by refitting the official model surface.
 
@@ -2470,6 +2474,12 @@ def build_selection_adjusted_permutation_null(
         selection_scope = [name for name in selection_scope if name in MODULE_A_FEATURE_SETS]
     if not selection_scope or primary_model_name not in set(selection_scope):
         return pd.DataFrame(), pd.DataFrame()
+    selection_adjusted_p_max = float(
+        selection_adjusted_p_max
+        if selection_adjusted_p_max is not None
+        else FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["selection_adjusted_p_max"]
+    )
+    total_permutations = max(int(n_permutations), int(minimum_effective_permutations), 0)
 
     eligible_mask = scored.get("spread_label", pd.Series(index=scored.index)).notna()
     if not bool(eligible_mask.any()):
@@ -2477,6 +2487,9 @@ def build_selection_adjusted_permutation_null(
     y_true = scored.loc[eligible_mask, "spread_label"].astype(int).to_numpy(dtype=int)
     if len(np.unique(y_true)) < 2:
         return pd.DataFrame(), pd.DataFrame()
+    benchmark_surface_hash = hashlib.sha256(
+        "|".join(sorted(dict.fromkeys(str(name) for name in selection_scope))).encode("utf-8")
+    ).hexdigest()
 
     # Prepare the per-model design matrix once; permutations only change labels.
     prepared_inputs: dict[str, tuple[pd.DataFrame, list[str], dict[str, object]]] = {}
@@ -2502,13 +2515,26 @@ def build_selection_adjusted_permutation_null(
             float(average_precision(y, preds)),
         )
 
+    def _proportion_interval(successes: int, trials: int) -> tuple[float, float]:
+        if trials <= 0:
+            return float("nan"), float("nan")
+        z = 1.959963984540054
+        p_hat = successes / trials
+        denominator = 1.0 + (z**2 / trials)
+        center = (p_hat + (z**2 / (2.0 * trials))) / denominator
+        margin = z * ((p_hat * (1.0 - p_hat) / trials) + (z**2 / (4.0 * trials**2))) ** 0.5
+        margin /= denominator
+        return float(max(0.0, center - margin)), float(min(1.0, center + margin))
+
     rng = np.random.default_rng(seed)
     detail_rows: list[dict[str, object]] = []
     selected_null_aucs: list[float] = []
     selected_null_aps: list[float] = []
     selected_model_names: list[str] = []
 
-    for permutation_index in range(1, max(int(n_permutations), 0) + 1):
+    stopping_reason = "fixed_effective_permutations"
+    primary_observed_auc = observed_metrics[primary_model_name][0]
+    for permutation_index in range(1, total_permutations + 1):
         permuted_y = rng.permutation(y_true)
         fold_groups = _stratified_folds(
             permuted_y,
@@ -2553,12 +2579,31 @@ def build_selection_adjusted_permutation_null(
             {
                 "permutation_index": permutation_index,
                 "selection_scope": "official_model_surface",
+                "benchmark_surface_hash": benchmark_surface_hash,
                 "n_models_in_scope": int(len(selection_scope)),
                 "selected_model_name": selected_model_name,
                 "selected_null_roc_auc": selected_null_auc,
                 "selected_null_average_precision": selected_null_ap,
+                "effective_permutations": permutation_index,
+                "stopping_reason": stopping_reason,
+                "selection_adjusted_p_max": selection_adjusted_p_max,
             }
         )
+
+        if (
+            allow_sequential_stopping
+            and permutation_index >= max(int(minimum_effective_permutations), 1)
+            and stopping_check_interval > 0
+            and permutation_index % int(stopping_check_interval) == 0
+        ):
+            exceedances = int(sum(value >= primary_observed_auc for value in selected_null_aucs))
+            ci_lower, ci_upper = _proportion_interval(exceedances, permutation_index)
+            if ci_upper < selection_adjusted_p_max:
+                stopping_reason = "sequential_stop_below_threshold"
+                break
+            if ci_lower > selection_adjusted_p_max:
+                stopping_reason = "sequential_stop_above_threshold"
+                break
 
     if not selected_null_aucs:
         return pd.DataFrame(detail_rows), pd.DataFrame()
@@ -2570,39 +2615,51 @@ def build_selection_adjusted_permutation_null(
         if not winner_counts.empty
         else 0.0
     )
+    effective_permutations = int(len(selected_null_aucs))
 
     summary_rows: list[dict[str, object]] = []
     for model_name in selection_scope:
         observed_auc, observed_ap = observed_metrics[model_name]
+        exceedance_count_auc = int(sum(value >= observed_auc for value in selected_null_aucs))
+        exceedance_count_ap = int(sum(value >= observed_ap for value in selected_null_aps))
+        p_ci_lower, p_ci_upper = _proportion_interval(exceedance_count_auc, effective_permutations)
         summary_rows.append(
             {
                 "model_name": model_name,
                 "null_protocol": "selection_adjusted_official_model_refit",
                 "selection_scope": "official_model_surface",
                 "selection_reference_model": primary_model_name,
+                "benchmark_surface_hash": benchmark_surface_hash,
                 "n_models_in_scope": int(len(selection_scope)),
                 "n_permutations": int(n_permutations),
+                "effective_permutations": effective_permutations,
+                "stopping_reason": stopping_reason,
+                "selection_adjusted_p_max": selection_adjusted_p_max,
                 "observed_roc_auc": observed_auc,
                 "observed_average_precision": observed_ap,
                 "null_roc_auc_mean": float(np.mean(selected_null_aucs)),
                 "null_roc_auc_std": float(np.std(selected_null_aucs)),
                 "null_roc_auc_q975": float(np.quantile(selected_null_aucs, 0.975)),
+                "p_ci_lower": p_ci_lower,
+                "p_ci_upper": p_ci_upper,
                 "selection_adjusted_empirical_p_roc_auc": float(
-                    (1 + sum(value >= observed_auc for value in selected_null_aucs))
-                    / (len(selected_null_aucs) + 1)
+                    (1 + exceedance_count_auc) / (effective_permutations + 1)
                 ),
                 "null_average_precision_mean": float(np.mean(selected_null_aps)),
                 "null_average_precision_std": float(np.std(selected_null_aps)),
                 "null_average_precision_q975": float(np.quantile(selected_null_aps, 0.975)),
                 "selection_adjusted_empirical_p_average_precision": float(
-                    (1 + sum(value >= observed_ap for value in selected_null_aps))
-                    / (len(selected_null_aps) + 1)
+                    (1 + exceedance_count_ap) / (effective_permutations + 1)
                 ),
                 "modal_selected_model_name": modal_selected_model,
                 "modal_selected_model_share": modal_selected_share,
             }
         )
-    return pd.DataFrame(detail_rows), pd.DataFrame(summary_rows)
+    for row in detail_rows:
+        row["stopping_reason"] = stopping_reason
+    detail = pd.DataFrame(detail_rows)
+    summary = pd.DataFrame(summary_rows)
+    return detail, summary
 
 
 def build_consensus_candidate_ranking(

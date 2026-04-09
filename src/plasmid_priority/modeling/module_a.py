@@ -19,17 +19,15 @@ try:
 except ImportError:  # pragma: no cover - optional research dependency
     ExplainableBoostingClassifier = None
 
+from plasmid_priority.modeling.design_matrix_cache import DesignMatrixCache
+from plasmid_priority.modeling.fold_plan import FoldPlan
 from plasmid_priority.modeling.module_a_support import (
     ABLATION_MODEL_NAMES,
     CONSERVATIVE_MODEL_NAME,
     CORE_MODEL_NAMES,
     FEATURE_PROVENANCE_REGISTRY,
-    GOVERNANCE_MODEL_FALLBACK,
-    GOVERNANCE_MODEL_NAME,
     MODULE_A_FEATURE_SETS,
     MODULE_A_MODEL_TRACKS,
-    PRIMARY_MODEL_FALLBACK,
-    PRIMARY_MODEL_NAME,
     RESEARCH_MODEL_NAMES,
     ModelResult,
     _bayesian_coefficient_summary,
@@ -51,9 +49,9 @@ from plasmid_priority.modeling.module_a_support import (
     _resolve_parallel_jobs,
     _standardize_apply,
     _standardize_fit,
-    _stratified_folds,
     _top_k_precision_recall,
     build_failed_model_result,
+    get_scientific_protocol,
 )
 from plasmid_priority.modeling.module_a_support import (
     NOVELTY_SPECIALIST_FEATURES as _NOVELTY_SPECIALIST_FEATURES,
@@ -61,6 +59,11 @@ from plasmid_priority.modeling.module_a_support import (
 from plasmid_priority.modeling.module_a_support import (
     NOVELTY_SPECIALIST_FIT_CONFIG as _NOVELTY_SPECIALIST_FIT_CONFIG,
 )
+from plasmid_priority.modeling.preprocessing import (
+    build_design_matrix_cache_key,
+    prepare_feature_matrices,
+)
+from plasmid_priority.protocol import build_protocol_hash
 from plasmid_priority.utils.parallel import limit_native_threads
 from plasmid_priority.validation import (
     average_precision,
@@ -488,7 +491,7 @@ def _select_knownness_residualizer_alpha(
     if len(y) < 8 or len(np.unique(y)) < 2:
         return 1.0
     try:
-        fold_groups = _stratified_folds(y, n_splits=3, n_repeats=1, seed=17)
+        fold_groups = FoldPlan.from_labels(y, n_splits=3, n_repeats=1, seed=17).fold_groups
     except ValueError:
         return 1.0
 
@@ -767,12 +770,12 @@ def _fit_hybrid_isotonic_calibrator(
     if len(y) < 8 or len(np.unique(y)) < 2:
         return None
     try:
-        fold_groups = _stratified_folds(
+        fold_groups = FoldPlan.from_labels(
             y,
             n_splits=_fit_kwarg_int(fit_kwargs, "stack_inner_splits", 3),
             n_repeats=1,
             seed=_fit_kwarg_int(fit_kwargs, "stack_seed", 43),
-        )
+        ).fold_groups
     except ValueError:
         return None
     preds = np.zeros(len(train), dtype=float)
@@ -925,7 +928,7 @@ def _oof_hybrid_predictions_from_eligible(
     fold_groups = (
         folds_per_repeat
         if folds_per_repeat is not None
-        else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
+        else FoldPlan.from_labels(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed).fold_groups
     )
     for fold_indices in fold_groups:
         for test_idx in fold_indices:
@@ -1021,7 +1024,7 @@ def _oof_predictions_from_eligible(
     fold_groups = (
         folds_per_repeat
         if folds_per_repeat is not None
-        else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
+        else FoldPlan.from_labels(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed).fold_groups
     )
     for fold_indices in fold_groups:
         for test_idx in fold_indices:
@@ -1459,14 +1462,14 @@ def build_cmim_feature_selection_table(
     return pd.DataFrame(rows)
 
 
-def get_primary_model_name(model_names: list[str] | pd.Series | set[str] | tuple[str, ...]) -> str:
-    """Resolve the preferred benchmark model while preserving backward compatibility."""
-    names = {str(name) for name in model_names}
-    if PRIMARY_MODEL_NAME in names:
-        return PRIMARY_MODEL_NAME
-    if PRIMARY_MODEL_FALLBACK in names:
-        return PRIMARY_MODEL_FALLBACK
-    return sorted(names)[0]
+def get_primary_model_name(
+    model_names: list[str] | pd.Series | set[str] | tuple[str, ...],
+    *,
+    allow_fallbacks: bool = False,
+) -> str:
+    """Resolve the preferred benchmark model from the canonical protocol."""
+    protocol = get_scientific_protocol()
+    return protocol.resolve_primary_model_name(model_names, allow_fallbacks=allow_fallbacks)
 
 
 def get_conservative_model_name(
@@ -1478,35 +1481,33 @@ def get_conservative_model_name(
         return CONSERVATIVE_MODEL_NAME
     if "T_plus_H_plus_A" in names:
         return "T_plus_H_plus_A"
-    return get_primary_model_name(names)
+    return get_primary_model_name(names, allow_fallbacks=True)
 
 
 def get_governance_model_name(
     model_names: list[str] | pd.Series | set[str] | tuple[str, ...],
+    *,
+    allow_fallbacks: bool = False,
 ) -> str:
-    """Resolve the governance benchmark while preserving backward compatibility."""
-    names = {str(name) for name in model_names}
-    if GOVERNANCE_MODEL_NAME in names:
-        return GOVERNANCE_MODEL_NAME
-    if GOVERNANCE_MODEL_FALLBACK in names:
-        return GOVERNANCE_MODEL_FALLBACK
-    if PRIMARY_MODEL_FALLBACK in names:
-        return PRIMARY_MODEL_FALLBACK
-    return get_primary_model_name(names)
+    """Resolve the governance benchmark from the canonical protocol."""
+    protocol = get_scientific_protocol()
+    return protocol.resolve_governance_model_name(
+        model_names,
+        allow_fallbacks=allow_fallbacks,
+    )
 
 
 def get_official_model_names(
     model_names: list[str] | pd.Series | set[str] | tuple[str, ...],
+    *,
+    require_complete: bool = True,
 ) -> tuple[str, ...]:
-    """Resolve the jury-facing official model surface: discovery, governance, baseline."""
-    names = {str(name) for name in model_names}
-    official: list[str] = []
-    if names:
-        official.append(get_primary_model_name(names))
-        official.append(get_governance_model_name(names))
-        if "baseline_both" in names:
-            official.append("baseline_both")
-    return tuple(dict.fromkeys(name for name in official if name))
+    """Resolve the jury-facing official model surface from the canonical protocol."""
+    protocol = get_scientific_protocol()
+    return protocol.resolve_official_model_names(
+        model_names,
+        require_complete=require_complete,
+    )
 
 
 def get_model_track(model_name: str) -> str:
@@ -1799,12 +1800,21 @@ def fit_predict_model_holdout(
             l2=l2,
             max_iter=max_iter,
         )
-    X_train, X_test = _prepare_feature_matrices(
+    cache = DesignMatrixCache()
+    cache_key = build_design_matrix_cache_key(
+        protocol_hash=build_protocol_hash(get_scientific_protocol()),
+        feature_set=columns,
+        preprocess_mode=_fit_kwarg_str(fit_kwargs, "preprocess_mode", "none"),
+        fold_plan_id="holdout",
+    )
+    X_train, X_test = prepare_feature_matrices(
         train,
         test,
         columns,
         fit_kwargs=fit_kwargs,
         prepared=True,
+        cache=cache,
+        cache_key=cache_key,
     )
     sample_weight = _compute_sample_weight(
         train,
@@ -1888,12 +1898,21 @@ def fit_full_model_predictions(
             l2=l2,
             max_iter=max_iter,
         )
-    X_train, X_all = _prepare_feature_matrices(
+    cache = DesignMatrixCache()
+    cache_key = build_design_matrix_cache_key(
+        protocol_hash=build_protocol_hash(get_scientific_protocol()),
+        feature_set=columns,
+        preprocess_mode=_fit_kwarg_str(fit_kwargs, "preprocess_mode", "none"),
+        fold_plan_id="contextual_score",
+    )
+    X_train, X_all = prepare_feature_matrices(
         train,
         all_rows,
         columns,
         fit_kwargs=fit_kwargs,
         prepared=True,
+        cache=cache,
+        cache_key=cache_key,
     )
     sample_weight = _compute_sample_weight(
         train,
@@ -2069,12 +2088,21 @@ def fit_feature_columns_predictions(
     model_type = _model_type_name(fit_kwargs)
     if model_type == "hybrid_stacked":
         return _fit_predict_hybrid_stacked(train, score, columns, fit_kwargs=fit_kwargs)
-    X_train, X_score = _prepare_feature_matrices(
+    cache = DesignMatrixCache()
+    cache_key = build_design_matrix_cache_key(
+        protocol_hash=build_protocol_hash(get_scientific_protocol()),
+        feature_set=columns,
+        preprocess_mode=_fit_kwarg_str(fit_kwargs, "preprocess_mode", "none"),
+        fold_plan_id="feature_score",
+    )
+    X_train, X_score = prepare_feature_matrices(
         train,
         score,
         columns,
         fit_kwargs=fit_kwargs,
         prepared=True,
+        cache=cache,
+        cache_key=cache_key,
     )
     sample_weight = _compute_sample_weight(
         train,
@@ -2135,12 +2163,12 @@ def build_feature_dropout_audit(
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    fold_groups = _stratified_folds(
+    fold_groups = FoldPlan.from_labels(
         eligible["spread_label"].to_numpy(dtype=int),
         n_splits=n_splits,
         n_repeats=n_repeats,
         seed=seed,
-    )
+    ).fold_groups
     full_preds, y = _oof_predictions_from_eligible(
         eligible,
         columns=columns,
@@ -2252,12 +2280,21 @@ def build_standardized_coefficient_table(
     eligible["spread_label"] = eligible["spread_label"].astype(int)
     y = eligible["spread_label"].to_numpy(dtype=int)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
-    X, _ = _prepare_feature_matrices(
+    cache = DesignMatrixCache()
+    cache_key = build_design_matrix_cache_key(
+        protocol_hash=build_protocol_hash(get_scientific_protocol()),
+        feature_set=columns,
+        preprocess_mode=_fit_kwarg_str(fit_kwargs, "preprocess_mode", "none"),
+        fold_plan_id="standardized-coefficients",
+    )
+    X, _ = prepare_feature_matrices(
         eligible,
         eligible,
         columns,
         fit_kwargs=fit_kwargs,
         prepared=True,
+        cache=cache,
+        cache_key=cache_key,
     )
     sample_weight = _compute_sample_weight(
         eligible,
@@ -2333,7 +2370,7 @@ def build_coefficient_stability_table(
     tasks = [
         (repeat_index, fold_index, test_idx)
         for repeat_index, fold_indices in enumerate(
-            _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed),
+            FoldPlan.from_labels(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed).fold_groups,
             start=1,
         )
         for fold_index, test_idx in enumerate(fold_indices, start=1)
@@ -2502,7 +2539,7 @@ def build_logistic_convergence_audit(
         )
         model_rows: list[dict[str, object]] = []
         for repeat_index, fold_indices in enumerate(
-            _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed),
+            FoldPlan.from_labels(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed).fold_groups,
             start=1,
         ):
             for fold_index, test_idx in enumerate(fold_indices, start=1):

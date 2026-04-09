@@ -23,6 +23,7 @@ from plasmid_priority.reporting import (
     build_report_overview_table,
     validate_report_artifact,
 )
+from plasmid_priority.reporting import narratives as report_narratives
 from plasmid_priority.reporting.figures import (
     _candidate_tick_label,
     plot_calibration_threshold_summary,
@@ -39,6 +40,156 @@ from plasmid_priority.utils.files import (
 
 
 class ReportingTests(unittest.TestCase):
+    def test_managed_script_run_embeds_provenance_in_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+            (root / "config.yaml").write_text(
+                """
+pipeline:
+  split_year: 2015
+  min_new_countries_for_spread: 3
+models:
+  primary_model_name: bio_clean_priority
+  primary_model_fallback: parsimonious_priority
+  conservative_model_name: parsimonious_priority
+  governance_model_name: phylo_support_fusion_priority
+  governance_model_fallback: support_synergy_priority
+  core_model_names:
+    - bio_clean_priority
+    - parsimonious_priority
+    - phylo_support_fusion_priority
+    - baseline_both
+  research_model_names: []
+  ablation_model_names: []
+""".strip(),
+                encoding="utf-8",
+            )
+            (root / "data/manifests").mkdir(parents=True)
+            (root / "data/manifests/data_contract.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "created_on": "2026-03-22",
+                        "download_date": "2026-03-22",
+                        "assets": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = build_context(root)
+            with ManagedScriptRun(context, "unit_test_script") as run:
+                run.set_provenance(
+                    {
+                        "artifact_family": "report_surface",
+                        "protocol_id": "demo-protocol",
+                        "protocol_hash": "abc123",
+                        "code_hash": "def456",
+                        "input_data_hash": "ghi789",
+                        "generated_at": "2026-04-08T00:00:00+00:00",
+                    }
+                )
+            summary_path = root / "data/tmp/logs/unit_test_script_summary.json"
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(summary["provenance"]["artifact_family"], "report_surface")
+        self.assertEqual(summary["provenance"]["protocol_hash"], "abc123")
+
+    def test_report_narratives_build_headline_validation_summary_markdown(self) -> None:
+        import pandas as pd
+
+        summary_table = pd.DataFrame(
+            [
+                {
+                    "summary_label": "headline",
+                    "model_name": "primary_model",
+                    "roc_auc": 0.83,
+                    "roc_auc_ci": "[0.80, 0.86]",
+                    "average_precision": 0.77,
+                    "average_precision_ci": "[0.74, 0.80]",
+                    "brier_score": 0.16,
+                    "brier_skill_score": 0.54,
+                    "ece": 0.05,
+                    "max_calibration_error": 0.12,
+                    "scientific_acceptance_status": "pass",
+                    "scientific_acceptance_failed_criteria": "none",
+                    "selection_adjusted_empirical_p_roc_auc": 0.004,
+                    "permutation_p_roc_auc": 0.031,
+                    "delta_vs_baseline_roc_auc": 0.11,
+                    "delta_vs_baseline_ci": "[0.08, 0.14]",
+                    "spatial_holdout_roc_auc": 0.79,
+                    "n_backbones": 120,
+                    "n_positive": 42,
+                }
+            ]
+        )
+
+        markdown = report_narratives.build_headline_validation_summary_markdown(
+            summary_table,
+            primary_model_name="primary_model",
+            governance_model_name="governance_model",
+            rolling_temporal=pd.DataFrame(),
+            blocked_holdout_summary=pd.DataFrame(
+                [
+                    {
+                        "model_name": "primary_model",
+                        "blocked_holdout_group_columns": "dominant_source,dominant_region_train",
+                        "blocked_holdout_roc_auc": 0.74,
+                        "blocked_holdout_group_count": 5,
+                        "worst_blocked_holdout_group": "dominant_region_train:Asia",
+                        "worst_blocked_holdout_group_roc_auc": 0.70,
+                    }
+                ]
+            ),
+            country_missingness_bounds=pd.DataFrame(
+                [
+                    {
+                        "backbone_id": "bb1",
+                        "eligible_for_country_bounds": True,
+                        "label_observed": 1,
+                        "label_midpoint": 1,
+                        "label_optimistic": 1,
+                        "label_weighted": 1,
+                    }
+                ]
+            ),
+            country_missingness_sensitivity=pd.DataFrame(
+                [
+                    {
+                        "model_name": "primary_model",
+                        "outcome_name": "label_observed",
+                        "roc_auc": 0.74,
+                        "average_precision": 0.63,
+                    }
+                ]
+            ),
+            rank_stability=pd.DataFrame(
+                [
+                    {
+                        "backbone_id": "bb1",
+                        "top_k": 25,
+                        "bootstrap_top_k_frequency": 0.92,
+                    }
+                ]
+            ),
+            variant_consistency=pd.DataFrame(
+                [
+                    {
+                        "backbone_id": "bb2",
+                        "top_k": 25,
+                        "variant_top_k_frequency": 0.88,
+                    }
+                ]
+            ),
+        )
+
+        self.assertIn("# Headline Validation Summary", markdown)
+        self.assertIn("selection-adjusted official-model permutation audit", markdown)
+        self.assertIn("Blocked Holdout Audit", markdown)
+        self.assertIn("Country Missingness", markdown)
+        self.assertIn("Ranking Stability", markdown)
+        self.assertIn("dominant_region_train:Asia", markdown)
+
     def test_report_model_metrics_keeps_audit_models_and_marks_official_surface(self) -> None:
         import pandas as pd
 

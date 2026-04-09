@@ -41,6 +41,12 @@ from plasmid_priority.modeling import (
 )
 from plasmid_priority.modeling import module_a as module_a_impl
 from plasmid_priority.modeling import module_a_support as module_a_support_impl
+from plasmid_priority.modeling.design_matrix_cache import (
+    DesignMatrixCache,
+    DesignMatrixCacheKey,
+)
+from plasmid_priority.modeling.fold_plan import FoldPlan
+from plasmid_priority.modeling.preprocessing import prepare_feature_matrices
 
 
 class ModelingTests(unittest.TestCase):
@@ -154,6 +160,94 @@ class ModelingTests(unittest.TestCase):
             },
         )
         self.assertTrue(np.allclose(alphas, np.array([0.1, 2.0, 1.0, 1.5])))
+
+    def test_fold_plan_matches_repeated_stratified_folds(self) -> None:
+        y = np.array([0, 1] * 8, dtype=int)
+        plan = FoldPlan.from_labels(y, n_splits=4, n_repeats=2, seed=17)
+
+        expected = module_a_support_impl._stratified_folds(y, n_splits=4, n_repeats=2, seed=17)
+        self.assertEqual(plan.effective_splits, 4)
+        self.assertEqual(plan.fold_plan_id, "s4-r2-seed17")
+        self.assertEqual(len(plan.fold_groups), len(expected))
+        for expected_repeat, actual_repeat in zip(expected, plan.fold_groups):
+            self.assertEqual(len(actual_repeat), len(expected_repeat))
+            for expected_fold, actual_fold in zip(expected_repeat, actual_repeat):
+                self.assertTrue(np.array_equal(actual_fold, expected_fold))
+
+    def test_design_matrix_cache_round_trip_keys_by_fold_plan(self) -> None:
+        cache = DesignMatrixCache()
+        key = DesignMatrixCacheKey(
+            protocol_hash="abc123",
+            feature_set=("f1", "f2"),
+            preprocess_mode="knownness_residualized",
+            fold_plan_id="s4-r2-seed17",
+        )
+        matrix = np.arange(6, dtype=float).reshape(3, 2)
+
+        cache.set(key, (matrix, matrix + 1.0))
+        cached = cache.get(key)
+
+        self.assertIsNotNone(cached)
+        self.assertTrue(np.array_equal(cached[0], matrix))
+        self.assertTrue(np.array_equal(cached[1], matrix + 1.0))
+        self.assertIsNone(
+            cache.get(
+                DesignMatrixCacheKey(
+                    protocol_hash="abc123",
+                    feature_set=("f1", "f2"),
+                    preprocess_mode="none",
+                    fold_plan_id="s4-r2-seed17",
+                )
+            )
+        )
+
+    def test_preprocessing_matches_module_a_for_knownness_residualized_matrices(self) -> None:
+        train = pd.DataFrame(
+            {
+                "backbone_id": ["bb1", "bb2", "bb3", "bb4"],
+                "spread_label": [0, 1, 0, 1],
+                "log1p_member_count_train": [0.1, 0.4, 0.7, 1.0],
+                "log1p_n_countries_train": [0.2, 0.5, 0.8, 1.1],
+                "refseq_share_train": [0.0, 0.3, 0.6, 0.9],
+                "f1": [0.5, 1.5, 2.5, 3.5],
+                "f2": [3.0, 2.0, 1.0, 0.0],
+            }
+        )
+        score = pd.DataFrame(
+            {
+                "backbone_id": ["bb5", "bb6"],
+                "spread_label": [1, 0],
+                "log1p_member_count_train": [0.15, 0.95],
+                "log1p_n_countries_train": [0.25, 1.05],
+                "refseq_share_train": [0.1, 0.8],
+                "f1": [4.5, 5.5],
+                "f2": [2.5, 1.5],
+            }
+        )
+        fit_kwargs = {
+            "preprocess_mode": "knownness_residualized",
+            "preprocess_alpha": 1.0,
+            "l2": 1.0,
+            "max_iter": 100,
+            "sample_weight_mode": None,
+        }
+        expected_train, expected_score = module_a_impl._prepare_feature_matrices(
+            train,
+            score,
+            ["f1", "f2"],
+            fit_kwargs=fit_kwargs,
+            prepared=True,
+        )
+        actual_train, actual_score = prepare_feature_matrices(
+            train,
+            score,
+            ["f1", "f2"],
+            fit_kwargs=fit_kwargs,
+            prepared=True,
+        )
+
+        self.assertTrue(np.allclose(actual_train, expected_train))
+        self.assertTrue(np.allclose(actual_score, expected_score))
 
     def test_run_module_a_returns_clean_default_results(self) -> None:
         n = 40
@@ -942,6 +1036,10 @@ class ModelingTests(unittest.TestCase):
         model_name = get_primary_model_name(["baseline_both", "full_priority", PRIMARY_MODEL_NAME])
         self.assertEqual(model_name, PRIMARY_MODEL_NAME)
 
+    def test_primary_model_name_requires_the_configured_primary_surface(self) -> None:
+        with self.assertRaises(ValueError):
+            get_primary_model_name(["baseline_both", "full_priority", "parsimonious_priority"])
+
     def test_official_model_names_resolve_discovery_governance_and_baseline(self) -> None:
         model_names = get_official_model_names(
             [
@@ -955,6 +1053,10 @@ class ModelingTests(unittest.TestCase):
             model_names,
             (PRIMARY_MODEL_NAME, "phylo_support_fusion_priority", "baseline_both"),
         )
+
+    def test_official_model_names_require_the_complete_official_surface(self) -> None:
+        with self.assertRaises(ValueError):
+            get_official_model_names(["baseline_both", "phylo_support_fusion_priority"])
 
     def test_knownness_sample_weight_is_order_invariant(self) -> None:
         eligible = pd.DataFrame(

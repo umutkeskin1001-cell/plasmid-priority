@@ -1,5 +1,9 @@
 """Retrospective modeling routines."""
 
+from plasmid_priority.modeling.design_matrix_cache import (
+    DesignMatrixCache,
+    DesignMatrixCacheKey,
+)
 from plasmid_priority.modeling.discovery_contract import (
     DiscoveryInputContract,
     build_discovery_input_contract,
@@ -14,6 +18,7 @@ from plasmid_priority.modeling.experiment_gates import (
     evaluate_experiment_gates,
     interpret_gain,
 )
+from plasmid_priority.modeling.fold_plan import FoldPlan
 from plasmid_priority.modeling.module_a import (
     ABLATION_MODEL_NAMES,
     CONSERVATIVE_MODEL_NAME,
@@ -23,7 +28,6 @@ from plasmid_priority.modeling.module_a import (
     MODULE_A_MODEL_TRACKS,
     NOVELTY_SPECIALIST_FEATURES,
     NOVELTY_SPECIALIST_FIT_CONFIG,
-    PRIMARY_MODEL_NAME,
     RESEARCH_MODEL_NAMES,
     annotate_knownness_metadata,
     assert_feature_columns_present,
@@ -49,8 +53,13 @@ from plasmid_priority.modeling.module_a import (
     select_cmim_features,
 )
 from plasmid_priority.modeling.module_a_support import (
+    PRIMARY_MODEL_NAME,
     assert_all_discovery_safe,
     get_active_model_names,
+)
+from plasmid_priority.modeling.preprocessing import (
+    build_design_matrix_cache_key,
+    prepare_feature_matrices,
 )
 
 __all__ = [
@@ -59,8 +68,11 @@ __all__ = [
     "CONSERVATIVE_MODEL_NAME",
     "ConfigCandidate",
     "DiscoveryInputContract",
+    "DesignMatrixCache",
+    "DesignMatrixCacheKey",
     "ExperimentAcceptanceGates",
     "FEATURE_PROVENANCE_REGISTRY",
+    "FoldPlan",
     "HonestModelResult",
     "MODULE_A_FEATURE_SETS",
     "MODULE_A_MODEL_TRACKS",
@@ -77,6 +89,7 @@ __all__ = [
     "build_feature_dropout_audit",
     "build_logistic_convergence_audit",
     "build_standardized_coefficient_table",
+    "build_design_matrix_cache_key",
     "compute_honest_result",
     "discovery_model_names",
     "evaluate_experiment_gates",
@@ -96,6 +109,7 @@ __all__ = [
     "get_research_models_by_track",
     "interpret_gain",
     "run_module_a",
+    "prepare_feature_matrices",
     "select_cmim_features",
     "validate_discovery_input_contract",
 ]

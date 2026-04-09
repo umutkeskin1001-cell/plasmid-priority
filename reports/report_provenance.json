@@ -1,0 +1,564 @@
+{
+  "artifact_family": "report_surface",
+  "code_hash": "6fab2ff0624061c57203e590da747808bbd8c46b6080363e7938d8c1636bb013",
+  "code_signatures": [
+    {
+      "kind": "file",
+      "mtime_ns": 1775678400081187803,
+      "path": "/Users/umut/Projeler/plasmid-priority/scripts/24_build_reports.py",
+      "sha256": "6542ccdd29f7fe4a1a3a81b226c98b24945f52a4427b3a57d9b4939ed46fed4e",
+      "size": 326911
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774291303037,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/__init__.py",
+      "sha256": "bf94c46e99f6ed4caf10dc25d0a6cf0aef65645a2228550f9ff5208d9b547279",
+      "size": 104
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774291701955,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/annotate/__init__.py",
+      "sha256": "404dce0bc1908ee4fa43a2461e3ef6b005e6dd0685278b50d86bb67a3981e5d7",
+      "size": 268
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774292120666,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/annotate/tables.py",
+      "sha256": "b4647630bace956404fa515e7d9251b608159b7d5bb072f3817905d9528cd2ce",
+      "size": 3138
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1774195083081926785,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/backbone/__init__.py",
+      "sha256": "d13896b60fd4b9d003e4b9116537a4af3858f06054ef4585ef42b7bbc9da05c0",
+      "size": 367
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666610808309683,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/backbone/core.py",
+      "sha256": "f6f60b1571010b2f283ed7956513ca8751b6a04944d43727fa74476261ddb921",
+      "size": 9287
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775676652915305376,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/config.py",
+      "sha256": "9a6aa0112b62707292b14a1d94b905c0a794ec54e7db805abda7fffafea535cc",
+      "size": 7393
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774288694944,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/dedup/__init__.py",
+      "sha256": "90cdc4350d8f6ed039a4ab6f7ef37cc5e3b3b5efcfe8ef74dc014090daf89c89",
+      "size": 139
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774289490322,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/dedup/canonicalize.py",
+      "sha256": "041b8ac86f80d887728431d71e02baa411ac35adfbb5ffca103d9deaed6b07f0",
+      "size": 3136
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774289802448,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/features/__init__.py",
+      "sha256": "aee80be40a1f93d93a10432dd9122826531b40b61e50c01dce645540e7c4ed20",
+      "size": 370
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666606226567120,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/features/core.py",
+      "sha256": "e7d705c289bfa1d726699a7fa0961c828cd04664a51cb1dd89ea74bfa2fb2499",
+      "size": 71697
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1774185260073017874,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/harmonize/__init__.py",
+      "sha256": "73a012b24714d15b27d43169bd38bd5aa529720b0c0e064cc09c845876ba0a66",
+      "size": 601
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774293370545,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/harmonize/metadata.py",
+      "sha256": "14b0a661210ded45487f95e3d67458d36b6682103a0cd15a8091a12333946eb1",
+      "size": 5463
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666636115414791,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/harmonize/records.py",
+      "sha256": "1bf75600804320ba03803771baa9f55a4ce0613471a8511a02c76d68d7680e42",
+      "size": 12980
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774292149374,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/io/__init__.py",
+      "sha256": "40c08f0bd70fa5b4e01f0387420eb7cdff0c2a9c35fd830ab7cbe0d0ddaa1adb",
+      "size": 414
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159895895985540,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/io/fasta.py",
+      "sha256": "2e6eff1c70af087c08dac062ae754a29f63ff55c7628130ece324cff30ff22c1",
+      "size": 5223
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159758790002718,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/io/tabular.py",
+      "sha256": "54f1807e920744309e4e63e010a7feed7efe39194c5c2e6ecae9c6eeb098b0a0",
+      "size": 1662
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774290010741,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/logging_utils.py",
+      "sha256": "940bc7d9e6af4ed9f3212f1c96555d3c5004d7481b1adc49361f9a3781bedf19",
+      "size": 387
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666506045149132,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/modeling/__init__.py",
+      "sha256": "780476b654d7040d1ebfcd6f3f3a2be6c70acd16c8ed6786a67cc6026effc6a9",
+      "size": 3001
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775240369310815846,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/modeling/discovery_contract.py",
+      "sha256": "e67938675ee0758a1e86f50518aab660344231079b705b7deda98142bd37b99b",
+      "size": 5428
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666506045848671,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/modeling/experiment_gates.py",
+      "sha256": "54e89a37f8c378cc48a079ea11e584bf4933462918ed3d35cd2035ee12ccfe88",
+      "size": 9463
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775304669014704786,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/modeling/firthlogist_bridge.py",
+      "sha256": "f867aed2d7c44f3a5c6520cd1f9572f1a6225622e039c961ce43e8d0956ba927",
+      "size": 1358
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775676670063696508,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/modeling/module_a.py",
+      "sha256": "70d542667461c5c0cf7104ccd6a3321053d8f65e59bcb0c81cca621dfdb6a422",
+      "size": 103262
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775676938311947645,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/modeling/module_a_support.py",
+      "sha256": "6f24cbe318fc092858c33141e45e0025146de6ba348bc755b514abfaa3c999dc",
+      "size": 38946
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775676933408015745,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/protocol.py",
+      "sha256": "4bb1e45372ce26b4d899ae985159afd71b9f97b3cabb330ed2dffcf5ed4100f1",
+      "size": 8289
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774294385299,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/qc/__init__.py",
+      "sha256": "48e5f6d3a7302a9555053369d75012767b816098393d40825d9b8772af56c3d5",
+      "size": 185
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775335115458246293,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/qc/input_checks.py",
+      "sha256": "d1d1544b86ce8f8dd07f4f31d14554ea1118dffbd275fd6a79786526f808c409",
+      "size": 8578
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775678400067477516,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/__init__.py",
+      "sha256": "fbacc02f001e16bc88a100d010ff2246431c1d1bef60aed9d6cd58f1525e6961",
+      "size": 8527
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775492103692370674,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/advanced_audits.py",
+      "sha256": "c913f7156326cb417da7006d25f6a3608ee4252209bf4c6990955b391ee8090e",
+      "size": 112712
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774302851498,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/amrfinder_support.py",
+      "sha256": "f5467742ee520d9d280985d8687a25820dcc4dd9326cc68c586790cea6a5f59b",
+      "size": 16314
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775678400067217932,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/artifact_contracts.py",
+      "sha256": "ff20fb41938f892c14e8f00a43aee310fef92ffea8fe2eecc21bee6562aa954a",
+      "size": 3756
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775677278776753269,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/audit_registry.py",
+      "sha256": "12622c03856aa4c1634abcd0d1f21609f0d1d177558dace9a38fae6cbb573ab2",
+      "size": 4488
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775318518699007203,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/candidate_tables.py",
+      "sha256": "e1a721560ba6f181e7657f062d5bb1ac3eeb8ef57760a7142561423d0a4c8528",
+      "size": 64122
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775160114119496005,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/enrichment.py",
+      "sha256": "168a270cf8c5ea4589e9961922798dcbad5249657e08ebca7ce002072c8a956a",
+      "size": 14879
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666338051294284,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/epv_audit.py",
+      "sha256": "a88cd49abe56671f39f7b5e50789e1bab0d72f73a7353d5884d0946588ff6bbb",
+      "size": 6203
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774298521606,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/external_support.py",
+      "sha256": "74c8e3b1d0d7e440359d311c5e838731c714930be9a4ae6d864b2a857fcb6f6b",
+      "size": 32336
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775232382406130944,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/figure_style.py",
+      "sha256": "feb393e40c94c19bca52f9843f3c1e0adcfa7de9695541bcf3f03bc05c13cb73",
+      "size": 9070
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666506052835901,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/figures.py",
+      "sha256": "ae8b1999fe3a40829ae617d2228cbba8eff0963ae15a050219298f4754a81855",
+      "size": 112542
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666818825402169,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/hardening_summary.py",
+      "sha256": "327471cd408088ea8d200d687aab4a95b94a01ddcba461a88404da32202ed3ef",
+      "size": 12333
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666549184073446,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/lead_time_bias_audit.py",
+      "sha256": "b5acba6ecf0c40286ba43e6886a686e4567d5a0451fd60f1d2f3109b1adf95d7",
+      "size": 13478
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775677192786269093,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/model_audit.py",
+      "sha256": "f730ad0f3fcd2f6d5fa83f3eaade067018230d4400e734f5ae682bc590f21cb8",
+      "size": 225893
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775677734974240036,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/narratives.py",
+      "sha256": "7e1ea33d02edca48d14e4de568ac98e21099f2fa57f0d6c80bebdaa0747e9edc",
+      "size": 73244
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775319221043205060,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/overview.py",
+      "sha256": "e73e3b6abbd0908d8925f0fd283934a67799628d2bc52e85354b5026df7fd845",
+      "size": 6007
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775162530646062757,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/pathogen_support.py",
+      "sha256": "fe34fbd9a650aa18496f52ec5b6425e55f214358d9a7c2bc5d72ca17a58a2bda",
+      "size": 13961
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775678285356415966,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/provenance.py",
+      "sha256": "21c3d8b6af2d4ed95d72cacd4de929dd2b181e0929c68a01921ca8a1d99ca52c",
+      "size": 5718
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775678197710565794,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/reporting/summary.py",
+      "sha256": "b3c456ad6240d3bfff24b74567fa1acec955427641bfb4fec1ca5a5636488a8e",
+      "size": 4780
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775665891096507471,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/runtime.py",
+      "sha256": "ddd25222cc397165247f46203d49c61513ed2278cd2b90837ce9259c92ee9009",
+      "size": 2033
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159774289453655,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/schemas/__init__.py",
+      "sha256": "3562cd9b536fabec4fb993a79af0cbfc12d0bde6ad2943130b1f388e193a54df",
+      "size": 207
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775335043662528941,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/schemas/contracts.py",
+      "sha256": "0f5080eff56e054f947117a4c839c1ad92cd3bdaffd594e718ab83e8ba8a7bd7",
+      "size": 1953
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775159758796221492,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/schemas/who_mia.py",
+      "sha256": "f99eb517b60253b338419efe32bb67fbe584616174bcfb13fbf2ac16a77590d9",
+      "size": 4416
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775073676123455486,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/scoring/__init__.py",
+      "sha256": "974e984ed469c94f4ac603d805987da48cfa075d6e159a3fe21177351e7d370e",
+      "size": 383
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775253110481342252,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/scoring/core.py",
+      "sha256": "b6b5038fb9a382a351a15cb22dab52d0f8f71a144ca3a39162a57e2f065cba9d",
+      "size": 30763
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775339138535268824,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/snapshots.py",
+      "sha256": "05a8f66245bed71c90de9133a2e30a01d46caf6084017efe57bd3bea247c26f8",
+      "size": 2398
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775501265008739979,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/utils/__init__.py",
+      "sha256": "0855474d52a9307ef3e61331423f3275f915b673b30589f1ab1f70e4cbd7f419",
+      "size": 793
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775492905457055460,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/utils/country_constants.py",
+      "sha256": "820d153545804130f401c9109af8ed65d91ab77d362666ce57ba4b25e17e5be9",
+      "size": 8439
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775492004858555226,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/utils/dataframe.py",
+      "sha256": "c4d8b37f247fa5d081192aa1e81ca4d7bba6e19f3d9aa888e270c58174b54cd5",
+      "size": 2478
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775667720430086770,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/utils/files.py",
+      "sha256": "5076ab5dd14c4eee4490181136814e4d0c94cb52415115758949233e6b70baee",
+      "size": 12066
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775492919983193273,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/utils/geography.py",
+      "sha256": "710a51aed3f734778fe5ddf113dc8c7ddb6e0e84a83a4d30449e7730723afab0",
+      "size": 11499
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1774637940479249503,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/utils/math.py",
+      "sha256": "753d54f726fde6f8db57ce2818548cc3bee155ee1f01670654dc4a868a9acced",
+      "size": 924
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775152707087115448,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/utils/parallel.py",
+      "sha256": "0e9009ea8e207a0889198760adb48aab925022c26a9e939d3145876533f4a3ed",
+      "size": 571
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666506048097956,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/validation/__init__.py",
+      "sha256": "c4874c73a8fd835765508e8da489531c915d7f1ae3fd18ace168cf394376acc3",
+      "size": 3108
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666740438197772,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/validation/falsification.py",
+      "sha256": "cc4bedb1d6bfd7a3f822b70db38fb361cd43095996a46eb3a6e2d55e9f38f951",
+      "size": 10176
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775505743099768583,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/validation/metrics.py",
+      "sha256": "0407569934a15cef8fb7bf8f69ee3055aac9ac514475a9c293a6d301c0eb661f",
+      "size": 29024
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666567700298665,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/validation/missingness.py",
+      "sha256": "cf98b18967cba00f022d3eda91d720806878df91ea595c560c04e39e7d4e7cf4",
+      "size": 8236
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775666705365898029,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/validation/schemas.py",
+      "sha256": "b84011be456277ad535c56b163732bfc0fd21d0524ba95f40ff36443161e88fa",
+      "size": 19214
+    },
+    {
+      "kind": "file",
+      "mtime_ns": 1775502147993674571,
+      "path": "/Users/umut/Projeler/plasmid-priority/src/plasmid_priority/validation/vif.py",
+      "sha256": "e33211b27986ee04c6746dd71c897b8bd730fc3267ddff5ed59bc1045cb3b5ea",
+      "size": 6035
+    }
+  ],
+  "generated_at": "2026-04-08T20:01:07+00:00",
+  "input_data_hash": "b7737cb807db9b49583608d96b9cb46f7098ab0d1c018175168b4c406488ab45",
+  "input_signatures": [
+    {
+      "kind": "file",
+      "mtime_ns": 1775676680568824502,
+      "path": "/Users/umut/Projeler/plasmid-priority/config.yaml",
+      "sha256": "444e0c24ce01c8400cdc617d94fa60d7537eee484103c7647557fc963f19494b",
+      "size": 19231
+    }
+  ],
+  "protocol_hash": "6d35ea77feb1018c55f4ac48da0175c916516e6a025ff9d74e41f058b90b5962",
+  "protocol_id": "split2015-min3-primary-discovery_12f_source-governance-phylo_support_fusion_priority-pmax0p01",
+  "protocol_snapshot": {
+    "ablation_model_names": [
+      "T_only",
+      "H_only",
+      "A_only",
+      "T_plus_H",
+      "T_plus_A",
+      "H_plus_A",
+      "T_plus_H_plus_A"
+    ],
+    "acceptance_thresholds": {
+      "selection_adjusted_p_max": 0.01
+    },
+    "conservative_model_name": "parsimonious_priority",
+    "core_model_names": [
+      "baseline_member_count",
+      "baseline_country_count",
+      "baseline_both",
+      "full_priority",
+      "source_only",
+      "bio_clean_priority",
+      "parsimonious_priority",
+      "natural_auc_priority",
+      "phylogeny_aware_priority",
+      "structured_signal_priority",
+      "ecology_clinical_priority",
+      "knownness_robust_priority",
+      "support_calibrated_priority",
+      "support_synergy_priority",
+      "monotonic_latent_priority",
+      "regime_stability_priority",
+      "phylo_support_fusion_priority",
+      "host_transfer_synergy_priority",
+      "threat_architecture_priority",
+      "discovery_12f_source"
+    ],
+    "governance_model_fallback": "support_synergy_priority",
+    "governance_model_name": "phylo_support_fusion_priority",
+    "governance_model_policy": {
+      "conservative_model_name": "parsimonious_priority",
+      "governance_model_fallback": "support_synergy_priority",
+      "governance_model_name": "phylo_support_fusion_priority",
+      "primary_model_fallback": "parsimonious_priority",
+      "primary_model_name": "discovery_12f_source"
+    },
+    "min_new_countries_for_spread": 3,
+    "official_model_names": [
+      "discovery_12f_source",
+      "phylo_support_fusion_priority",
+      "baseline_both"
+    ],
+    "outcome_definition": {
+      "min_new_countries_for_spread": 3,
+      "outcome_label": "spread_label",
+      "split_year": 2015
+    },
+    "primary_model_fallback": "parsimonious_priority",
+    "primary_model_name": "discovery_12f_source",
+    "research_model_names": [
+      "balanced_evidence_priority",
+      "bio_residual_synergy_priority",
+      "hybrid_agreement_priority",
+      "firth_parsimonious_priority",
+      "visibility_adjusted_priority",
+      "contextual_bio_priority",
+      "knownness_calibrated_fusion_priority",
+      "evidence_aware_priority",
+      "proxy_light_priority",
+      "enhanced_priority",
+      "pairwise_rank_priority",
+      "label_noise_aware_priority",
+      "graph_evidence_priority",
+      "nonlinear_deconfounded_priority",
+      "discovery_4f_hybrid",
+      "discovery_5f_phylo",
+      "discovery_9f_source",
+      "discovery_12f_class_balanced",
+      "discovery_15f_synergy",
+      "governance_15f_pruned"
+    ],
+    "selection_adjusted_p_max": 0.01,
+    "split_year": 2015
+  }
+}

@@ -124,6 +124,8 @@ This lets you keep large `data/*` trees on an external USB volume while leaving
 
 - `make fast-local SOURCE_DATA_ROOT=/Volumes/PLASMID_USB/data`: refresh the small local report cache from a full data root, then render reports from that cache. If `SOURCE_DATA_ROOT` is omitted, the command uses the already-seeded local cache.
 - `make full-local DATA_ROOT=/Volumes/PLASMID_USB/data`: run against an explicit external `data` root. If `DATA_ROOT` is omitted in an interactive shell, the runner prompts for it. If the path is unavailable, the command fails fast.
+- `scripts/run_mode.py` resolves the default workflow for each runtime mode, so `fast-local` always maps to `reports-only` and `full-local` defaults to the full `pipeline` unless you override it with `--workflow`.
+- `scripts/run_workflow.py` prints a one-line execution banner before running steps, which makes the active mode, concurrency, and step count visible in logs.
 
 Both modes keep `reports/` under the repository on the laptop. Only `data/*`
 is redirected. If scoring/features/backbone logic changes, use `full-local`.

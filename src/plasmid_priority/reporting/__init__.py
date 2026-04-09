@@ -18,9 +18,20 @@ from plasmid_priority.reporting.amrfinder_support import (
 )
 from plasmid_priority.reporting.artifact_contracts import (
     validate_probability_columns,
+    validate_provenance_record,
     validate_report_artifact,
+    validate_report_artifact_contract,
     validate_required_columns,
     validate_unique_key,
+)
+from plasmid_priority.reporting.audit_registry import (
+    AUDIT_ARTIFACT_CONTRACTS,
+    BENCHMARK_PROTOCOL,
+    FROZEN_SCIENTIFIC_ACCEPTANCE_AUDIT,
+    OFFICIAL_BENCHMARK_PANEL,
+    SELECTION_ADJUSTED_PERMUTATION_DETAIL,
+    SELECTION_ADJUSTED_PERMUTATION_SUMMARY,
+    validate_audit_artifact,
 )
 from plasmid_priority.reporting.candidate_tables import (
     annotate_candidate_explanation_fields,
@@ -111,6 +122,16 @@ from plasmid_priority.reporting.pathogen_support import (
     extract_pd_gene_symbols,
     normalize_species_token,
 )
+from plasmid_priority.reporting.provenance import (
+    build_artifact_provenance,
+    build_protocol_hash,
+    build_protocol_id,
+    build_protocol_snapshot,
+    build_signature_hash,
+    load_provenance_json,
+    provenance_matches_current,
+    write_provenance_json,
+)
 from plasmid_priority.reporting.summary import ManagedScriptRun
 
 __all__ = [
@@ -182,10 +203,27 @@ __all__ = [
     "build_threshold_utility_table",
     "build_variant_rank_consistency_table",
     "build_report_overview_table",
+    "build_artifact_provenance",
+    "build_protocol_hash",
+    "build_protocol_id",
+    "build_protocol_snapshot",
+    "build_signature_hash",
+    "load_provenance_json",
+    "provenance_matches_current",
+    "write_provenance_json",
     "validate_probability_columns",
     "validate_report_artifact",
+    "validate_report_artifact_contract",
     "validate_required_columns",
     "validate_unique_key",
+    "validate_provenance_record",
+    "validate_audit_artifact",
+    "AUDIT_ARTIFACT_CONTRACTS",
+    "BENCHMARK_PROTOCOL",
+    "OFFICIAL_BENCHMARK_PANEL",
+    "FROZEN_SCIENTIFIC_ACCEPTANCE_AUDIT",
+    "SELECTION_ADJUSTED_PERMUTATION_DETAIL",
+    "SELECTION_ADJUSTED_PERMUTATION_SUMMARY",
     "build_consensus_shortlist",
     "build_false_negative_audit",
     "build_matched_stratum_propensity_audit",

@@ -317,6 +317,14 @@ def _workflow_steps(mode: str) -> list[WorkflowStep]:
     return _topologically_sorted(steps)
 
 
+def _workflow_banner(mode: str, *, step_count: int, max_workers: int, auto_job_cap: int) -> str:
+    kind = "sequential" if mode in SEQUENTIAL_WORKFLOW_MODES else "parallel"
+    return (
+        f"[workflow] mode={mode} kind={kind} "
+        f"steps={step_count} workers={max_workers} auto_job_cap={auto_job_cap}"
+    )
+
+
 def _auto_job_cap(max_workers: int) -> int:
     cpu_total = os.cpu_count() or 1
     return max(1, min(8, cpu_total // max(max_workers, 1)))
@@ -336,6 +344,21 @@ def _run_step(step: WorkflowStep, *, auto_job_cap: int | None = None) -> int:
 
 def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = False) -> int:
     steps = _workflow_steps(mode)
+    if mode in SEQUENTIAL_WORKFLOW_MODES:
+        max_workers = 1
+    elif max_workers is None:
+        max_workers = min(4, os.cpu_count() or 1)
+    max_workers = max(1, min(int(max_workers), len(steps)))
+    auto_job_cap = _auto_job_cap(max_workers)
+    print(
+        _workflow_banner(
+            mode,
+            step_count=len(steps),
+            max_workers=max_workers,
+            auto_job_cap=auto_job_cap,
+        ),
+        flush=True,
+    )
     if dry_run:
         for step in steps:
             dep_text = f" deps={','.join(step.deps)}" if step.deps else ""
@@ -343,12 +366,6 @@ def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = F
             print(f"{step.name}{dep_text}: {step.script}{arg_text}")
         return 0
 
-    if mode in SEQUENTIAL_WORKFLOW_MODES:
-        max_workers = 1
-    elif max_workers is None:
-        max_workers = min(4, os.cpu_count() or 1)
-    max_workers = max(1, min(int(max_workers), len(steps)))
-    auto_job_cap = _auto_job_cap(max_workers)
     order = {step.name: index for index, step in enumerate(steps)}
     pending = {step.name: step for step in steps}
     completed: set[str] = set()

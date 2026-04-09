@@ -12,14 +12,24 @@ from pathlib import Path
 import pandas as pd
 
 from plasmid_priority.config import build_context
-from plasmid_priority.reporting import ManagedScriptRun
-from plasmid_priority.utils.files import atomic_write_json, ensure_directory, relative_path_str
+from plasmid_priority.reporting import (
+    ManagedScriptRun,
+    build_artifact_provenance,
+    load_provenance_json,
+)
+from plasmid_priority.utils.files import (
+    atomic_write_json,
+    ensure_directory,
+    project_python_source_paths,
+    relative_path_str,
+)
 
 RELEASE_FILES = (
     "reports/executive_summary.md",
     "reports/jury_brief.md",
     "reports/ozet_tr.md",
     "reports/pitch_notes.md",
+    "reports/report_provenance.json",
     "reports/tubitak_final_metrics.txt",
     "reports/core_tables/model_metrics.tsv",
     "reports/core_tables/model_selection_summary.tsv",
@@ -53,19 +63,26 @@ def _project_version(project_root: Path) -> str:
 
 
 def _build_release_info(context_root: Path) -> str:
+    provenance_path = context_root / "reports/report_provenance.json"
     metrics_path = context_root / "reports/core_tables/model_metrics.tsv"
     version = _project_version(context_root)
     if not metrics_path.exists():
-        return (
-            "\n".join(
+        lines = [
+            "Plasmid Priority Release Bundle",
+            f"Version: {version}",
+            f"Generated on: {datetime.now().date().isoformat()}",
+        ]
+        if provenance_path.exists():
+            provenance = load_provenance_json(provenance_path)
+            lines.extend(
                 [
-                    "Plasmid Priority Release Bundle",
-                    f"Version: {version}",
-                    f"Generated on: {datetime.now().date().isoformat()}",
+                    f"Protocol ID: {provenance.get('protocol_id', 'unknown')}",
+                    f"Protocol hash: {provenance.get('protocol_hash', 'unknown')}",
+                    f"Code hash: {provenance.get('code_hash', 'unknown')}",
+                    f"Input data hash: {provenance.get('input_data_hash', 'unknown')}",
                 ]
             )
-            + "\n"
-        )
+        return "\n".join(lines) + "\n"
     metrics = pd.read_csv(metrics_path, sep="\t")
     primary = metrics.loc[
         metrics["model_name"].astype(str) == "phylo_support_fusion_priority"
@@ -93,25 +110,35 @@ def _build_release_info(context_root: Path) -> str:
         )
     n_permutations = pd.to_numeric(pd.Series([row.get("n_permutations", pd.NA)]), errors="coerce").iloc[0]
     n_permutations_text = int(n_permutations) if pd.notna(n_permutations) else 0
-    return (
-        "\n".join(
+    lines = [
+        "Plasmid Priority Release Bundle",
+        f"Version: {version}",
+        f"Generated on: {datetime.now().date().isoformat()}",
+        f"Primary model: {row.get('model_name', 'unknown')}",
+        f"ROC AUC: {float(row.get('roc_auc', float('nan'))):.4f} [{float(row.get('roc_auc_ci_lower', float('nan'))):.4f}–{float(row.get('roc_auc_ci_upper', float('nan'))):.4f}]",
+        f"AP: {float(row.get('average_precision', float('nan'))):.4f} [{float(row.get('average_precision_ci_lower', float('nan'))):.4f}–{float(row.get('average_precision_ci_upper', float('nan'))):.4f}]",
+        f"Selection-adjusted permutation p {selection_adjusted_text} (n={n_permutations_text})",
+        f"Fixed-score permutation p {permutation_text} (n={n_permutations_text})",
+    ]
+    if provenance_path.exists():
+        provenance = load_provenance_json(provenance_path)
+        lines.extend(
             [
-                "Plasmid Priority Release Bundle",
-                f"Version: {version}",
-                f"Generated on: {datetime.now().date().isoformat()}",
-                f"Primary model: {row.get('model_name', 'unknown')}",
-                f"ROC AUC: {float(row.get('roc_auc', float('nan'))):.4f} [{float(row.get('roc_auc_ci_lower', float('nan'))):.4f}–{float(row.get('roc_auc_ci_upper', float('nan'))):.4f}]",
-                f"AP: {float(row.get('average_precision', float('nan'))):.4f} [{float(row.get('average_precision_ci_lower', float('nan'))):.4f}–{float(row.get('average_precision_ci_upper', float('nan'))):.4f}]",
-                f"Selection-adjusted permutation p {selection_adjusted_text} (n={n_permutations_text})",
-                f"Fixed-score permutation p {permutation_text} (n={n_permutations_text})",
+                f"Protocol ID: {provenance.get('protocol_id', 'unknown')}",
+                f"Protocol hash: {provenance.get('protocol_hash', 'unknown')}",
+                f"Code hash: {provenance.get('code_hash', 'unknown')}",
+                f"Input data hash: {provenance.get('input_data_hash', 'unknown')}",
             ]
         )
-        + "\n"
-    )
+    return "\n".join(lines) + "\n"
 
 
 def main() -> int:
     context = build_context()
+    source_paths = project_python_source_paths(
+        context.root,
+        script_path=Path(__file__).resolve(),
+    )
     release_dir = ensure_directory(context.release_dir)
     bundle_dir = release_dir / "bundle"
     if bundle_dir.exists():
@@ -121,6 +148,17 @@ def main() -> int:
     manifest_rows: list[dict[str, object]] = []
 
     with ManagedScriptRun(context, "28_build_release_bundle") as run:
+        provenance = build_artifact_provenance(
+            protocol=context.protocol,
+            artifact_family="release_bundle",
+            input_paths=[
+                context.root / relpath
+                for relpath in RELEASE_FILES
+                if (context.root / relpath).exists()
+            ],
+            source_paths=source_paths,
+        )
+        run.set_provenance(provenance)
         missing: list[str] = []
         for relpath in RELEASE_FILES:
             source = context.root / relpath
@@ -148,6 +186,7 @@ def main() -> int:
             "n_files": len(manifest_rows),
             "files": manifest_rows,
             "missing_files": missing,
+            "provenance": provenance,
         }
         manifest_path = release_dir / "plasmid_priority_release_manifest.json"
         atomic_write_json(manifest_path, manifest)

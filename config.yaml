@@ -34,6 +34,7 @@ models:
     - "phylo_support_fusion_priority"
     - "host_transfer_synergy_priority"
     - "threat_architecture_priority"
+    - "discovery_12f_source"
 
   research_model_names:
     - "balanced_evidence_priority"
@@ -53,10 +54,11 @@ models:
     - "discovery_4f_hybrid"
     - "discovery_5f_phylo"
     - "discovery_9f_source"
-    - "discovery_12f_source"
     - "discovery_12f_class_balanced"
     - "discovery_15f_synergy"
     - "governance_15f_pruned"
+
+  selection_adjusted_p_max: 0.01
 
   ablation_model_names:
     - "T_only"

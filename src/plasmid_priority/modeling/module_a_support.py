@@ -18,16 +18,24 @@ import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.impute import KNNImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import RepeatedStratifiedKFold
 
 from plasmid_priority.config import build_context
+from plasmid_priority.modeling.fold_plan import FoldPlan
+from plasmid_priority.protocol import ScientificProtocol
+
+
+@functools.lru_cache(maxsize=1)
+def _resolved_context():
+    return build_context()
+
+
+@functools.lru_cache(maxsize=1)
+def _resolved_protocol() -> ScientificProtocol:
+    return _resolved_context().protocol
 
 
 def _load_project_config() -> dict:
-    return build_context().config
-
-
-_project_config = None
+    return _resolved_context().config
 
 _DEFAULT_MODEL_CONFIG = {
     "primary_model_name": "bio_clean_priority",
@@ -55,10 +63,8 @@ _BAYESIAN_CI_Z = 1.959963984540054
 
 
 def _get_model_config() -> dict:
-    global _project_config
-    if _project_config is None:
-        _project_config = _load_project_config()
-    models = _project_config.get("models", {}) if isinstance(_project_config, dict) else {}
+    project_config = _load_project_config()
+    models = project_config.get("models", {}) if isinstance(project_config, dict) else {}
     if not isinstance(models, dict):
         return _DEFAULT_MODEL_CONFIG
     return {
@@ -96,21 +102,22 @@ def _get_model_config() -> dict:
 
 def _config_snapshot() -> dict:
     config = _get_model_config()
+    protocol = _resolved_protocol()
     novelty = (
         config.get("novelty_specialist", {})
         if isinstance(config.get("novelty_specialist"), dict)
         else {}
     )
     return {
-        "PRIMARY_MODEL_NAME": config["primary_model_name"],
-        "PRIMARY_MODEL_FALLBACK": config["primary_model_fallback"],
-        "CONSERVATIVE_MODEL_NAME": config["conservative_model_name"],
-        "GOVERNANCE_MODEL_NAME": config["governance_model_name"],
-        "GOVERNANCE_MODEL_FALLBACK": config["governance_model_fallback"],
+        "PRIMARY_MODEL_NAME": protocol.primary_model_name,
+        "PRIMARY_MODEL_FALLBACK": protocol.primary_model_fallback,
+        "CONSERVATIVE_MODEL_NAME": protocol.conservative_model_name,
+        "GOVERNANCE_MODEL_NAME": protocol.governance_model_name,
+        "GOVERNANCE_MODEL_FALLBACK": protocol.governance_model_fallback,
         "MODULE_A_FEATURE_SETS": config["feature_sets"],
-        "CORE_MODEL_NAMES": tuple(config["core_model_names"]),
-        "RESEARCH_MODEL_NAMES": tuple(config["research_model_names"]),
-        "ABLATION_MODEL_NAMES": tuple(config["ablation_model_names"]),
+        "CORE_MODEL_NAMES": protocol.core_model_names,
+        "RESEARCH_MODEL_NAMES": protocol.research_model_names,
+        "ABLATION_MODEL_NAMES": protocol.ablation_model_names,
         "MODEL_FIT_CONFIG": config["fit_config"],
         "NOVELTY_SPECIALIST_FEATURES": novelty.get("features", ()),
         "NOVELTY_SPECIALIST_FIT_CONFIG": novelty.get("fit_config", {}),
@@ -436,6 +443,12 @@ def _fit_kwarg_mode(
 def _ensure_config_loaded() -> None:
     """Retained for backwards compatibility with existing call sites."""
     _resolved_model_config()
+    _resolved_protocol()
+
+
+def get_scientific_protocol() -> ScientificProtocol:
+    """Return the cached canonical scientific protocol."""
+    return _resolved_protocol()
 
 
 @dataclass
@@ -1008,24 +1021,12 @@ def _stratified_folds(
     y: np.ndarray, *, n_splits: int, n_repeats: int, seed: int
 ) -> list[list[np.ndarray]]:
     """Build repeated stratified folds while respecting rare-class support."""
-    y = np.asarray(y, dtype=int)
-    n_repeats = max(int(n_repeats), 1)
-    if y.size == 0:
-        return [[] for _ in range(n_repeats)]
-    _, class_counts = np.unique(y, return_counts=True)
-    if len(class_counts) < 2:
+    plan = FoldPlan.from_labels(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
+    if plan.effective_splits == 0:
+        if np.asarray(y, dtype=int).size == 0:
+            return [[] for _ in range(max(int(n_repeats), 1))]
         raise ValueError("Repeated stratified folds require both outcome classes.")
-    effective_splits = min(max(int(n_splits), 2), int(class_counts.min()))
-    if effective_splits < 2:
-        raise ValueError("Repeated stratified folds require at least two members in every class.")
-    skf = RepeatedStratifiedKFold(n_splits=effective_splits, n_repeats=n_repeats, random_state=seed)
-    folds_per_repeat: list[list[np.ndarray]] = [[] for _ in range(n_repeats)]
-
-    all_splits = list(skf.split(np.zeros(len(y), dtype=int), y))
-    for i, (_, test_idx) in enumerate(all_splits):
-        repeat_idx = i // effective_splits
-        folds_per_repeat[repeat_idx].append(test_idx)
-    return folds_per_repeat
+    return [list(repeat) for repeat in plan.fold_groups]
 
 
 def _oof_predictions(

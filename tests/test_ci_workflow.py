@@ -24,6 +24,10 @@ class CiWorkflowTests(unittest.TestCase):
         run_commands = {str(step.get("run", "")).strip() for step in steps}
         self.assertIn("make quality", run_commands)
 
+    def test_make_test_target_covers_all_repository_tests(self) -> None:
+        makefile = (PROJECT_ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertIn("$(PYTHON) -m pytest tests/ -x -q --tb=short", makefile)
+
 
 if __name__ == "__main__":
     unittest.main()

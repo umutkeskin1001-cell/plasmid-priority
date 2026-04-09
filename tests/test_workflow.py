@@ -18,6 +18,14 @@ SPEC.loader.exec_module(run_workflow_script)
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_workflow_banner_summarizes_mode_and_capacity(self) -> None:
+        self.assertEqual(
+            run_workflow_script._workflow_banner(
+                "pipeline", step_count=25, max_workers=4, auto_job_cap=2
+            ),
+            "[workflow] mode=pipeline kind=parallel steps=25 workers=4 auto_job_cap=2",
+        )
+
     def test_pipeline_sequential_workflow_keeps_full_dependency_chain(self) -> None:
         steps = run_workflow_script._workflow_steps("pipeline-sequential")
         names = [step.name for step in steps]

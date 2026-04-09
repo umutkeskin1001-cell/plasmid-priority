@@ -29,6 +29,7 @@ from plasmid_priority.reporting import (
     ManagedScriptRun,
     annotate_candidate_explanation_fields,
     build_amrfinder_coverage_table,
+    build_artifact_provenance,
     build_backbone_identity_table,
     build_benchmark_protocol_table,
     build_blocked_holdout_summary,
@@ -62,8 +63,16 @@ from plasmid_priority.reporting import (
     build_threshold_utility_table,
     normalize_drug_class_token,
     validate_report_artifact,
+    write_provenance_json,
 )
 from plasmid_priority.reporting.figures import generate_all_figures
+from plasmid_priority.reporting.narratives import (
+    build_executive_summary_markdown,
+    build_headline_validation_summary_markdown,
+    build_jury_brief_markdown,
+    build_pitch_notes_markdown,
+    build_turkish_summary_markdown,
+)
 from plasmid_priority.utils.dataframe import coalescing_left_merge, read_tsv
 from plasmid_priority.utils.files import (
     ensure_directory,
@@ -2516,164 +2525,20 @@ def _write_headline_validation_summary(
     rank_stability: pd.DataFrame | None = None,
     variant_consistency: pd.DataFrame | None = None,
 ) -> None:
-    blocked_holdout_summary = (
-        blocked_holdout_summary if blocked_holdout_summary is not None else pd.DataFrame()
+    output_path.write_text(
+        build_headline_validation_summary_markdown(
+            summary_table,
+            primary_model_name=primary_model_name,
+            governance_model_name=governance_model_name,
+            rolling_temporal=rolling_temporal,
+            blocked_holdout_summary=blocked_holdout_summary,
+            country_missingness_bounds=country_missingness_bounds,
+            country_missingness_sensitivity=country_missingness_sensitivity,
+            rank_stability=rank_stability,
+            variant_consistency=variant_consistency,
+        ),
+        encoding="utf-8",
     )
-    country_missingness_bounds = (
-        country_missingness_bounds
-        if country_missingness_bounds is not None
-        else pd.DataFrame()
-    )
-    country_missingness_sensitivity = (
-        country_missingness_sensitivity
-        if country_missingness_sensitivity is not None
-        else pd.DataFrame()
-    )
-    rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
-    variant_consistency = (
-        variant_consistency if variant_consistency is not None else pd.DataFrame()
-    )
-    lines = [
-        "# Headline Validation Summary",
-        "",
-        "This is the canonical one-page validation surface for jury review.",
-        "",
-        f"- Discovery primary: `{primary_model_name}`",
-        f"- {_governance_watch_label()}: `{governance_model_name}`",
-        "- Baseline comparator: `baseline_both`",
-        "- Permutation entries below include the selection-adjusted official-model null; the fixed-score label-permutation audit is retained only as an exploratory appendix diagnostic.",
-        "- The explicit leakage canary is exported separately in `future_sentinel_audit.tsv`.",
-        "- The frozen acceptance audit is exported separately in `frozen_scientific_acceptance_audit.tsv`.",
-        "- The nonlinear deconfounding audit is exported separately in `nonlinear_deconfounding_audit.tsv`.",
-        "- Alternative endpoint audits are exported separately in `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv`.",
-        "- The prospective freeze audits are exported separately in `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv`.",
-        "- The graph, counterfactual, geographic-jump, and AMR-uncertainty diagnostics are exported separately in `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv`.",
-        "- Frozen scientific acceptance combines matched-knownness, source holdout, spatial holdout, calibration, selection-adjusted null, and leakage review.",
-        "",
-        "| Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | ECE | Max CE | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |",
-        "| --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |",
-    ]
-    for row in summary_table.to_dict(orient="records"):
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    str(row.get("summary_label", "")),
-                    str(row.get("model_name", "")),
-                    f"{float(row.get('roc_auc', np.nan)):.3f}"
-                    if pd.notna(row.get("roc_auc"))
-                    else "NA",
-                    str(row.get("roc_auc_ci", "NA")),
-                    f"{float(row.get('average_precision', np.nan)):.3f}"
-                    if pd.notna(row.get("average_precision"))
-                    else "NA",
-                    str(row.get("average_precision_ci", "NA")),
-                    f"{float(row.get('brier_score', np.nan)):.3f}"
-                    if pd.notna(row.get("brier_score"))
-                    else "NA",
-                    f"{float(row.get('brier_skill_score', np.nan)):.3f}"
-                    if pd.notna(row.get("brier_skill_score"))
-                    else "NA",
-                    f"{float(row.get('ece', np.nan)):.3f}" if pd.notna(row.get("ece")) else "NA",
-                    f"{float(row.get('max_calibration_error', np.nan)):.3f}"
-                    if pd.notna(row.get("max_calibration_error"))
-                    else "NA",
-                    str(row.get("scientific_acceptance_status", "not_scored")),
-                    str(row.get("scientific_acceptance_failed_criteria", "not_scored")),
-                    _format_pvalue(row.get("selection_adjusted_empirical_p_roc_auc")),
-                    _format_pvalue(row.get("permutation_p_roc_auc")),
-                    (
-                        f"{float(row.get('delta_vs_baseline_roc_auc', np.nan)):.3f} "
-                        f"({row.get('delta_vs_baseline_ci', 'NA')})"
-                    )
-                    if pd.notna(row.get("delta_vs_baseline_roc_auc"))
-                    else "NA",
-                    f"{float(row.get('spatial_holdout_roc_auc', np.nan)):.3f}"
-                    if pd.notna(row.get("spatial_holdout_roc_auc"))
-                    else "NA",
-                    str(int(row.get("n_backbones", 0))),
-                    str(int(row.get("n_positive", 0))),
-                ]
-            )
-            + " |"
-        )
-    rolling_summary = _rolling_temporal_summary(
-        rolling_temporal if rolling_temporal is not None else pd.DataFrame()
-    )
-    if rolling_summary:
-        lines.extend(
-            [
-                "",
-                "## Rolling-Origin Validation",
-                "",
-                (
-                    f"Nested rolling-origin validation spans outer split years {rolling_summary['split_year_min']}"
-                    f" to {rolling_summary['split_year_max']} across horizons {rolling_summary['horizon_values']}"
-                    f" years and assignment modes {rolling_summary['assignment_modes']}."
-                ),
-                (
-                    f"Across {rolling_summary['n_rows']} successful outer-split rows, ROC AUC mean "
-                    f"{rolling_summary['roc_auc_mean']:.3f} (range {rolling_summary['roc_auc_min']:.3f}"
-                    f" to {rolling_summary['roc_auc_max']:.3f}) and AP mean {rolling_summary['average_precision_mean']:.3f}"
-                    f" (range {rolling_summary['average_precision_min']:.3f} to {rolling_summary['average_precision_max']:.3f})."
-                ),
-                (
-                    f"Mean Brier score across the successful outer splits is {rolling_summary['brier_score_mean']:.3f}."
-                ),
-            ]
-        )
-    blocked_holdout_text = _blocked_holdout_summary_text(
-        blocked_holdout_summary,
-        model_name=primary_model_name,
-    )
-    if blocked_holdout_text:
-        lines.extend(
-            [
-                "",
-                "## Blocked Holdout Audit",
-                "",
-                f"- {blocked_holdout_text}",
-            ]
-        )
-    country_missingness_text = _country_missingness_summary_text(
-        country_missingness_bounds,
-        country_missingness_sensitivity,
-        model_name=primary_model_name,
-    )
-    rank_stability_text = _candidate_stability_summary_text(
-        rank_stability,
-        file_name="candidate_rank_stability.tsv",
-        frequency_column="bootstrap_top_k_frequency",
-        language="en",
-    )
-    variant_consistency_text = _candidate_stability_summary_text(
-        variant_consistency,
-        file_name="candidate_variant_consistency.tsv",
-        frequency_column="variant_top_k_frequency",
-        language="en",
-    )
-    if country_missingness_text:
-        lines.extend(
-            [
-                "",
-                "## Country Missingness",
-                "",
-                f"- {country_missingness_text}",
-            ]
-        )
-    if rank_stability_text or variant_consistency_text:
-        lines.extend(
-            [
-                "",
-                "## Ranking Stability",
-                "",
-            ]
-        )
-        if rank_stability_text:
-            lines.append(f"- {rank_stability_text}")
-        if variant_consistency_text:
-            lines.append(f"- {variant_consistency_text}")
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _write_executive_summary(
@@ -2693,155 +2558,24 @@ def _write_executive_summary(
     rank_stability: pd.DataFrame | None = None,
     variant_consistency: pd.DataFrame | None = None,
 ) -> None:
-    metrics = model_metrics.set_index("model_name", drop=False)
-    primary = metrics.loc[str(primary_model_name)]
-    governance = (
-        metrics.loc[str(governance_model_name)]
-        if str(governance_model_name) in metrics.index
-        else pd.Series(dtype=object)
+    output_path.write_text(
+        build_executive_summary_markdown(
+            primary_model_name=primary_model_name,
+            governance_model_name=governance_model_name,
+            baseline_model_name=baseline_model_name,
+            model_metrics=model_metrics,
+            confirmatory_cohort_summary=confirmatory_cohort_summary,
+            false_negative_audit=false_negative_audit,
+            candidate_case_studies=candidate_case_studies,
+            blocked_holdout_summary=blocked_holdout_summary,
+            rolling_temporal=rolling_temporal,
+            country_missingness_bounds=country_missingness_bounds,
+            country_missingness_sensitivity=country_missingness_sensitivity,
+            rank_stability=rank_stability,
+            variant_consistency=variant_consistency,
+        ),
+        encoding="utf-8",
     )
-    baseline = (
-        metrics.loc[str(baseline_model_name)]
-        if str(baseline_model_name) in metrics.index
-        else pd.Series(dtype=object)
-    )
-    confirmatory_primary = _select_confirmatory_row(
-        confirmatory_cohort_summary,
-        cohort_name="confirmatory_internal",
-        model_name=primary_model_name,
-    )
-    blocked_holdout_summary = (
-        blocked_holdout_summary if blocked_holdout_summary is not None else pd.DataFrame()
-    )
-    country_missingness_bounds = (
-        country_missingness_bounds
-        if country_missingness_bounds is not None
-        else pd.DataFrame()
-    )
-    country_missingness_sensitivity = (
-        country_missingness_sensitivity
-        if country_missingness_sensitivity is not None
-        else pd.DataFrame()
-    )
-    rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
-    variant_consistency = (
-        variant_consistency if variant_consistency is not None else pd.DataFrame()
-    )
-    false_negative_count, top_drivers = _summarize_false_negative_audit(false_negative_audit)
-    blocked_holdout_text = _blocked_holdout_summary_text(
-        blocked_holdout_summary,
-        model_name=primary_model_name,
-    ).rstrip(".")
-    country_missingness_text = _country_missingness_summary_text(
-        country_missingness_bounds,
-        country_missingness_sensitivity,
-        model_name=primary_model_name,
-    )
-    lines = [
-        "# Executive Summary",
-        "",
-        "Plasmid Priority is a retrospective surveillance ranking framework for plasmid backbone classes. It does not claim causal spread prediction; it asks whether pre-2016 genomic signals are associated with post-2015 international visibility increase.",
-        "",
-        f"The Seer (headline model): `{_pretty_report_model_label(primary_model_name)}` | ROC AUC `{float(primary['roc_auc']):.3f}` | AP `{float(primary['average_precision']):.3f}`.",
-        f"The Guard (governance watch-only): `{_pretty_report_model_label(governance_model_name)}` | ROC AUC `{float(governance.get('roc_auc', np.nan)):.3f}` | AP `{float(governance.get('average_precision', np.nan)):.3f}`.",
-        f"The Baseline: `{_pretty_report_model_label(baseline_model_name)}` | ROC AUC `{float(baseline.get('roc_auc', np.nan)):.3f}` | AP `{float(baseline.get('average_precision', np.nan)):.3f}`.",
-        "",
-        "## Method Overview",
-        "",
-        "```text",
-        "Raw Data (PLSDB + RefSeq + Pathogen Detection)",
-        "                |",
-        "                v",
-        "      Harmonization and Deduplication",
-        "                |",
-        "                v",
-        "      Backbone Assignment (MOB-suite style)",
-        "                |",
-        "                v",
-        "       Temporal Split: <=2015 | >2015",
-        "                |",
-        "                v",
-        "        T / H / A Feature Extraction",
-        "                |",
-        "                v",
-        "   L2-Regularized Logistic Regression (OOF)",
-        "          /                           \\",
-        "         v                             v",
-        " Discovery Track          Governance Watch-only Track",
-        "                \\               /",
-        "                 v             v",
-        "            Candidate Portfolio + Risk Tiers",
-        "```",
-        "",
-        "## Validation Posture",
-        "",
-        "- No external validation claim is made.",
-        "- Validation is framed as temporal holdout, source holdout, knownness-matched auditing, and an internal high-integrity subset audit.",
-        f"- False-negative audit: `{false_negative_count}` later positives remain outside the practical shortlist; dominant miss drivers are `{top_drivers}`.",
-    ]
-    rolling_summary = _rolling_temporal_summary(
-        rolling_temporal if rolling_temporal is not None else pd.DataFrame()
-    )
-    if rolling_summary:
-        lines.append(
-            f"- Rolling-origin validation: outer split years {rolling_summary['split_year_min']} to {rolling_summary['split_year_max']} across horizons {rolling_summary['horizon_values']} with assignment modes {rolling_summary['assignment_modes']}; ROC AUC mean {rolling_summary['roc_auc_mean']:.3f} (range {rolling_summary['roc_auc_min']:.3f} to {rolling_summary['roc_auc_max']:.3f})."
-        )
-    if not confirmatory_primary.empty:
-        lines.append(
-            f"- Internal high-integrity subset audit: `{int(confirmatory_primary['n_backbones'])}` backbones | ROC AUC `{float(confirmatory_primary['roc_auc']):.3f}` | AP `{float(confirmatory_primary['average_precision']):.3f}`."
-        )
-    if country_missingness_text:
-        lines.extend(
-            [
-                "",
-                "## Country Missingness",
-                "",
-                f"- {country_missingness_text}",
-            ]
-        )
-    rank_stability_text = _candidate_stability_summary_text(
-        rank_stability,
-        file_name="candidate_rank_stability.tsv",
-        frequency_column="bootstrap_top_k_frequency",
-        language="en",
-    )
-    variant_consistency_text = _candidate_stability_summary_text(
-        variant_consistency,
-        file_name="candidate_variant_consistency.tsv",
-        frequency_column="variant_top_k_frequency",
-        language="en",
-    )
-    if rank_stability_text or variant_consistency_text:
-        lines.extend(
-            [
-                "",
-                "## Ranking Stability",
-                "",
-            ]
-        )
-        if rank_stability_text:
-            lines.append(f"- {rank_stability_text}")
-        if variant_consistency_text:
-            lines.append(f"- {variant_consistency_text}")
-    lines.extend(
-        [
-            "",
-            "## Release Surface",
-            "",
-            f"- `{int(len(candidate_case_studies))}` case studies are exported in `candidate_case_studies.tsv`.",
-            "- Jury-facing narrative lives in `jury_brief.md` and `ozet_tr.md`.",
-            "- `frozen_scientific_acceptance_audit.tsv` records the headline acceptance gate across matched-knownness, source holdout, spatial holdout, calibration, and leakage review.",
-            f"- Blocked holdout audit is exported in `blocked_holdout_summary.tsv`{f': {blocked_holdout_text}' if blocked_holdout_text else ''}.",
-            "- `nonlinear_deconfounding_audit.tsv` records the nonlinear deconfounding check used to keep knownness residualization transparent.",
-            "- `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv` record the alternative-endpoint stress tests for ordinal, exposure-adjusted, and macro-region jump outcomes.",
-            "- `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv` record the quasi-prospective freeze surface used to check whether the shortlist survives a forward-looking holdout.",
-            "- `future_sentinel_audit.tsv`, `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv` record the leakage canary, graph audit, counterfactual shortlist comparison, geographic-jump diagnostic, and AMR-uncertainty summary.",
-            "- Candidate rank stability is exported in `candidate_rank_stability.tsv` and model-variant consistency is exported in `candidate_variant_consistency.tsv`.",
-            "- `calibration_threshold_summary.png` is exported as a compact calibration/threshold diagnostic when threshold-sensitivity data are available.",
-            "- Figures in `reports/core_figures/` are presentation-ready.",
-        ]
-    )
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return
 
     metrics = model_metrics.set_index("model_name", drop=False)
@@ -2901,84 +2635,18 @@ def _write_pitch_notes(
     confirmatory_cohort_summary: pd.DataFrame,
     false_negative_audit: pd.DataFrame,
 ) -> None:
-    metrics = model_metrics.set_index("model_name", drop=False)
-    primary = (
-        metrics.loc[str(primary_model_name)]
-        if str(primary_model_name) in metrics.index
-        else pd.Series(dtype=object)
-    )
-    baseline = (
-        metrics.loc["baseline_both"]
-        if "baseline_both" in metrics.index
-        else pd.Series(dtype=object)
-    )
-    confirmatory_primary = _select_confirmatory_row(
-        confirmatory_cohort_summary,
-        cohort_name="confirmatory_internal",
-        model_name=primary_model_name,
-    )
-    false_negative_count, top_drivers = _summarize_false_negative_audit(false_negative_audit)
-    matched_primary = knownness_matched_validation.loc[
-        knownness_matched_validation.get("matched_stratum", pd.Series(dtype=str))
-        .astype(str)
-        .eq("__weighted_overall__")
-        & knownness_matched_validation.get("model_name", pd.Series(dtype=str))
-        .astype(str)
-        .eq(str(primary_model_name))
-    ].head(1)
-    matched_baseline = knownness_matched_validation.loc[
-        knownness_matched_validation.get("matched_stratum", pd.Series(dtype=str))
-        .astype(str)
-        .eq("__weighted_overall__")
-        & knownness_matched_validation.get("model_name", pd.Series(dtype=str))
-        .astype(str)
-        .eq("baseline_both")
-    ].head(1)
-    stable_features = _top_sign_stable_features(coefficient_stability_cv)
-    lines = [
-        "# Pitch Notes",
-        "",
-        "## Olası Jüri Soruları ve Yanıtları",
-        "",
-        '**S: "Model sadece zaten iyi bilinen büyük backbone\'ları mı buluyor?"**',
-        (
-            f"C: `baseline_both` ROC AUC `{float(baseline.get('roc_auc', np.nan)):.3f}` üretirken "
-            f"`{primary_model_name}` ROC AUC `{float(primary.get('roc_auc', np.nan)):.3f}` üretiyor. "
-            f"Delta `{_primary_baseline_delta_text(model_metrics, primary_model_name)}`. "
-            f"Eşleştirilmiş knownness/source strata audit'inde de ana model "
-            f"`{float(matched_primary.iloc[0]['weighted_mean_roc_auc']):.3f}` vs baseline `{float(matched_baseline.iloc[0]['weighted_mean_roc_auc']):.3f}`."
-        )
-        if not matched_primary.empty and not matched_baseline.empty
-        else (
-            f"C: `baseline_both` ROC AUC `{float(baseline.get('roc_auc', np.nan)):.3f}`, "
-            f"`{primary_model_name}` ROC AUC `{float(primary.get('roc_auc', np.nan)):.3f}`. "
-            f"Delta `{_primary_baseline_delta_text(model_metrics, primary_model_name)}`; bu, biyolojik sinyalin yalnızca popülerlik sayacı olmadığını gösterir."
+    output_path.write_text(
+        build_pitch_notes_markdown(
+            primary_model_name=primary_model_name,
+            governance_model_name=governance_model_name,
+            model_metrics=model_metrics,
+            knownness_matched_validation=knownness_matched_validation,
+            coefficient_stability_cv=coefficient_stability_cv,
+            confirmatory_cohort_summary=confirmatory_cohort_summary,
+            false_negative_audit=false_negative_audit,
         ),
-        "",
-        '**S: "Tüm modeller strict testi kaybediyorsa metodoloji geçerli mi?"**',
-        "C: Evet. Strict matched-knownness/source-holdout testi en zor alt kohortu izole eder. Burada başarısız olmak metodolojinin çöktüğünü değil, mevcut veri yoğunluğunun bu alt dilimde sınırlı olduğunu gösterir. Bu kısıt raporda proaktif olarak açıkça belirtilir.",
-        "",
-        '**S: "29 özellik, 989 örnek; overfit değil mi?"**',
-        f"C: Ana model L2 düzenlemeli lojistik regresyondur ve OOF tahminlerle değerlendirilir. Katsayı kararlılığı için 5-fold CV özeti ayrı verilir; en kararlı örnek sinyaller: `{stable_features}`.",
-        "",
-        '**S: "Bu gerçek bir tahmin sistemi mi, yoksa retrospektif analiz mi?"**',
-        "C: Bu çalışma kasıtlı olarak retrospektiftir. Soru şudur: eğitim dönemindeki genomik sinyaller, sonraki dönemdeki coğrafi görünürlük artışıyla ilişkili mi? Prospektif klinik erken uyarı iddiası yapılmaz.",
-        "",
-        '**S: "Governance modeli neden discovery modelinden ayrı?"**',
-        f"C: Discovery modeli `{_pretty_report_model_label(primary_model_name)}` ayırma gücünü optimize eder. Governance watch-only modeli `{_pretty_report_model_label(governance_model_name)}` ise kalibrasyon, belirsizlik ve abstention davranışını öne çıkarır; en yüksek AUC'u kovalamaz.",
-    ]
-    if not confirmatory_primary.empty:
-        lines.extend(
-            [
-                "",
-                "## Ek Not",
-                "",
-                f"- Confirmatory cohort sonucu: `{int(confirmatory_primary['n_backbones'])}` backbone üzerinde ROC AUC `{float(confirmatory_primary['roc_auc']):.3f}`.",
-                f"- False-negative audit: `{false_negative_count}` missed positive; baskın nedenler `{top_drivers}`.",
-            ]
-        )
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return
+        encoding="utf-8",
+    )
 
 
 def _write_turkish_summary(
@@ -3012,276 +2680,38 @@ def _write_turkish_summary(
     variant_consistency: pd.DataFrame | None = None,
     outcome_threshold: int,
 ) -> None:
-    knownness_matched_validation = (
-        knownness_matched_validation if knownness_matched_validation is not None else pd.DataFrame()
+    output_path.write_text(
+        build_turkish_summary_markdown(
+            primary_model_name=primary_model_name,
+            conservative_model_name=conservative_model_name,
+            model_metrics=model_metrics,
+            candidate_briefs=candidate_briefs,
+            candidate_portfolio=candidate_portfolio,
+            decision_yield=decision_yield,
+            model_selection_scorecard=model_selection_scorecard,
+            model_selection_summary=model_selection_summary,
+            knownness_summary=knownness_summary,
+            knownness_matched_validation=knownness_matched_validation,
+            source_balance_resampling=source_balance_resampling,
+            novelty_specialist_metrics=novelty_specialist_metrics,
+            adaptive_gated_metrics=adaptive_gated_metrics,
+            gate_consistency_audit=gate_consistency_audit,
+            secondary_outcome_performance=secondary_outcome_performance,
+            weighted_country_outcome=weighted_country_outcome,
+            count_outcome_audit=count_outcome_audit,
+            metadata_quality_summary=metadata_quality_summary,
+            operational_risk_watchlist=operational_risk_watchlist,
+            confirmatory_cohort_summary=confirmatory_cohort_summary,
+            false_negative_audit=false_negative_audit,
+            blocked_holdout_summary=blocked_holdout_summary,
+            country_missingness_bounds=country_missingness_bounds,
+            country_missingness_sensitivity=country_missingness_sensitivity,
+            rank_stability=rank_stability,
+            variant_consistency=variant_consistency,
+            outcome_threshold=outcome_threshold,
+        ),
+        encoding="utf-8",
     )
-    weighted_country_outcome = (
-        weighted_country_outcome if weighted_country_outcome is not None else pd.DataFrame()
-    )
-    count_outcome_audit = count_outcome_audit if count_outcome_audit is not None else pd.DataFrame()
-    operational_risk_watchlist = (
-        operational_risk_watchlist if operational_risk_watchlist is not None else pd.DataFrame()
-    )
-    confirmatory_cohort_summary = (
-        confirmatory_cohort_summary if confirmatory_cohort_summary is not None else pd.DataFrame()
-    )
-    false_negative_audit = (
-        false_negative_audit if false_negative_audit is not None else pd.DataFrame()
-    )
-    blocked_holdout_summary = (
-        blocked_holdout_summary if blocked_holdout_summary is not None else pd.DataFrame()
-    )
-    country_missingness_bounds = (
-        country_missingness_bounds
-        if country_missingness_bounds is not None
-        else pd.DataFrame()
-    )
-    country_missingness_sensitivity = (
-        country_missingness_sensitivity
-        if country_missingness_sensitivity is not None
-        else pd.DataFrame()
-    )
-    rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
-    variant_consistency = (
-        variant_consistency if variant_consistency is not None else pd.DataFrame()
-    )
-    primary = model_metrics.loc[
-        model_metrics["model_name"].astype(str) == str(primary_model_name)
-    ].iloc[0]
-    conservative = model_metrics.loc[
-        model_metrics["model_name"].astype(str) == str(conservative_model_name)
-    ].iloc[0]
-    baseline = model_metrics.loc[model_metrics["model_name"].astype(str) == "baseline_both"].iloc[0]
-    selection_row = (
-        model_selection_summary.iloc[0]
-        if not model_selection_summary.empty
-        else pd.Series(dtype=object)
-    )
-    governance_model_name = str(selection_row.get("governance_primary_model", "") or "").strip()
-    confirmatory_primary = _select_confirmatory_row(
-        confirmatory_cohort_summary,
-        cohort_name="confirmatory_internal",
-        model_name=primary_model_name,
-    )
-    false_negative_count, false_negative_drivers = _summarize_false_negative_audit(
-        false_negative_audit
-    )
-    blocked_holdout_text = _blocked_holdout_summary_text_tr(
-        blocked_holdout_summary,
-        model_name=primary_model_name,
-    )
-    matched_primary = knownness_matched_validation.loc[
-        knownness_matched_validation.get("matched_stratum", pd.Series(dtype=str))
-        .astype(str)
-        .eq("__weighted_overall__")
-        & knownness_matched_validation.get("model_name", pd.Series(dtype=str))
-        .astype(str)
-        .eq(str(primary_model_name))
-    ].head(1)
-    matched_baseline = knownness_matched_validation.loc[
-        knownness_matched_validation.get("matched_stratum", pd.Series(dtype=str))
-        .astype(str)
-        .eq("__weighted_overall__")
-        & knownness_matched_validation.get("model_name", pd.Series(dtype=str))
-        .astype(str)
-        .eq("baseline_both")
-    ].head(1)
-    weighted_row = (
-        weighted_country_outcome.loc[
-            weighted_country_outcome.get("status", pd.Series(dtype=str)).astype(str) == "ok"
-        ]
-        .sort_values("spearman_corr", ascending=False)
-        .head(1)
-        if "spearman_corr" in weighted_country_outcome.columns
-        else pd.DataFrame()
-    )
-    count_row = (
-        count_outcome_audit.loc[
-            count_outcome_audit.get("status", pd.Series(dtype=str)).astype(str) == "ok"
-        ]
-        .sort_values("spearman_corr", ascending=False)
-        .head(1)
-        if "spearman_corr" in count_outcome_audit.columns
-        else pd.DataFrame()
-    )
-    selected_briefs = _select_summary_candidate_briefs(candidate_briefs, per_track=2)
-    lines = [
-        "# Proje Özeti",
-        "",
-        "## Temel Mesaj",
-        "",
-        "Plasmid Priority, plasmid omurga sınıflarını eğitim dönemindeki genomik sinyallerle puanlayan ve bu puanların daha sonraki coğrafi görünürlük artışıyla ilişkili olup olmadığını test eden retrospektif bir analiz hattıdır.",
-        "",
-        f"Ana model `{primary_model_name}` için ROC AUC `{float(primary['roc_auc']):.3f}`, AP `{float(primary['average_precision']):.3f}` ve Brier Skill Score `{float(primary.get('brier_skill_score', np.nan)):.3f}` olarak raporlanır. Mevcut permütasyon denetimi sabit-skor label-permutation audit'i olduğu için model-seçim-düzeltilmiş anlamlılık iddiası olarak değil, keşifsel sinyal kontrolü olarak okunmalıdır. Sayım temelli karşılaştırma modeli `{float(baseline['roc_auc']):.3f}` ROC AUC üretir; ana modelin bu taban modele karşı kazancı `{_primary_baseline_delta_text(model_metrics, primary_model_name)}` düzeyindedir.",
-        "",
-        "## Model Seçimi",
-        "",
-        "Model seçimi tek bir metriğe göre yapılmamıştır. Birlikte okunan ölçütler şunlardır:",
-        "",
-        "1. Genel ROC AUC ve AP.",
-        "2. Düşük bilinirlik yarısındaki performans.",
-        "3. Eşleştirilmiş bilinirlik/kaynak katmanlarındaki performans.",
-        "4. Kaynak dışlama denetimi ve diğer sağlamlık analizleri.",
-        "5. Pratik kısa liste verimi.",
-        "",
-        f"Bu nedenle discovery hattında `{primary_model_name}` korunur; governance watch-only hattında ise `{governance_model_name or 'ayrı governance watch-only modeli'}` daha temkinli yorum katmanı olarak ele alınır.",
-        "",
-        "## Metodoloji",
-        "",
-        "- Ham veri PLSDB, RefSeq ve Pathogen Detection metadata kaynaklarından gelir.",
-        "- Kayıtlar harmonize edilir, yinelenenler ayıklanır ve omurga sınıfı ataması yapılır.",
-        "- Zaman ayrımı `<=2015` eğitim ve `>2015` sonuç penceresi olacak şekilde kuruludur.",
-        "- T, H ve A eksenleri yalnızca eğitim döneminden hesaplanır.",
-        f"- Yayılım etiketi, test döneminde en az `{int(outcome_threshold)}` yeni ülke görülmesiyle tanımlanır.",
-        "- Değerlendirme OOF lojistik regresyon tahminleri üzerinden yapılır.",
-        "",
-        "## Türkiye Bağlamı",
-        "",
-        "WHO'nun 2025 GLASS özeti, antibiyotik direnci yükünün özellikle Güneydoğu Asya ve Doğu Akdeniz bölgelerinde yüksek olduğunu vurgular. Türkiye, AMR sürveyansı açısından bu bölgesel baskının doğrudan önemli olduğu bir ülkedir.",
-        "",
-        "ECDC ve WHO Europe çerçevelerinde karbapenem dirençli *Klebsiella pneumoniae* ile GSBL/ESBL üreten *Escherichia coli*, Enterobacterales kaynaklı hastane yükünün temel başlıkları arasında yer almaktadır. Bu nedenle bu çalışmanın ürettiği omurga sınıfı önceliklendirmesi, Türkiye'de genomik AMR sürveyansına doğrudan uyarlanabilecek bir kanıt-konsept çerçevesi sunar.",
-        "",
-        "Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal genomik sürveyans akışlarında hangi omurga sınıflarının önce incelenmesi gerektiğini sistematikleştirebilir.",
-        "",
-        "## Ana Bulgular",
-        "",
-        f"- Ana model: ROC AUC `{float(primary['roc_auc']):.3f}` | AP `{float(primary['average_precision']):.3f}`.",
-        f"- Koruyucu model: ROC AUC `{float(conservative['roc_auc']):.3f}` | AP `{float(conservative['average_precision']):.3f}`.",
-        f"- Baseline model: ROC AUC `{float(baseline['roc_auc']):.3f}` | AP `{float(baseline['average_precision']):.3f}`.",
-        f"- Yanlış negatif incelemesi: kısa liste dışında kalan `{false_negative_count}` pozitif vardır; baskın nedenler `{false_negative_drivers}`.",
-    ]
-    if not confirmatory_primary.empty:
-        lines.append(
-            f"- İç yüksek-bütünlük alt-küme denetimi: `{int(confirmatory_primary['n_backbones'])}` omurga sınıfı | ROC AUC `{float(confirmatory_primary['roc_auc']):.3f}` | AP `{float(confirmatory_primary['average_precision']):.3f}`."
-        )
-    if not matched_primary.empty and not matched_baseline.empty:
-        lines.append(
-            f"- Eşleştirilmiş bilinirlik/kaynak katmanları denetimi: ana model `{float(matched_primary.iloc[0]['weighted_mean_roc_auc']):.3f}`, taban model `{float(matched_baseline.iloc[0]['weighted_mean_roc_auc']):.3f}`."
-        )
-    if not weighted_row.empty:
-        lines.append(
-            f"- Ağırlıklı yeni ülke yükü ile ilişki: Spearman ρ `{float(weighted_row.iloc[0]['spearman_corr']):.3f}`."
-        )
-    if not count_row.empty:
-        lines.append(
-            f"- Ham yeni ülke sayısı ile ilişki: Spearman ρ `{float(count_row.iloc[0]['spearman_corr']):.3f}` {_format_interval(count_row.iloc[0].get('spearman_ci_lower'), count_row.iloc[0].get('spearman_ci_upper'))}."
-        )
-    spatial_auc = pd.to_numeric(
-        pd.Series([primary.get("spatial_holdout_roc_auc")]), errors="coerce"
-    ).iloc[0]
-    if pd.notna(spatial_auc):
-        lines.append(f"- Mekânsal holdout denetimi: ağırlıklı ROC AUC `{float(spatial_auc):.3f}`.")
-    rank_stability_text = _candidate_stability_summary_text(
-        rank_stability,
-        file_name="candidate_rank_stability.tsv",
-        frequency_column="bootstrap_top_k_frequency",
-        language="tr",
-    )
-    variant_consistency_text = _candidate_stability_summary_text(
-        variant_consistency,
-        file_name="candidate_variant_consistency.tsv",
-        frequency_column="variant_top_k_frequency",
-        language="tr",
-    )
-    if rank_stability_text or variant_consistency_text:
-        lines.extend(
-            [
-                "",
-                "## Sıralama Kararlılığı",
-                "",
-            ]
-        )
-        if rank_stability_text:
-            lines.append(f"- {rank_stability_text}")
-        if variant_consistency_text:
-            lines.append(f"- {variant_consistency_text}")
-    lines.extend(
-        [
-            "",
-            "## Sınırlılıklar",
-            "",
-            "- Bu çalışma retrospektiftir; prospektif erken uyarı sistemi iddiası taşımaz.",
-            "- Sonuç değişkeni doğrudan biyolojik yayılım değil, sonraki dönem ülke görünürlüğü artışıdır.",
-            "- En sıkı bilinirlik eşleştirmeli kaynak dışlama testi en zor alt kohorttur; bu katmanda tüm modeller temkinli yorumlanmalıdır.",
-            "- Fırsat yanlılığı tamamen giderilemez: daha erken görülen omurgaların daha uzun takip penceresi vardır.",
-            "- `risk_uncertainty` bir güven aralığı değildir; risk-bileşeni uyumsuzluğu, karar sınırına yakınlık ve düşük bilinirlik cezasından türetilen operasyonel bir belirsizlik skorudur.",
-            "",
-            "## Örnek Adaylar",
-            "",
-        ]
-    )
-    track_labels = {
-        "established_high_risk": "yerleşik yüksek risk kısa listesi",
-        "novel_signal": "erken-sinyal izleme hattı",
-    }
-    support_labels = {
-        "cross_source_supported": "çok kaynaklı destek",
-        "single_source_supported": "tek kaynaklı destek",
-        "limited_support": "sınırlı destek",
-    }
-    risk_labels = {
-        "action": "eylem",
-        "review": "inceleme",
-        "abstain": "çekimser",
-    }
-    for row in selected_briefs.itertuples(index=False):
-        backbone_id = str(getattr(row, "backbone_id", "NA"))
-        species = str(getattr(row, "dominant_species", "") or "").replace("_", " ").strip()
-        if not species or species.lower() == "nan":
-            species = (
-                str(getattr(row, "dominant_genus", "") or "").replace("_", " ").strip()
-                or "belirtilmemiş baskın takson"
-            )
-        replicon = str(getattr(row, "primary_replicon", "") or "").strip()
-        replicon_text = (
-            f", baskın replikon `{replicon}`" if replicon and replicon.lower() != "nan" else ""
-        )
-        track = track_labels.get(str(getattr(row, "portfolio_track", "")), "izlem listesi")
-        support_tier = support_labels.get(
-            str(getattr(row, "source_support_tier", "")), "destek düzeyi belirtilmemiş"
-        )
-        amr_classes = str(getattr(row, "top_amr_classes", "") or "").strip()
-        amr_text = (
-            amr_classes
-            if amr_classes and amr_classes.lower() != "nan"
-            else "belirgin AMR sınıfı sinyali yok"
-        )
-        risk_tier = risk_labels.get(str(getattr(row, "risk_decision_tier", "")), "belirsiz")
-        operational_risk = pd.to_numeric(
-            pd.Series([getattr(row, "operational_risk_score", np.nan)]), errors="coerce"
-        ).iloc[0]
-        uncertainty = pd.to_numeric(
-            pd.Series([getattr(row, "risk_uncertainty", np.nan)]), errors="coerce"
-        ).iloc[0]
-        risk_parts = []
-        if pd.notna(operational_risk):
-            risk_parts.append(f"genel risk `{float(operational_risk):.2f}`")
-        if pd.notna(uncertainty):
-            risk_parts.append(f"belirsizlik `{float(uncertainty):.2f}`")
-        risk_text = ", ".join(risk_parts) if risk_parts else "risk özeti mevcut değil"
-        lines.append(
-            f"- `{backbone_id}`: baskın tür `{species}`{replicon_text}; bu aday `{track}` içinde değerlendirilir. "
-            f"Kaynak desteği `{support_tier}`, operasyonel karar katmanı `{risk_tier}` ve {risk_text}. "
-            f"Öne çıkan AMR sınıfları: {amr_text}."
-        )
-    lines.extend(
-        [
-            "",
-            "## Sürüm Yüzeyi",
-            "",
-            "- `frozen_scientific_acceptance_audit.tsv`: doğrulayıcı kabul katmanını; eşleştirilmiş bilinirlik, kaynak dışlama, mekânsal holdout, kalibrasyon ve leakage incelemesini raporlar.",
-            f"- `blocked_holdout_summary.tsv`: {blocked_holdout_text or 'iç kaynak/bölge stres testi olarak raporlanır.'}",
-            "- `nonlinear_deconfounding_audit.tsv`: knownness residualization için kullanılan doğrusal olmayan karıştırma denetimini raporlar.",
-            "- `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv` ve `macro_region_jump_outcome.tsv`: sırasal, maruziyet-düzeltilmiş ve makro-bölge sıçrama sonuçları için alternatif sonuç stres testlerini raporlar.",
-            "- `prospective_candidate_freeze.tsv` ve `annual_candidate_freeze_summary.tsv`: kısa listenin ileriye dönük bir holdout üzerinde ayakta kalıp kalmadığını kontrol eden quasi-prospective freeze yüzeyini raporlar.",
-            "- `future_sentinel_audit.tsv`, `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv` ve `amr_uncertainty_summary.tsv`: leakage canary, graph denetimi, counterfactual shortlist comparison, geographic-jump tanısı ve AMR belirsizlik özetini raporlar.",
-            "- `country_missingness_bounds.tsv` ve `country_missingness_sensitivity.tsv`: ülke eksikliği varsayımlarına göre etiket ve performans duyarlılığını raporlar.",
-            "- `candidate_rank_stability.tsv` ve `candidate_variant_consistency.tsv`: aday sıralama kararlılığını ve model-varyant tutarlılığını raporlar.",
-            "- `calibration_threshold_summary.png`: kalibrasyon ve eşik duyarlılığı için kompakt tanı grafiğidir.",
-            "- `jury_brief.md` ve `ozet_tr.md`: jüriye dönük anlatının dağıtım yüzeyleri.",
-        ]
-    )
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return
 
     knownness_matched_validation = (
@@ -3797,6 +3227,10 @@ def _write_turkish_summary(
         lines.append(
             f"- Backbone metadata quality ortalamasi `{mean_metadata_quality:.3f}` olarak ayri raporlanir; veri kalitesi dusuk adaylar false-negative ve risk audit'lerinde ayrica isaretlenir."
         )
+    blocked_holdout_text = _blocked_holdout_summary_text(
+        blocked_holdout_summary,
+        model_name=primary_model_name,
+    )
     lines.extend(
         [
             "",
@@ -3898,6 +3332,41 @@ def _write_jury_brief(
     variant_consistency: pd.DataFrame | None = None,
     outcome_threshold: int,
 ) -> None:
+    output_path.write_text(
+        build_jury_brief_markdown(
+            primary_model_name=primary_model_name,
+            conservative_model_name=conservative_model_name,
+            model_metrics=model_metrics,
+            family_summary=family_summary,
+            dropout_table=dropout_table,
+            scored=scored,
+            candidate_portfolio=candidate_portfolio,
+            decision_yield=decision_yield,
+            model_selection_scorecard=model_selection_scorecard,
+            model_selection_summary=model_selection_summary,
+            knownness_summary=knownness_summary,
+            knownness_matched_validation=knownness_matched_validation,
+            source_balance_resampling=source_balance_resampling,
+            novelty_specialist_metrics=novelty_specialist_metrics,
+            adaptive_gated_metrics=adaptive_gated_metrics,
+            gate_consistency_audit=gate_consistency_audit,
+            secondary_outcome_performance=secondary_outcome_performance,
+            weighted_country_outcome=weighted_country_outcome,
+            count_outcome_audit=count_outcome_audit,
+            metadata_quality_summary=metadata_quality_summary,
+            operational_risk_watchlist=operational_risk_watchlist,
+            confirmatory_cohort_summary=confirmatory_cohort_summary,
+            false_negative_audit=false_negative_audit,
+            blocked_holdout_summary=blocked_holdout_summary,
+            country_missingness_bounds=country_missingness_bounds,
+            country_missingness_sensitivity=country_missingness_sensitivity,
+            rank_stability=rank_stability,
+            variant_consistency=variant_consistency,
+            outcome_threshold=outcome_threshold,
+        ),
+        encoding="utf-8",
+    )
+    return
     knownness_matched_validation = (
         knownness_matched_validation if knownness_matched_validation is not None else pd.DataFrame()
     )
@@ -5020,6 +4489,7 @@ def main() -> int:
     executive_summary_path = context.reports_dir / "executive_summary.md"
     pitch_notes_path = context.reports_dir / "pitch_notes.md"
     headline_summary_path = context.reports_dir / "headline_validation_summary.md"
+    provenance_path = context.reports_dir / "report_provenance.json"
     stale_turkiye_context_path = diag_dir / "turkiye_candidate_context.tsv"
     config_path = context.root / "config.yaml"
     manifest_path = context.reports_dir / "24_build_reports.manifest.json"
@@ -5127,8 +4597,15 @@ def main() -> int:
             ),
         }
     }
+    provenance = build_artifact_provenance(
+        protocol=context.protocol,
+        artifact_family="report_surface",
+        input_paths=[path for path in input_paths if path.exists()],
+        source_paths=source_paths,
+    )
 
     with ManagedScriptRun(context, "24_build_reports") as run:
+        run.set_provenance(provenance)
         for path in input_paths:
             if path.exists():
                 run.record_input(path)
@@ -7224,10 +6701,15 @@ def main() -> int:
         )
         run.set_rows_out("top_backbones_rows", int(len(top)))
         run.set_metric("figure_count", len(figure_paths))
+        write_provenance_json(provenance_path, provenance)
+        run.record_output(provenance_path)
         write_signature_manifest(
             manifest_path,
             input_paths=[path for path in input_paths if path.exists()],
-            output_paths=materialize_recorded_paths(context.root, run.output_files_written),
+            output_paths=[
+                *materialize_recorded_paths(context.root, run.output_files_written),
+                provenance_path,
+            ],
             source_paths=source_paths,
             metadata=cache_metadata,
         )

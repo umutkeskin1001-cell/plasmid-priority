@@ -38,6 +38,7 @@ class ManagedScriptRun:
     errors: list[str] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    provenance: dict[str, Any] = field(default_factory=dict)
 
     def __enter__(self) -> "ManagedScriptRun":
         ensure_directory(self.context.logs_dir)
@@ -102,6 +103,9 @@ class ManagedScriptRun:
     def set_rows_out(self, key: str, value: int) -> None:
         self.n_rows_out[key] = value
 
+    def set_provenance(self, provenance: dict[str, Any]) -> None:
+        self.provenance = dict(provenance)
+
     def to_dict(self) -> dict[str, Any]:
         result = {
             "script_name": self.script_name,
@@ -119,4 +123,6 @@ class ManagedScriptRun:
         }
         if self.input_manifest:
             result["input_manifest"] = self.input_manifest
+        if self.provenance:
+            result["provenance"] = self.provenance
         return result

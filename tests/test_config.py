@@ -148,6 +148,14 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(first, second)
             self.assertEqual(safe_load_mock.call_count, 1)
 
+    def test_project_context_exposes_a_scientific_protocol(self) -> None:
+        context = build_context()
+        self.assertEqual(context.protocol.primary_model_name, "discovery_12f_source")
+        self.assertEqual(context.protocol.governance_model_name, "phylo_support_fusion_priority")
+        self.assertIn("discovery_12f_source", context.protocol.core_model_names)
+        self.assertNotIn("discovery_12f_source", context.protocol.research_model_names)
+        self.assertEqual(context.protocol.selection_adjusted_p_max, 0.01)
+
 
 if __name__ == "__main__":
     unittest.main()

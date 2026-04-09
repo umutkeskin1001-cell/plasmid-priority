@@ -3,8 +3,26 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import datetime
 
 import pandas as pd
+
+PROVENANCE_REQUIRED_FIELDS = (
+    "artifact_family",
+    "generated_at",
+    "protocol_id",
+    "protocol_hash",
+    "code_hash",
+    "input_data_hash",
+)
+
+
+@dataclass(frozen=True)
+class ReportArtifactContract:
+    required_columns: tuple[str, ...] = ()
+    unique_key: str | None = None
+    probability_columns: tuple[str, ...] = ()
 
 
 def validate_required_columns(
@@ -71,3 +89,38 @@ def validate_report_artifact(
         artifact_name=artifact_name,
         columns=probability_columns,
     )
+
+
+def validate_report_artifact_contract(
+    frame: pd.DataFrame,
+    *,
+    artifact_name: str,
+    contract: ReportArtifactContract,
+) -> None:
+    validate_report_artifact(
+        frame,
+        artifact_name=artifact_name,
+        required_columns=contract.required_columns,
+        unique_key=contract.unique_key,
+        probability_columns=contract.probability_columns,
+    )
+
+
+def validate_provenance_record(record: object, *, artifact_name: str) -> None:
+    if not isinstance(record, dict):
+        raise ValueError(f"{artifact_name} must be a JSON object")
+    missing = [field for field in PROVENANCE_REQUIRED_FIELDS if field not in record]
+    if missing:
+        joined = ", ".join(sorted(missing))
+        raise ValueError(f"{artifact_name} missing required provenance fields: {joined}")
+
+    for field in PROVENANCE_REQUIRED_FIELDS:
+        value = record.get(field)
+        if not str(value).strip():
+            raise ValueError(f"{artifact_name} field `{field}` cannot be empty")
+
+    generated_at = str(record.get("generated_at", "")).strip()
+    try:
+        datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{artifact_name} field `generated_at` must be ISO-8601") from exc

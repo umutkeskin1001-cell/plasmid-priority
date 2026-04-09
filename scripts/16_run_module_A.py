@@ -18,7 +18,6 @@ from plasmid_priority.modeling import (
     build_discovery_input_contract,
     get_conservative_model_name,
     get_module_a_model_names,
-    get_official_model_names,
     get_primary_model_name,
     run_module_a,
     validate_discovery_input_contract,
@@ -26,6 +25,8 @@ from plasmid_priority.modeling import (
 from plasmid_priority.reporting import (
     ManagedScriptRun,
     augment_scored_with_structural_audit_features,
+    build_artifact_provenance,
+    write_provenance_json,
 )
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import (
@@ -63,11 +64,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     context = build_context(PROJECT_ROOT)
+    protocol = context.protocol
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
     backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
     metrics_path = context.data_dir / "analysis/module_a_metrics.json"
     predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
     manifest_path = context.data_dir / "analysis/16_run_module_a.manifest.json"
+    provenance_path = context.data_dir / "analysis/16_run_module_a.provenance.json"
     config_path = context.root / "config.yaml"
     raw_amr_path = context.data_dir / "raw/amr.tsv"
     mash_pairs_path = context.data_dir / "raw/plsdb_mashdb_sim.tsv"
@@ -91,8 +94,15 @@ def main(argv: list[str] | None = None) -> int:
             ),
         },
     }
+    provenance = build_artifact_provenance(
+        protocol=protocol,
+        artifact_family="module_a_outputs",
+        input_paths=input_paths,
+        source_paths=source_paths,
+    )
 
     with ManagedScriptRun(context, "16_run_module_A") as run:
+        run.set_provenance(provenance)
         run.record_input(scored_path)
         run.record_input(config_path)
         run.record_output(metrics_path)
@@ -146,7 +156,7 @@ def main(argv: list[str] | None = None) -> int:
             include_ablations=args.ablation_models,
         )
         if args.official_only:
-            model_names = get_official_model_names(model_names)
+            model_names = protocol.resolve_official_model_names(model_names)
         required_columns = [
             column for model_name in model_names for column in MODULE_A_FEATURE_SETS[model_name]
         ]
@@ -190,10 +200,12 @@ def main(argv: list[str] | None = None) -> int:
 
         atomic_write_json(metrics_path, metrics_payload)
         prediction_table.to_csv(predictions_path, sep="\t", index=False)
+        write_provenance_json(provenance_path, provenance)
+        run.record_output(provenance_path)
         write_signature_manifest(
             manifest_path,
             input_paths=input_paths,
-            output_paths=[metrics_path, predictions_path],
+            output_paths=[metrics_path, predictions_path, provenance_path],
             source_paths=source_paths,
             metadata=cache_metadata,
         )

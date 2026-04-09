@@ -34,6 +34,13 @@ def default_mode_data_root(mode: str) -> Path:
     return Path.home() / ".cache" / "plasmid-priority" / mode / "data"
 
 
+def resolve_mode_workflow(mode: str, workflow: str | None = None) -> str:
+    """Resolve the workflow for a runtime mode and validate the choice."""
+    chosen_workflow = workflow or MODE_DEFAULT_WORKFLOW[mode]
+    validate_mode_workflow(mode, chosen_workflow)
+    return chosen_workflow
+
+
 def resolve_mode_data_root(mode: str, explicit_data_root: str | Path | None = None) -> Path:
     if explicit_data_root not in (None, ""):
         candidate = Path(str(explicit_data_root)).expanduser()
