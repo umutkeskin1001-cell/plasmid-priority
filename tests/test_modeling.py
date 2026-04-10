@@ -734,6 +734,40 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("nonlinear_backend_resolution_status", preds.columns)
         self.assertTrue(preds["prediction"].between(0.0, 1.0).all())
 
+    def test_full_fit_predictions_can_skip_posterior_uncertainty(self) -> None:
+        n = 24
+        rng = np.random.default_rng(22)
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "spread_label": ([0, 1] * 10) + [np.nan, np.nan, np.nan, np.nan],
+                "T_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "T_raw_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_breadth_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_raw_norm": rng.uniform(0.1, 0.9, size=n),
+                "support_shrinkage_norm": rng.uniform(0.1, 0.9, size=n),
+                "amr_support_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_support_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_support_norm_residual": rng.uniform(-0.3, 0.3, size=n),
+                "amr_support_norm_residual": rng.uniform(-0.3, 0.3, size=n),
+                "coherence_score": rng.uniform(0.1, 0.9, size=n),
+                "orit_support": rng.uniform(0.1, 0.9, size=n),
+                "log1p_member_count_train": rng.uniform(0.1, 2.0, size=n),
+                "log1p_n_countries_train": rng.uniform(0.1, 1.5, size=n),
+                "refseq_share_train": rng.uniform(0.0, 1.0, size=n),
+            }
+        )
+        preds = fit_full_model_predictions(
+            scored,
+            model_name="evidence_aware_priority",
+            include_posterior_uncertainty=False,
+        )
+        self.assertEqual(list(preds.columns), ["backbone_id", "prediction"])
+        self.assertEqual(len(preds), n)
+        self.assertTrue(preds["prediction"].between(0.0, 1.0).all())
+
     def test_run_module_a_continues_when_one_model_fails_in_worker_fallback(self) -> None:
         n = 40
         rng = np.random.default_rng(42)
@@ -909,6 +943,21 @@ class ModelingTests(unittest.TestCase):
         )
         self.assertEqual(len(result.predictions), n)
         self.assertIn("roc_auc", result.metrics)
+
+    def test_sovereign_fit_kwargs_use_native_class_balanced_training(self) -> None:
+        fit_kwargs = module_a_support_impl._model_fit_kwargs("sovereign_precision_priority")
+
+        self.assertEqual(fit_kwargs["sample_weight_mode"], "class_balanced")
+        self.assertEqual(fit_kwargs["l2"], 1.5)
+        self.assertNotIn("preprocess_mode", fit_kwargs)
+
+    def test_sovereign_v2_feature_surface_prunes_dead_signal(self) -> None:
+        features = MODULE_A_FEATURE_SETS["sovereign_v2_priority"]
+
+        self.assertNotIn("assignment_confidence_norm", features)
+        self.assertIn("T_eff_norm", features)
+        self.assertIn("A_eff_norm", features)
+        self.assertIn("metadata_support_depth_norm", features)
 
     def test_fit_feature_columns_predictions_scores_requested_rows(self) -> None:
         n = 24

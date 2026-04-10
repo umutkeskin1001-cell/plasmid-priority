@@ -165,7 +165,7 @@ def _stable_quantile_labels(
     q: int,
     label_prefix: str = "q",
 ) -> tuple[pd.Series, int]:
-    labels = pd.Series(pd.NA, index=values.index, dtype=object)
+    labels = pd.Series(np.nan, index=values.index, dtype=object)
     numeric = pd.to_numeric(values, errors="coerce")
     valid_mask = numeric.notna().to_numpy()
     valid = numeric.loc[numeric.notna()]
@@ -747,7 +747,7 @@ def _safe_evaluate_model_name_task(
                 seed=seed,
             ),
         )
-    except Exception as exc:
+    except (ValueError, RuntimeError, KeyError, TypeError, np.linalg.LinAlgError) as exc:
         error_message = f"{type(exc).__name__}: {exc}"
         warnings.warn(
             (
@@ -1716,7 +1716,7 @@ def annotate_knownness_metadata(scored: pd.DataFrame) -> pd.DataFrame:
                 "lower_half",
                 "upper_half",
             )
-        working["knownness_quartile"] = pd.Series(pd.NA, index=working.index, dtype=object)
+        working["knownness_quartile"] = pd.Series(np.nan, index=working.index, dtype=object)
         working["knownness_quartile_supported"] = False
         if valid_mask.any():
             quartile_labels, n_bins = _stable_quantile_labels(knownness_values.loc[valid_mask], q=4)
@@ -2177,6 +2177,7 @@ def fit_full_model_predictions(
     l2: float = 1.0,
     max_iter: int = 100,
     fit_config: dict[str, object] | None = None,
+    include_posterior_uncertainty: bool = True,
 ) -> pd.DataFrame:
     """Fit a named model on the full eligible cohort and score all backbones.
 
@@ -2236,8 +2237,16 @@ def fit_full_model_predictions(
             fit_backend=_fit_backend_name(fit_kwargs),
         )
         X_train_scaled = _standardize_apply(X_train, mean, std)
-    effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", l2)
     X_all_scaled = _standardize_apply(X_all, mean, std)
+    preds = _predict_calibrated(X_all_scaled, beta)
+    if not include_posterior_uncertainty:
+        return pd.DataFrame(
+            {
+                "backbone_id": all_rows["backbone_id"].astype(str).tolist(),
+                "prediction": preds.tolist(),
+            }
+        )
+    effective_l2 = _fit_kwarg_float(fit_kwargs, "l2", l2)
     posterior_covariance = _logistic_posterior_covariance(
         X_train_scaled,
         beta,
@@ -2245,7 +2254,6 @@ def fit_full_model_predictions(
         sample_weight=sample_weight,
     )
     posterior_summary = _bayesian_prediction_summary(X_all_scaled, beta, posterior_covariance)
-    preds = _predict_calibrated(X_all_scaled, beta)
     return pd.DataFrame(
         {
             "backbone_id": all_rows["backbone_id"].astype(str).tolist(),
@@ -2801,14 +2809,14 @@ def build_logistic_convergence_audit(
             return [
                 {
                     "model_name": model_name,
-                    "repeat_index": pd.NA,
-                    "fold_index": pd.NA,
+                    "repeat_index": np.nan,
+                    "fold_index": np.nan,
                     "n_train_backbones": int(len(eligible)),
                     "n_train_positive": int(np.sum(y == 1)),
-                    "converged": pd.NA,
-                    "used_pinv": pd.NA,
-                    "iterations_run": pd.NA,
-                    "max_abs_delta": pd.NA,
+                    "converged": np.nan,
+                    "used_pinv": np.nan,
+                    "iterations_run": np.nan,
+                    "max_abs_delta": np.nan,
                     "status": "skipped_insufficient_label_variation",
                 }
             ]
@@ -2936,7 +2944,7 @@ def run_module_a(
                 for future, name in future_to_name.items():
                     try:
                         resolved_name, result = future.result()
-                    except Exception as exc:
+                    except (ValueError, RuntimeError, KeyError, TypeError, np.linalg.LinAlgError, OSError, MemoryError) as exc:
                         error_message = f"{type(exc).__name__}: {exc}"
                         warnings.warn(
                             (
@@ -2950,7 +2958,7 @@ def run_module_a(
                             error_message,
                         )
                     completed[resolved_name] = result
-        except (OSError, PermissionError):
+        except (OSError, PermissionError, RuntimeError):
             warnings.warn(
                 (
                     "ProcessPoolExecutor unavailable in this environment; "
@@ -2974,7 +2982,7 @@ def run_module_a(
                     for future, name in future_to_name.items():
                         try:
                             resolved_name, result = future.result()
-                        except Exception as exc:
+                        except (ValueError, RuntimeError, KeyError, TypeError, np.linalg.LinAlgError, OSError, MemoryError) as exc:
                             error_message = f"{type(exc).__name__}: {exc}"
                             warnings.warn(
                                 (

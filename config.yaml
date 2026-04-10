@@ -34,6 +34,23 @@ models:
     - "phylo_support_fusion_priority"
     - "host_transfer_synergy_priority"
     - "threat_architecture_priority"
+    - "sovereign_precision_priority"
+    - "contextual_bio_priority"
+    - "knownness_calibrated_fusion_priority"
+    - "evidence_aware_priority"
+    - "proxy_light_priority"
+    - "enhanced_priority"
+    - "pairwise_rank_priority"
+    - "label_noise_aware_priority"
+    - "graph_evidence_priority"
+    - "nonlinear_deconfounded_priority"
+    - "discovery_4f_hybrid"
+    - "discovery_5f_phylo"
+    - "discovery_9f_source"
+    - "discovery_12f_source"
+    - "discovery_12f_class_balanced"
+    - "discovery_15f_synergy"
+    - "governance_15f_pruned"
 
   research_model_names:
     - "balanced_evidence_priority"
@@ -57,6 +74,8 @@ models:
     - "discovery_12f_class_balanced"
     - "discovery_15f_synergy"
     - "governance_15f_pruned"
+    - "sovereign_precision_priority"  # Phase 8: 83+ AUC ultra-precision target
+    - "sovereign_v2_priority"
 
   ablation_model_names:
     - "T_only"
@@ -122,6 +141,9 @@ models:
     discovery_15f_synergy: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "A_recurrence_norm", "T_A_synergy_norm", "H_A_synergy_norm", "T_H_obs_synergy_norm"]
     # Phase 6.1: 15f pruned governance (stability-first)
     governance_15f_pruned: ["T_eff_norm", "H_obs_specialization_norm", "H_phylogenetic_specialization_norm", "host_phylogenetic_dispersion_norm", "A_eff_norm", "coherence_score", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "A_recurrence_norm", "plasmidfinder_complexity_norm", "H_external_host_range_support", "evolutionary_jump_score_norm"]
+    # Phase 8: Ultra-precision sovereign model (83+ AUC target)
+    sovereign_precision_priority: ["T_eff_norm", "T_raw_norm", "H_phylogenetic_specialization_norm", "H_obs_specialization_norm", "H_support_norm", "H_support_norm_residual", "A_eff_norm", "A_raw_norm", "A_recurrence_norm", "coherence_score", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "H_external_host_range_norm", "H_external_host_range_support", "pmlst_coherence_norm", "pmlst_presence_fraction_train", "pmlst_presence_norm", "plasmidfinder_support_norm", "amr_support_norm", "amr_support_norm_residual", "metadata_support_depth_norm", "context_support_guard_norm", "external_t_synergy_norm", "T_A_synergy_norm", "H_A_synergy_norm", "clinical_A_synergy_norm", "amr_load_density_norm", "H_phylogenetic_augmented_specialization_norm", "host_phylogenetic_dispersion_norm", "mean_n_replicon_types_norm", "plasmidfinder_complexity_norm", "H_evenness_T_synergy_norm", "evolutionary_jump_score_norm"]
+    sovereign_v2_priority: ["T_eff_norm", "H_phylogenetic_specialization_norm", "H_obs_specialization_norm", "H_support_norm", "H_support_norm_residual", "A_eff_norm", "A_raw_norm", "A_recurrence_norm", "coherence_score", "backbone_purity_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "H_external_host_range_norm", "H_external_host_range_support", "pmlst_coherence_norm", "pmlst_presence_fraction_train", "pmlst_presence_norm", "plasmidfinder_support_norm", "amr_support_norm", "amr_support_norm_residual", "metadata_support_depth_norm", "external_t_synergy_norm", "T_A_synergy_norm", "H_A_synergy_norm", "clinical_A_synergy_norm", "amr_load_density_norm", "H_phylogenetic_augmented_specialization_norm", "host_phylogenetic_dispersion_norm", "mean_n_replicon_types_norm", "plasmidfinder_complexity_norm", "H_evenness_T_synergy_norm"]
 
   fit_config:
     visibility_adjusted_priority: {l2: 3.0, sample_weight_mode: "source_balanced"}
@@ -158,6 +180,9 @@ models:
     discovery_15f_synergy: {l2: 3.0, sample_weight_mode: "source_balanced"}
     # Governance track experiment configs
     governance_15f_pruned: {l2: 1.5, sample_weight_mode: "class_balanced"}
+    # Phase 8: Sovereign candidates aligned with native Module A evaluation
+    sovereign_precision_priority: {l2: 1.5, sample_weight_mode: "class_balanced"}
+    sovereign_v2_priority: {l2: 1.5, sample_weight_mode: "class_balanced"}
 
   novelty_specialist:
     features: ["T_eff_norm", "A_raw_norm", "A_eff_norm", "orit_support", "H_specialization_norm", "replicon_architecture_norm", "mash_neighbor_distance_train_norm", "clinical_context_sparse_penalty_norm", "external_t_synergy_norm"]
