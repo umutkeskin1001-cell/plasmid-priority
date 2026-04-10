@@ -53,6 +53,14 @@ _EXACT_COMPLEMENT_FEATURE_PAIRS: tuple[tuple[str, str], ...] = (
 
 _BAYESIAN_CI_Z = 1.959963984540054
 
+SINGLE_MODEL_PARETO_PARENT_MODEL_NAMES: tuple[str, ...] = (
+    "phylo_support_fusion_priority",
+    "discovery_12f_source",
+    "support_synergy_priority",
+    "knownness_robust_priority",
+    "parsimonious_priority",
+)
+
 
 def _get_model_config() -> dict:
     global _project_config
@@ -350,6 +358,63 @@ def _validate_module_a_feature_surface() -> None:
                 "Module A model "
                 f"`{model_name}` includes exact-complement feature pairs: {', '.join(conflicting)}"
             )
+
+
+def _pruned_single_model_features(columns: list[str]) -> tuple[str, ...]:
+    """Return a deterministic compact descendant of a parent feature list."""
+    if len(columns) <= 3:
+        return tuple(columns)
+    prune_count = max(1, len(columns) // 4)
+    keep_count = max(3, len(columns) - prune_count)
+    keep_count = min(keep_count, len(columns) - 1)
+    return tuple(columns[:keep_count])
+
+
+def build_single_model_candidate_family() -> pd.DataFrame:
+    """Return the bounded parent-derived family used for single-model screening."""
+    rows: list[dict[str, object]] = []
+    for parent_model_name in SINGLE_MODEL_PARETO_PARENT_MODEL_NAMES:
+        if parent_model_name not in MODULE_A_FEATURE_SETS:
+            continue
+        feature_set = tuple(str(column) for column in MODULE_A_FEATURE_SETS[parent_model_name])
+        rows.append(
+            {
+                "model_name": parent_model_name,
+                "parent_model_name": parent_model_name,
+                "feature_set": feature_set,
+                "feature_count": int(len(feature_set)),
+                "candidate_kind": "parent",
+            }
+        )
+        pruned_feature_set = _pruned_single_model_features(list(feature_set))
+        if pruned_feature_set and pruned_feature_set != feature_set:
+            rows.append(
+                {
+                    "model_name": f"{parent_model_name}__pruned",
+                    "parent_model_name": parent_model_name,
+                    "feature_set": pruned_feature_set,
+                    "feature_count": int(len(pruned_feature_set)),
+                    "candidate_kind": "pruned",
+                }
+            )
+    family = pd.DataFrame(rows, columns=[
+        "model_name",
+        "parent_model_name",
+        "feature_set",
+        "feature_count",
+        "candidate_kind",
+    ])
+    if family.empty:
+        return family
+    kind_order = {"parent": 0, "pruned": 1}
+    family = family.assign(
+        _candidate_kind_order=family["candidate_kind"].map(kind_order).fillna(99)
+    )
+    return family.sort_values(
+        ["parent_model_name", "_candidate_kind_order", "feature_count", "model_name"],
+        ascending=[True, True, False, True],
+        kind="mergesort",
+    ).drop(columns="_candidate_kind_order").reset_index(drop=True)
 
 
 FEATURE_PROVENANCE_REGISTRY: dict[str, FeatureProvenance] = _build_feature_provenance_registry()

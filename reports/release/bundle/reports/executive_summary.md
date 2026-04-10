@@ -2,8 +2,8 @@
 
 Plasmid Priority is a retrospective surveillance ranking framework for plasmid backbone classes. It does not claim causal spread prediction; it asks whether pre-2016 genomic signals are associated with post-2015 international visibility increase.
 
-The Seer (headline model): `parsimonious_priority` | ROC AUC `0.751` | AP `0.659`.
-The Guard (governance watch-only): `phylo-support fusion model` | ROC AUC `0.828` | AP `0.767`.
+The Seer (headline model): `discovery_12f_source` | ROC AUC `0.804` | AP `0.723`.
+The Guard (governance watch-only): `phylo-support fusion model` | ROC AUC `0.827` | AP `0.767`.
 The Baseline: `counts-only baseline` | ROC AUC `0.722` | AP `0.647`.
 
 ## Method Overview
@@ -42,7 +42,7 @@ Raw Data (PLSDB + RefSeq + Pathogen Detection)
 
 ## Country Missingness
 
-- parsimonious_priority country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.746 to 0.756 and AP 0.659 to 0.745..
+- discovery_12f_source country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.793 to 0.804 and AP 0.723 to 0.780..
 
 ## Ranking Stability
 

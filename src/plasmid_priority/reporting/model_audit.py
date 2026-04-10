@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +17,7 @@ from sklearn.metrics import average_precision_score
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     annotate_knownness_metadata,
+    build_single_model_pareto_screen,
     evaluate_model_name,
     fit_full_model_predictions,
     fit_predict_model_holdout,
@@ -37,6 +39,10 @@ from plasmid_priority.modeling.module_a_support import (
     _standardize_apply,
     _standardize_fit,
     _stratified_folds,
+)
+from plasmid_priority.modeling.single_model_pareto import (
+    add_failure_severity,
+    build_pareto_shortlist,
 )
 from plasmid_priority.reporting.candidate_tables import (
     annotate_candidate_explanation_fields as _annotate_candidate_explanation_fields,
@@ -5137,3 +5143,367 @@ def build_frozen_scientific_acceptance_audit(
         kind="mergesort",
     )
     return working.reset_index(drop=True)
+
+
+def _coerce_feature_set(value: object) -> tuple[str, ...]:
+    if isinstance(value, tuple):
+        return tuple(str(item) for item in value)
+    if isinstance(value, list):
+        return tuple(str(item) for item in value)
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return tuple()
+    text = str(value).strip()
+    if not text:
+        return tuple()
+    if text.startswith(("(", "[")):
+        try:
+            parsed = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            parsed = None
+        if isinstance(parsed, (list, tuple)):
+            return tuple(str(item) for item in parsed)
+    return tuple(token.strip() for token in text.split(",") if token.strip())
+
+
+def build_single_model_pareto_finalists(
+    single_model_pareto_screen: pd.DataFrame,
+    *,
+    max_finalists: int = 3,
+) -> pd.DataFrame:
+    """Keep a bounded finalist set from the Pareto screen."""
+    if single_model_pareto_screen.empty:
+        return pd.DataFrame()
+    shortlist = build_pareto_shortlist(single_model_pareto_screen)
+    if shortlist.empty:
+        return shortlist
+    working = shortlist.sort_values(
+        [
+            "weighted_objective_score",
+            "reliability_score",
+            "roc_auc",
+            "average_precision",
+            "model_name",
+        ],
+        ascending=[False, False, False, False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    if max_finalists > 0:
+        working = working.head(int(max_finalists)).copy()
+    return working.reset_index(drop=True)
+
+
+def build_single_model_selection_adjusted_permutation_null(
+    scored: pd.DataFrame,
+    finalists: pd.DataFrame,
+    *,
+    n_permutations: int = 200,
+    n_splits: int = 5,
+    n_repeats: int = 5,
+    seed: int = 42,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build a finalist-scoped selection-adjusted null for arbitrary candidate feature sets."""
+    if finalists.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    eligible_mask = scored.get("spread_label", pd.Series(index=scored.index)).notna()
+    if not bool(eligible_mask.any()):
+        return pd.DataFrame(), pd.DataFrame()
+    y_true = scored.loc[eligible_mask, "spread_label"].astype(int).to_numpy(dtype=int)
+    if len(np.unique(y_true)) < 2:
+        return pd.DataFrame(), pd.DataFrame()
+
+    prepared_inputs: dict[str, tuple[pd.DataFrame, list[str], dict[str, object]]] = {}
+    for finalist in finalists.to_dict("records"):
+        model_name = str(finalist.get("model_name", "")).strip()
+        if not model_name:
+            continue
+        feature_set = list(_coerce_feature_set(finalist.get("feature_set")))
+        if not feature_set:
+            continue
+        parent_model_name = str(finalist.get("parent_model_name", model_name))
+        fit_kwargs = _model_fit_kwargs(parent_model_name)
+        eligible = _ensure_feature_columns(scored, feature_set).loc[eligible_mask].copy()
+        eligible["spread_label"] = eligible["spread_label"].astype(int)
+        prepared_inputs[model_name] = (eligible, feature_set, fit_kwargs)
+    if not prepared_inputs:
+        return pd.DataFrame(), pd.DataFrame()
+
+    observed_metrics: dict[str, tuple[float, float]] = {}
+    for model_name, (eligible, feature_set, fit_kwargs) in prepared_inputs.items():
+        preds, y = _oof_predictions_from_eligible(
+            eligible,
+            columns=feature_set,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=seed,
+            fit_kwargs=fit_kwargs,
+        )
+        observed_metrics[model_name] = (
+            float(roc_auc_score(y, preds)),
+            float(average_precision(y, preds)),
+        )
+
+    rng = np.random.default_rng(seed)
+    detail_rows: list[dict[str, object]] = []
+    selected_null_aucs: list[float] = []
+    selected_null_aps: list[float] = []
+    selected_model_names: list[str] = []
+
+    for permutation_index in range(1, max(int(n_permutations), 0) + 1):
+        permuted_y = rng.permutation(y_true)
+        fold_groups = _stratified_folds(
+            permuted_y,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=int(rng.integers(0, 1_000_000_000)),
+        )
+        permutation_rows: list[dict[str, object]] = []
+        for model_name, (eligible, feature_set, fit_kwargs) in prepared_inputs.items():
+            preds, _ = _oof_predictions_from_eligible(
+                eligible,
+                columns=feature_set,
+                n_splits=n_splits,
+                n_repeats=n_repeats,
+                seed=seed,
+                fit_kwargs=fit_kwargs,
+                y_override=permuted_y,
+                folds_per_repeat=fold_groups,
+            )
+            permutation_rows.append(
+                {
+                    "model_name": model_name,
+                    "null_roc_auc": float(roc_auc_score(permuted_y, preds)),
+                    "null_average_precision": float(average_precision(permuted_y, preds)),
+                }
+            )
+        permutation_frame = pd.DataFrame(permutation_rows).sort_values(
+            ["null_roc_auc", "null_average_precision", "model_name"],
+            ascending=[False, False, True],
+            kind="mergesort",
+        )
+        selected_row = permutation_frame.iloc[0]
+        selected_null_aucs.append(float(selected_row["null_roc_auc"]))
+        selected_null_aps.append(float(selected_row["null_average_precision"]))
+        selected_model_names.append(str(selected_row["model_name"]))
+        detail_rows.append(
+            {
+                "permutation_index": permutation_index,
+                "selection_scope": "single_model_pareto_finalists",
+                "n_models_in_scope": int(len(prepared_inputs)),
+                "selected_model_name": str(selected_row["model_name"]),
+                "selected_null_roc_auc": float(selected_row["null_roc_auc"]),
+                "selected_null_average_precision": float(selected_row["null_average_precision"]),
+            }
+        )
+
+    if not selected_null_aucs:
+        return pd.DataFrame(detail_rows), pd.DataFrame()
+
+    winner_counts = pd.Series(selected_model_names, dtype=object).value_counts()
+    modal_selected_model = str(winner_counts.index[0]) if not winner_counts.empty else ""
+    modal_selected_share = (
+        float(winner_counts.iloc[0] / max(len(selected_model_names), 1))
+        if not winner_counts.empty
+        else 0.0
+    )
+
+    summary_rows: list[dict[str, object]] = []
+    for model_name, (observed_auc, observed_ap) in observed_metrics.items():
+        summary_rows.append(
+            {
+                "model_name": model_name,
+                "null_protocol": "selection_adjusted_single_model_finalist_refit",
+                "selection_scope": "single_model_pareto_finalists",
+                "n_models_in_scope": int(len(prepared_inputs)),
+                "n_permutations": int(n_permutations),
+                "observed_roc_auc": observed_auc,
+                "observed_average_precision": observed_ap,
+                "null_roc_auc_mean": float(np.mean(selected_null_aucs)),
+                "null_roc_auc_std": float(np.std(selected_null_aucs)),
+                "null_roc_auc_q975": float(np.quantile(selected_null_aucs, 0.975)),
+                "selection_adjusted_empirical_p_roc_auc": float(
+                    (1 + sum(value >= observed_auc for value in selected_null_aucs))
+                    / (len(selected_null_aucs) + 1)
+                ),
+                "null_average_precision_mean": float(np.mean(selected_null_aps)),
+                "null_average_precision_std": float(np.std(selected_null_aps)),
+                "null_average_precision_q975": float(np.quantile(selected_null_aps, 0.975)),
+                "selection_adjusted_empirical_p_average_precision": float(
+                    (1 + sum(value >= observed_ap for value in selected_null_aps))
+                    / (len(selected_null_aps) + 1)
+                ),
+                "modal_selected_model_name": modal_selected_model,
+                "modal_selected_model_share": modal_selected_share,
+            }
+        )
+    return pd.DataFrame(detail_rows), pd.DataFrame(summary_rows)
+
+
+def build_single_model_finalist_audit(
+    scored: pd.DataFrame,
+    finalists: pd.DataFrame,
+    *,
+    n_splits: int = 5,
+    n_repeats: int = 5,
+    selection_adjusted_n_permutations: int = 200,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Re-score Pareto finalists under a heavier audit protocol."""
+    if finalists.empty:
+        return pd.DataFrame()
+    heavy = build_single_model_pareto_screen(
+        scored,
+        family=finalists,
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        seed=seed,
+    )
+    if heavy.empty:
+        return heavy
+    _, selection_adjusted_summary = build_single_model_selection_adjusted_permutation_null(
+        scored,
+        finalists,
+        n_permutations=selection_adjusted_n_permutations,
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        seed=seed,
+    )
+    if not selection_adjusted_summary.empty:
+        heavy = heavy.merge(
+            selection_adjusted_summary[
+                [
+                    "model_name",
+                    "selection_adjusted_empirical_p_roc_auc",
+                    "n_permutations",
+                ]
+            ],
+            on="model_name",
+            how="left",
+        )
+    else:
+        heavy["selection_adjusted_empirical_p_roc_auc"] = np.nan
+        heavy["n_permutations"] = 0
+
+    heavy["matched_knownness_gate_pass"] = pd.to_numeric(
+        heavy["knownness_matched_gap"], errors="coerce"
+    ).ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["matched_knownness_gap_min"])
+    heavy["source_holdout_gate_pass"] = pd.to_numeric(
+        heavy["source_holdout_gap"], errors="coerce"
+    ).ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["source_holdout_gap_min"])
+    heavy["spatial_holdout_gate_pass"] = pd.to_numeric(
+        heavy["spatial_holdout_gap"], errors="coerce"
+    ).ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["spatial_holdout_gap_min"])
+    heavy["calibration_gate_pass"] = pd.to_numeric(
+        heavy["ece"], errors="coerce"
+    ).le(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"])
+    heavy["selection_adjusted_gate_pass"] = pd.to_numeric(
+        heavy["selection_adjusted_empirical_p_roc_auc"], errors="coerce"
+    ).le(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["selection_adjusted_p_max"])
+    required_columns = [
+        "knownness_matched_gap",
+        "source_holdout_gap",
+        "spatial_holdout_gap",
+        "ece",
+        "selection_adjusted_empirical_p_roc_auc",
+    ]
+    heavy["scientific_acceptance_scored"] = heavy[required_columns].notna().all(axis=1)
+    heavy["scientific_acceptance_flag"] = (
+        heavy["scientific_acceptance_scored"]
+        & heavy["matched_knownness_gate_pass"]
+        & heavy["source_holdout_gate_pass"]
+        & heavy["spatial_holdout_gate_pass"]
+        & heavy["calibration_gate_pass"]
+        & heavy["selection_adjusted_gate_pass"]
+    )
+
+    def _single_model_acceptance_reason(row: pd.Series) -> str:
+        missing = [column for column in required_columns if pd.isna(row.get(column, np.nan))]
+        if missing:
+            return "missing:" + ",".join(sorted(missing))
+        failed = [
+            label
+            for label, column_name in [
+                ("matched_knownness", "matched_knownness_gate_pass"),
+                ("source_holdout", "source_holdout_gate_pass"),
+                ("spatial_holdout", "spatial_holdout_gate_pass"),
+                ("calibration", "calibration_gate_pass"),
+                ("selection_adjusted_null", "selection_adjusted_gate_pass"),
+            ]
+            if not bool(row.get(column_name, False))
+        ]
+        if failed:
+            return "fail:" + ",".join(failed)
+        return "pass"
+
+    heavy["scientific_acceptance_status"] = np.where(
+        heavy["scientific_acceptance_scored"],
+        np.where(heavy["scientific_acceptance_flag"], "pass", "fail"),
+        "not_scored",
+    )
+    heavy["scientific_acceptance_failed_criteria"] = heavy.apply(
+        _single_model_acceptance_reason,
+        axis=1,
+    )
+    heavy = add_failure_severity(heavy)
+    return heavy.sort_values(
+        ["failure_severity", "roc_auc", "average_precision", "model_name"],
+        ascending=[True, False, False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+
+def build_single_model_official_decision(finalists: pd.DataFrame) -> pd.DataFrame:
+    """Choose one official model from finalists using scientific-first ordering."""
+    if finalists.empty:
+        return pd.DataFrame()
+    working = finalists.copy()
+    if "failure_severity" not in working.columns:
+        working = add_failure_severity(working)
+    working["acceptance_sort"] = (
+        working.get("scientific_acceptance_status", pd.Series(index=working.index, dtype=object))
+        .astype(str)
+        .eq("pass")
+        .astype(int)
+    )
+    ranked = working.sort_values(
+        [
+            "acceptance_sort",
+            "failure_severity",
+            "roc_auc",
+            "average_precision",
+            "compute_efficiency_score",
+            "weighted_objective_score",
+            "screen_fit_seconds",
+            "model_name",
+        ],
+        ascending=[False, True, False, False, False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+    winner = ranked.iloc[0]
+    acceptance_status = str(winner.get("scientific_acceptance_status", "not_scored"))
+    if acceptance_status == "pass":
+        decision_reason = "accepted_with_best_reliability_power_tradeoff"
+    elif str(winner.get("scientific_acceptance_failed_criteria", "")).startswith("fail:"):
+        decision_reason = "lowest_failure_severity_with_competitive_auc"
+    else:
+        decision_reason = "best_available_weighted_tradeoff_pending_full_acceptance"
+    return pd.DataFrame(
+        [
+            {
+                "official_model_name": str(winner.get("model_name", "")),
+                "decision_reason": decision_reason,
+                "scientific_acceptance_status": acceptance_status,
+                "scientific_acceptance_failed_criteria": str(
+                    winner.get("scientific_acceptance_failed_criteria", "")
+                ),
+                "failure_severity": float(winner.get("failure_severity", np.nan)),
+                "roc_auc": float(winner.get("roc_auc", np.nan)),
+                "average_precision": float(winner.get("average_precision", np.nan)),
+                "weighted_objective_score": float(winner.get("weighted_objective_score", np.nan)),
+                "screen_fit_seconds": float(winner.get("screen_fit_seconds", np.nan)),
+                "compute_efficiency_score": float(
+                    winner.get("compute_efficiency_score", np.nan)
+                ),
+                "selected_from_n_finalists": int(len(ranked)),
+            }
+        ]
+    )

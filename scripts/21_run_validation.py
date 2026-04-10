@@ -24,6 +24,7 @@ from plasmid_priority.modeling import (
     build_discovery_input_contract,
     build_feature_dropout_audit,
     build_logistic_convergence_audit,
+    build_single_model_pareto_screen,
     build_standardized_coefficient_table,
     evaluate_feature_columns,
     evaluate_model_name,
@@ -51,6 +52,9 @@ from plasmid_priority.reporting import (
     build_negative_control_audit,
     build_permutation_null_tables,
     build_selection_adjusted_permutation_null,
+    build_single_model_finalist_audit,
+    build_single_model_official_decision,
+    build_single_model_pareto_finalists,
     build_source_balance_resampling_table,
     sanitize_adaptive_gated_predictions,
 )
@@ -281,6 +285,13 @@ def main() -> int:
     logistic_impl_output = context.data_dir / "analysis/logistic_implementation_audit.tsv"
     logistic_convergence_output = context.data_dir / "analysis/logistic_convergence_audit.tsv"
     simplicity_output = context.data_dir / "analysis/model_simplicity_summary.tsv"
+    single_model_pareto_screen_output = context.data_dir / "analysis/single_model_pareto_screen.tsv"
+    single_model_pareto_finalists_output = (
+        context.data_dir / "analysis/single_model_pareto_finalists.tsv"
+    )
+    single_model_official_decision_output = (
+        context.data_dir / "analysis/single_model_official_decision.tsv"
+    )
     knownness_summary_output = context.data_dir / "analysis/knownness_audit_summary.tsv"
     knownness_strata_output = context.data_dir / "analysis/knownness_stratified_performance.tsv"
     country_quality_output = context.data_dir / "analysis/country_quality_summary.tsv"
@@ -358,6 +369,9 @@ def main() -> int:
         run.record_output(logistic_impl_output)
         run.record_output(logistic_convergence_output)
         run.record_output(simplicity_output)
+        run.record_output(single_model_pareto_screen_output)
+        run.record_output(single_model_pareto_finalists_output)
+        run.record_output(single_model_official_decision_output)
         run.record_output(knownness_summary_output)
         run.record_output(knownness_strata_output)
         run.record_output(country_quality_output)
@@ -1182,6 +1196,44 @@ def main() -> int:
             conservative_model_name=conservative_model_name,
         )
         simplicity_summary.to_csv(simplicity_output, sep="\t", index=False)
+
+        single_model_pareto_screen = build_single_model_pareto_screen(
+            scored,
+            n_splits=3,
+            n_repeats=2,
+            seed=42,
+            min_group_size=25,
+            max_groups_per_column=8,
+        )
+        single_model_pareto_screen.to_csv(
+            single_model_pareto_screen_output,
+            sep="\t",
+            index=False,
+        )
+        single_model_pareto_finalists = build_single_model_pareto_finalists(
+            single_model_pareto_screen
+        )
+        single_model_pareto_finalists = build_single_model_finalist_audit(
+            scored,
+            single_model_pareto_finalists,
+            n_splits=5,
+            n_repeats=5,
+            selection_adjusted_n_permutations=200,
+            seed=42,
+        )
+        single_model_pareto_finalists.to_csv(
+            single_model_pareto_finalists_output,
+            sep="\t",
+            index=False,
+        )
+        single_model_official_decision = build_single_model_official_decision(
+            single_model_pareto_finalists
+        )
+        single_model_official_decision.to_csv(
+            single_model_official_decision_output,
+            sep="\t",
+            index=False,
+        )
 
         knownness_summary, knownness_strata = build_knownness_audit_tables(
             predictions,

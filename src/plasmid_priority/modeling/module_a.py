@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 import warnings
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any, cast
@@ -54,6 +55,7 @@ from plasmid_priority.modeling.module_a_support import (
     _stratified_folds,
     _top_k_precision_recall,
     build_failed_model_result,
+    build_single_model_candidate_family,
 )
 from plasmid_priority.modeling.module_a_support import (
     NOVELTY_SPECIALIST_FEATURES as _NOVELTY_SPECIALIST_FEATURES,
@@ -61,6 +63,7 @@ from plasmid_priority.modeling.module_a_support import (
 from plasmid_priority.modeling.module_a_support import (
     NOVELTY_SPECIALIST_FIT_CONFIG as _NOVELTY_SPECIALIST_FIT_CONFIG,
 )
+from plasmid_priority.modeling.single_model_pareto import add_weighted_objective
 from plasmid_priority.utils.parallel import limit_native_threads
 from plasmid_priority.validation import (
     average_precision,
@@ -1849,6 +1852,322 @@ def fit_predict_model_holdout(
             "prediction_ci_upper": posterior_summary["q95"].tolist(),
         }
     )
+
+
+def _component_rank_score(values: pd.Series, *, ascending: bool) -> pd.Series:
+    scores = pd.Series(np.nan, index=values.index, dtype=float)
+    valid = values.notna()
+    if not valid.any():
+        return scores
+    ranks = values.loc[valid].rank(method="average", ascending=ascending)
+    if int(valid.sum()) == 1:
+        scores.loc[valid] = 1.0
+        return scores
+    scores.loc[valid] = 1.0 - ((ranks - 1.0) / (int(valid.sum()) - 1.0))
+    return scores
+
+
+def _knownness_matched_weighted_roc_auc(
+    scored: pd.DataFrame,
+    prediction_frame: pd.DataFrame,
+) -> float:
+    eligible = annotate_knownness_metadata(scored.loc[scored["spread_label"].notna()].copy())
+    merged = eligible[
+        [
+            "backbone_id",
+            "spread_label",
+            "member_count_band",
+            "country_count_band",
+            "source_band",
+        ]
+    ].merge(
+        prediction_frame[["backbone_id", "oof_prediction"]],
+        on="backbone_id",
+        how="inner",
+        validate="1:1",
+    )
+    if merged.empty:
+        return float("nan")
+    rows: list[dict[str, float | int | str]] = []
+    for keys, frame in merged.groupby(
+        ["member_count_band", "country_count_band", "source_band"],
+        sort=False,
+        observed=True,
+    ):
+        if len(frame) < 20 or frame["spread_label"].astype(int).nunique() < 2:
+            continue
+        rows.append(
+            {
+                "member_count_band": str(keys[0]),
+                "country_count_band": str(keys[1]),
+                "source_band": str(keys[2]),
+                "n_backbones": int(len(frame)),
+                "roc_auc": float(
+                    roc_auc_score(
+                        frame["spread_label"].astype(int).to_numpy(),
+                        frame["oof_prediction"].astype(float).to_numpy(),
+                    )
+                ),
+            }
+        )
+    if not rows:
+        return float("nan")
+    strata = pd.DataFrame(rows)
+    weights = pd.to_numeric(strata["n_backbones"], errors="coerce").fillna(0.0)
+    aucs = pd.to_numeric(strata["roc_auc"], errors="coerce")
+    if float(weights.sum()) <= 0.0:
+        return float(aucs.mean())
+    return float(np.average(aucs, weights=weights))
+
+
+def _grouped_prediction_weighted_roc_auc(
+    scored: pd.DataFrame,
+    prediction_frame: pd.DataFrame,
+    *,
+    group_columns: tuple[str, ...],
+    min_group_size: int,
+    max_groups_per_column: int,
+) -> float:
+    if prediction_frame.empty:
+        return float("nan")
+    merged = scored.loc[scored["spread_label"].notna()].copy()
+    merged = merged.merge(
+        prediction_frame[["backbone_id", "oof_prediction"]],
+        on="backbone_id",
+        how="inner",
+        validate="1:1",
+    )
+    if merged.empty:
+        return float("nan")
+
+    rows: list[dict[str, float | int]] = []
+    for group_column in group_columns:
+        if group_column not in merged.columns:
+            continue
+        working = merged.copy()
+        working[group_column] = working[group_column].fillna("unknown").astype(str)
+        counts = working[group_column].value_counts()
+        if group_column == "dominant_source":
+            selected_groups = counts.index.tolist()
+        else:
+            selected_groups = (
+                counts.loc[counts >= min_group_size].head(max_groups_per_column).index.tolist()
+            )
+        for group_value in selected_groups:
+            frame = working.loc[working[group_column] == group_value].copy()
+            if len(frame) < min_group_size or frame["spread_label"].astype(int).nunique() < 2:
+                continue
+            rows.append(
+                {
+                    "n_backbones": int(len(frame)),
+                    "roc_auc": float(
+                        roc_auc_score(
+                            frame["spread_label"].astype(int).to_numpy(),
+                            frame["oof_prediction"].astype(float).to_numpy(),
+                        )
+                    ),
+                }
+            )
+    if not rows:
+        return float("nan")
+    summary = pd.DataFrame(rows)
+    weights = pd.to_numeric(summary["n_backbones"], errors="coerce").fillna(0.0)
+    aucs = pd.to_numeric(summary["roc_auc"], errors="coerce")
+    if float(weights.sum()) <= 0.0:
+        return float(aucs.mean())
+    return float(np.average(aucs, weights=weights))
+
+
+def build_single_model_pareto_screen(
+    scored: pd.DataFrame,
+    *,
+    family: pd.DataFrame | None = None,
+    n_splits: int = 3,
+    n_repeats: int = 2,
+    seed: int = 42,
+    min_group_size: int = 25,
+    max_groups_per_column: int = 8,
+    n_jobs: int | None = 1,
+) -> pd.DataFrame:
+    """Build the Stage A screen for bounded single-model Pareto candidates."""
+    candidate_family = (
+        family.copy() if family is not None else build_single_model_candidate_family()
+    )
+    if candidate_family.empty:
+        return pd.DataFrame(
+            columns=[
+                "model_name",
+                "parent_model_name",
+                "feature_count",
+                "roc_auc",
+                "average_precision",
+                "knownness_matched_gap",
+                "source_holdout_gap",
+                "blocked_holdout_weighted_roc_auc",
+                "screen_fit_seconds",
+                "predictive_power_score",
+                "reliability_score",
+                "compute_efficiency_score",
+                "weighted_objective_score",
+            ]
+        )
+
+    rows: list[dict[str, object]] = []
+    for candidate in candidate_family.to_dict("records"):
+        model_name = str(candidate["model_name"])
+        parent_model_name = str(candidate["parent_model_name"])
+        feature_set = [str(column) for column in candidate["feature_set"]]
+        feature_count = int(candidate["feature_count"])
+        candidate_kind = str(candidate["candidate_kind"])
+        fit_config = _model_fit_kwargs(parent_model_name)
+
+        started_at = time.perf_counter()
+        if candidate_kind == "parent" and model_name in MODULE_A_FEATURE_SETS:
+            result = evaluate_model_name(
+                scored,
+                model_name=model_name,
+                n_splits=n_splits,
+                n_repeats=n_repeats,
+                seed=seed,
+                include_ci=False,
+            )
+        else:
+            result = evaluate_feature_columns(
+                scored,
+                columns=feature_set,
+                label=model_name,
+                n_splits=n_splits,
+                n_repeats=n_repeats,
+                seed=seed,
+                fit_config=fit_config,
+                include_ci=False,
+            )
+        screen_fit_seconds = float(max(time.perf_counter() - started_at, 0.0))
+
+        prediction_frame = result.predictions.copy()
+        if not prediction_frame.empty:
+            if "spread_label" not in prediction_frame.columns:
+                prediction_frame = prediction_frame.merge(
+                    scored.loc[scored["spread_label"].notna(), ["backbone_id", "spread_label"]],
+                    on="backbone_id",
+                    how="left",
+                    validate="1:1",
+                )
+            prediction_frame["model_name"] = model_name
+
+        roc_auc_value = float(result.metrics.get("roc_auc", np.nan))
+        average_precision_value = float(result.metrics.get("average_precision", np.nan))
+        ece_value = float(
+            result.metrics.get(
+                "ece",
+                result.metrics.get("expected_calibration_error", np.nan),
+            )
+        )
+        matched_knownness_weighted_roc_auc = _knownness_matched_weighted_roc_auc(
+            scored,
+            prediction_frame,
+        )
+        source_holdout_weighted_roc_auc = _grouped_prediction_weighted_roc_auc(
+            scored,
+            prediction_frame,
+            group_columns=("dominant_source",),
+            min_group_size=min_group_size,
+            max_groups_per_column=max_groups_per_column,
+        )
+        blocked_holdout_weighted_roc_auc = _grouped_prediction_weighted_roc_auc(
+            scored,
+            prediction_frame,
+            group_columns=("dominant_source", "dominant_region_train"),
+            min_group_size=min_group_size,
+            max_groups_per_column=max_groups_per_column,
+        )
+        spatial_holdout_weighted_roc_auc = _grouped_prediction_weighted_roc_auc(
+            scored,
+            prediction_frame,
+            group_columns=("dominant_region_train",),
+            min_group_size=min_group_size,
+            max_groups_per_column=max_groups_per_column,
+        )
+        screen_fit_seconds = float(max(time.perf_counter() - started_at, 0.0))
+        rows.append(
+            {
+                "model_name": model_name,
+                "parent_model_name": parent_model_name,
+                "feature_set": tuple(feature_set),
+                "feature_count": feature_count,
+                "candidate_kind": candidate_kind,
+                "status": result.status,
+                "roc_auc": roc_auc_value,
+                "average_precision": average_precision_value,
+                "matched_knownness_weighted_roc_auc": matched_knownness_weighted_roc_auc,
+                "knownness_matched_gap": matched_knownness_weighted_roc_auc - roc_auc_value
+                if pd.notna(matched_knownness_weighted_roc_auc)
+                else np.nan,
+                "source_holdout_weighted_roc_auc": source_holdout_weighted_roc_auc,
+                "source_holdout_gap": source_holdout_weighted_roc_auc - roc_auc_value
+                if pd.notna(source_holdout_weighted_roc_auc)
+                else np.nan,
+                "spatial_holdout_weighted_roc_auc": spatial_holdout_weighted_roc_auc,
+                "spatial_holdout_gap": spatial_holdout_weighted_roc_auc - roc_auc_value
+                if pd.notna(spatial_holdout_weighted_roc_auc)
+                else np.nan,
+                "blocked_holdout_weighted_roc_auc": blocked_holdout_weighted_roc_auc,
+                "ece": ece_value,
+                "screen_fit_seconds": screen_fit_seconds,
+            }
+        )
+
+    screen = pd.DataFrame(rows)
+    if screen.empty:
+        return screen
+
+    screen["roc_auc_component_score"] = _component_rank_score(
+        pd.to_numeric(screen["roc_auc"], errors="coerce"),
+        ascending=False,
+    )
+    screen["average_precision_component_score"] = _component_rank_score(
+        pd.to_numeric(screen["average_precision"], errors="coerce"),
+        ascending=False,
+    )
+    screen["knownness_component_score"] = _component_rank_score(
+        pd.to_numeric(screen["matched_knownness_weighted_roc_auc"], errors="coerce"),
+        ascending=False,
+    )
+    screen["source_holdout_component_score"] = _component_rank_score(
+        pd.to_numeric(screen["source_holdout_weighted_roc_auc"], errors="coerce"),
+        ascending=False,
+    )
+    screen["blocked_holdout_component_score"] = _component_rank_score(
+        pd.to_numeric(screen["blocked_holdout_weighted_roc_auc"], errors="coerce"),
+        ascending=False,
+    )
+    screen["feature_count_component_score"] = _component_rank_score(
+        pd.to_numeric(screen["feature_count"], errors="coerce"),
+        ascending=True,
+    )
+    screen["fit_seconds_component_score"] = _component_rank_score(
+        pd.to_numeric(screen["screen_fit_seconds"], errors="coerce"),
+        ascending=True,
+    )
+    screen["predictive_power_score"] = screen[
+        ["roc_auc_component_score", "average_precision_component_score"]
+    ].mean(axis=1)
+    screen["reliability_score"] = screen[
+        [
+            "knownness_component_score",
+            "source_holdout_component_score",
+            "blocked_holdout_component_score",
+        ]
+    ].mean(axis=1)
+    screen["compute_efficiency_score"] = screen[
+        ["feature_count_component_score", "fit_seconds_component_score"]
+    ].mean(axis=1)
+    screen = add_weighted_objective(screen)
+    return screen.sort_values(
+        ["weighted_objective_score", "reliability_score", "model_name"],
+        ascending=[False, False, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
 
 
 def fit_full_model_predictions(

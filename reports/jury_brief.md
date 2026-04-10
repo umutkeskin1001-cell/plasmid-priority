@@ -12,18 +12,18 @@ This framework retrospectively prioritizes plasmid backbone surveillance units u
 
 ## Current Benchmark
 
-- Discovery benchmark: `parsimonious_priority` | ROC AUC `0.751` | AP `0.659`.
+- Discovery benchmark: `discovery_12f_source` | ROC AUC `0.804` | AP `0.723`.
 - Counts-only baseline: `baseline_both` | ROC AUC `0.722` | AP `0.647`.
 - Conservative benchmark: `parsimonious_priority` | ROC AUC `0.751` | AP `0.659`.
 - Source-only control: `source_only` | ROC AUC `0.452`.
-- Strongest audited metric model: `phylo-support fusion model` | ROC AUC `0.828` | AP `0.767`.
-- Governance watch-only: `phylo-support fusion model` | ROC AUC `0.828` | AP `0.767` | strict `fail`.
-- Selection-adjusted official-model permutation audit for the headline ROC AUC: `p NA`; the older fixed-score label-permutation entry is retained only as an exploratory appendix diagnostic.
-- Delta vs counts-only baseline: `NA`.
+- Strongest audited metric model: `phylo-support fusion model` | ROC AUC `0.827` | AP `0.767`.
+- Governance watch-only: `phylo-support fusion model` | ROC AUC `0.827` | AP `0.767` | strict `fail`.
+- Selection-adjusted official-model permutation audit for the headline ROC AUC: `p <0.001`; the older fixed-score label-permutation entry is retained only as an exploratory appendix diagnostic.
+- Delta vs counts-only baseline: `0.081, 95% CI [0.046, 0.116]`.
 
 ## Primary Model Selection Rationale
 
-Model selection was not driven by a single metric. We jointly considered ROC AUC, average precision, lower-knownness behavior, matched-knownness/source performance, source holdout robustness, and practical shortlist yield. In the current scorecard, the headline model ranks `NA`.
+Model selection was not driven by a single metric. We jointly considered ROC AUC, average precision, lower-knownness behavior, matched-knownness/source performance, source holdout robustness, and practical shortlist yield. In the current scorecard, the headline model ranks `2/22` overall; `1` within the discovery track.
 
 Operationally, the headline model is preferred because it keeps the strongest balance between discrimination and shortlist usefulness. In this refresh, the primary model also preserves a top-10 precision of 1.0 while remaining clearly above the counts-only baseline in matched-knownness auditing.
 Governance track logic is kept separate from discovery-track optimization even when the shortlisted candidates partially overlap.
@@ -42,24 +42,24 @@ This should be interpreted as a data-limited regime, not as evidence that the en
 - `operational_risk_watchlist.tsv` is the calibrated deployment-facing table for the current shortlist.
 - Current operational watchlist mix: `22` action + `18` review + `10` abstain rows.
 - This remains a shortlist-prioritization benchmark rather than an exhaustive detector for every later positive backbone.
-- Matched knownness/source strata: primary `0.683` vs baseline `0.594` weighted ROC AUC.
-- Raw later new-country count alignment: Spearman ρ `0.624` [0.580, 0.662].
+- Matched knownness/source strata: primary `0.744` vs baseline `0.594` weighted ROC AUC.
+- Raw later new-country count alignment: Spearman ρ `0.624` [0.580, 0.661].
 - Weighted new-country burden alignment: Spearman ρ `0.620`.
-- Spatial holdout audit: weighted ROC AUC `0.741` across `5` held-out dominant regions; hardest region `Asia` at ROC AUC `0.707`.
+- Spatial holdout audit: weighted ROC AUC `0.789` across `5` held-out dominant regions; hardest region `Oceania` at ROC AUC `0.721`.
 
 ## Blocked Holdout Audit
 
-- parsimonious_priority blocked holdout audit (dominant_region_train + dominant_source): weighted ROC AUC `0.738` across `7` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.655`. This is an internal source/region stress test, not external validation.
+- discovery_12f_source blocked holdout audit (dominant_region_train + dominant_source): weighted ROC AUC `0.786` across `7` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.684`. This is an internal source/region stress test, not external validation.
 
 ## Country Missingness
 
-- parsimonious_priority country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.746 to 0.756 and AP 0.659 to 0.745..
+- discovery_12f_source country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.793 to 0.804 and AP 0.723 to 0.780..
 
 ## Ranking Stability
 
 - `candidate_rank_stability.tsv` records candidate rank stability across bootstrap resamples; the strongest stable backbone `AA175` remains in the top-`25` set at frequency `1.00`.
 - `candidate_variant_consistency.tsv` records candidate rank stability across model variants; the strongest stable backbone `AA324` remains in the top-`25` set at frequency `0.88`.
-- Discovery shortlist agreement with the strongest audited metric model: top-25 overlap: `10/25`; top-50 overlap: `22/50`.
+- Discovery shortlist agreement with the strongest audited metric model: top-25 overlap: `14/25`; top-50 overlap: `25/50`.
 - A knownness-gated audit model (`adaptive_natural_priority`) remains useful for lower-knownness stress testing but is not the headline benchmark.
 - Observed host-diversity terms should be interpreted cautiously because they partly behave like sampling saturation / knownness signals.
 - Supportive external layers are descriptive context only; AMRFinder is optional and not required for the headline benchmark.
