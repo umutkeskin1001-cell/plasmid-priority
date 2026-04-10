@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
@@ -244,6 +245,52 @@ def _summarize_prediction_frame(
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Build validation tables and official decision artifacts."
+    )
+    parser.add_argument(
+        "--official-refresh-only",
+        action="store_true",
+        help="Refresh only the single-model official decision artifacts needed for reports/releases.",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=min(8, os.cpu_count() or 1),
+        help="Parallel workers for eligible validation substeps.",
+    )
+    parser.add_argument(
+        "--single-model-screen-splits",
+        type=int,
+        default=3,
+        help="Split count for Pareto screening.",
+    )
+    parser.add_argument(
+        "--single-model-screen-repeats",
+        type=int,
+        default=2,
+        help="Repeat count for Pareto screening.",
+    )
+    parser.add_argument(
+        "--single-model-finalist-splits",
+        type=int,
+        default=5,
+        help="Split count for finalist audit.",
+    )
+    parser.add_argument(
+        "--single-model-finalist-repeats",
+        type=int,
+        default=5,
+        help="Repeat count for finalist audit.",
+    )
+    parser.add_argument(
+        "--selection-adjusted-permutations",
+        type=int,
+        default=200,
+        help="Selection-adjusted null permutations for finalist audit.",
+    )
+    args = parser.parse_args()
+
     context = build_context(PROJECT_ROOT)
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
     backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
@@ -332,7 +379,14 @@ def main() -> int:
             "min_new_countries_for_spread": int(
                 context.pipeline_settings.min_new_countries_for_spread
             ),
-        }
+        },
+        "official_refresh_only": bool(args.official_refresh_only),
+        "jobs": int(args.jobs),
+        "single_model_screen_splits": int(args.single_model_screen_splits),
+        "single_model_screen_repeats": int(args.single_model_screen_repeats),
+        "single_model_finalist_splits": int(args.single_model_finalist_splits),
+        "single_model_finalist_repeats": int(args.single_model_finalist_repeats),
+        "selection_adjusted_permutations": int(args.selection_adjusted_permutations),
     }
 
     with ManagedScriptRun(context, "21_run_validation") as run:
@@ -522,6 +576,68 @@ def main() -> int:
         scored = scored.merge(dominant_primary_replicon, on="backbone_id", how="left")
         scored = scored.merge(dominant_primary_replicon_family, on="backbone_id", how="left")
         scored = scored.merge(dominant_amr_class, on="backbone_id", how="left")
+
+        if args.official_refresh_only:
+            single_model_pareto_screen = build_single_model_pareto_screen(
+                scored,
+                n_splits=int(args.single_model_screen_splits),
+                n_repeats=int(args.single_model_screen_repeats),
+                seed=42,
+                min_group_size=25,
+                max_groups_per_column=8,
+                n_jobs=max(int(args.jobs), 1),
+            )
+            single_model_pareto_screen.to_csv(
+                single_model_pareto_screen_output,
+                sep="\t",
+                index=False,
+            )
+            single_model_pareto_finalists = build_single_model_pareto_finalists(
+                single_model_pareto_screen
+            )
+            single_model_pareto_finalists = build_single_model_finalist_audit(
+                scored,
+                single_model_pareto_finalists,
+                n_splits=int(args.single_model_finalist_splits),
+                n_repeats=int(args.single_model_finalist_repeats),
+                selection_adjusted_n_permutations=int(args.selection_adjusted_permutations),
+                seed=42,
+            )
+            single_model_pareto_finalists.to_csv(
+                single_model_pareto_finalists_output,
+                sep="\t",
+                index=False,
+            )
+            single_model_official_decision = build_single_model_official_decision(
+                single_model_pareto_finalists
+            )
+            single_model_official_decision.to_csv(
+                single_model_official_decision_output,
+                sep="\t",
+                index=False,
+            )
+            run.set_rows_out(
+                "single_model_pareto_screen_rows", int(len(single_model_pareto_screen))
+            )
+            run.set_rows_out(
+                "single_model_pareto_finalists_rows", int(len(single_model_pareto_finalists))
+            )
+            run.set_rows_out(
+                "single_model_official_decision_rows", int(len(single_model_official_decision))
+            )
+            run.note(
+                "Refreshed only the official single-model decision artifacts for a faster report/release loop."
+            )
+            write_signature_manifest(
+                manifest_path,
+                input_paths=input_paths,
+                output_paths=materialize_recorded_paths(context.root, run.output_files_written),
+                source_paths=source_paths,
+                metadata=cache_metadata,
+            )
+            run.set_metric("cache_hit", False)
+            run.set_metric("official_refresh_only", True)
+            return 0
         country_quality = build_country_quality_summary(
             backbones,
             split_year=pipeline.split_year,
@@ -1041,14 +1157,14 @@ def main() -> int:
             scored,
             model_name=primary_model_name,
             columns=primary_columns,
-            n_jobs=min(8, os.cpu_count() or 1),
+            n_jobs=max(int(args.jobs), 1),
         )
         dropout_table.to_csv(dropout_output, sep="\t", index=False)
 
         source_balance_resampling = build_source_balance_resampling_table(
             scored,
             model_name=primary_model_name,
-            n_jobs=min(8, os.cpu_count() or 1),
+            n_jobs=max(int(args.jobs), 1),
         )
         source_balance_resampling.to_csv(source_balance_resampling_output, sep="\t", index=False)
 
@@ -1073,7 +1189,7 @@ def main() -> int:
             ],
             min_group_size=25,
             max_groups_per_column=8,
-            n_jobs=min(8, os.cpu_count() or 1),
+            n_jobs=max(int(args.jobs), 1),
         )
         group_holdout.to_csv(group_holdout_output, sep="\t", index=False)
 
@@ -1098,7 +1214,7 @@ def main() -> int:
             n_splits=3,
             n_repeats=1,
             seed=42,
-            n_jobs=min(8, os.cpu_count() or 1),
+            n_jobs=max(int(args.jobs), 1),
         )
         blocked_holdout_calibration.to_csv(
             blocked_holdout_calibration_output, sep="\t", index=False
@@ -1199,11 +1315,12 @@ def main() -> int:
 
         single_model_pareto_screen = build_single_model_pareto_screen(
             scored,
-            n_splits=3,
-            n_repeats=2,
+            n_splits=int(args.single_model_screen_splits),
+            n_repeats=int(args.single_model_screen_repeats),
             seed=42,
             min_group_size=25,
             max_groups_per_column=8,
+            n_jobs=max(int(args.jobs), 1),
         )
         single_model_pareto_screen.to_csv(
             single_model_pareto_screen_output,
@@ -1216,9 +1333,9 @@ def main() -> int:
         single_model_pareto_finalists = build_single_model_finalist_audit(
             scored,
             single_model_pareto_finalists,
-            n_splits=5,
-            n_repeats=5,
-            selection_adjusted_n_permutations=200,
+            n_splits=int(args.single_model_finalist_splits),
+            n_repeats=int(args.single_model_finalist_repeats),
+            selection_adjusted_n_permutations=int(args.selection_adjusted_permutations),
             seed=42,
         )
         single_model_pareto_finalists.to_csv(
@@ -1272,6 +1389,7 @@ def main() -> int:
             metadata=cache_metadata,
         )
         run.set_metric("cache_hit", False)
+        run.set_metric("official_refresh_only", False)
     return 0
 
 

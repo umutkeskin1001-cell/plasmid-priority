@@ -2012,8 +2012,7 @@ def build_single_model_pareto_screen(
             ]
         )
 
-    rows: list[dict[str, object]] = []
-    for candidate in candidate_family.to_dict("records"):
+    def _screen_candidate(candidate: dict[str, object]) -> dict[str, object]:
         model_name = str(candidate["model_name"])
         parent_model_name = str(candidate["parent_model_name"])
         feature_set = [str(column) for column in candidate["feature_set"]]
@@ -2089,33 +2088,40 @@ def build_single_model_pareto_screen(
             max_groups_per_column=max_groups_per_column,
         )
         screen_fit_seconds = float(max(time.perf_counter() - started_at, 0.0))
-        rows.append(
-            {
-                "model_name": model_name,
-                "parent_model_name": parent_model_name,
-                "feature_set": tuple(feature_set),
-                "feature_count": feature_count,
-                "candidate_kind": candidate_kind,
-                "status": result.status,
-                "roc_auc": roc_auc_value,
-                "average_precision": average_precision_value,
-                "matched_knownness_weighted_roc_auc": matched_knownness_weighted_roc_auc,
-                "knownness_matched_gap": matched_knownness_weighted_roc_auc - roc_auc_value
-                if pd.notna(matched_knownness_weighted_roc_auc)
-                else np.nan,
-                "source_holdout_weighted_roc_auc": source_holdout_weighted_roc_auc,
-                "source_holdout_gap": source_holdout_weighted_roc_auc - roc_auc_value
-                if pd.notna(source_holdout_weighted_roc_auc)
-                else np.nan,
-                "spatial_holdout_weighted_roc_auc": spatial_holdout_weighted_roc_auc,
-                "spatial_holdout_gap": spatial_holdout_weighted_roc_auc - roc_auc_value
-                if pd.notna(spatial_holdout_weighted_roc_auc)
-                else np.nan,
-                "blocked_holdout_weighted_roc_auc": blocked_holdout_weighted_roc_auc,
-                "ece": ece_value,
-                "screen_fit_seconds": screen_fit_seconds,
-            }
-        )
+        return {
+            "model_name": model_name,
+            "parent_model_name": parent_model_name,
+            "feature_set": tuple(feature_set),
+            "feature_count": feature_count,
+            "candidate_kind": candidate_kind,
+            "status": result.status,
+            "roc_auc": roc_auc_value,
+            "average_precision": average_precision_value,
+            "matched_knownness_weighted_roc_auc": matched_knownness_weighted_roc_auc,
+            "knownness_matched_gap": matched_knownness_weighted_roc_auc - roc_auc_value
+            if pd.notna(matched_knownness_weighted_roc_auc)
+            else np.nan,
+            "source_holdout_weighted_roc_auc": source_holdout_weighted_roc_auc,
+            "source_holdout_gap": source_holdout_weighted_roc_auc - roc_auc_value
+            if pd.notna(source_holdout_weighted_roc_auc)
+            else np.nan,
+            "spatial_holdout_weighted_roc_auc": spatial_holdout_weighted_roc_auc,
+            "spatial_holdout_gap": spatial_holdout_weighted_roc_auc - roc_auc_value
+            if pd.notna(spatial_holdout_weighted_roc_auc)
+            else np.nan,
+            "blocked_holdout_weighted_roc_auc": blocked_holdout_weighted_roc_auc,
+            "ece": ece_value,
+            "screen_fit_seconds": screen_fit_seconds,
+        }
+
+    candidate_rows = candidate_family.to_dict("records")
+    jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(candidate_rows), cap=8)
+    if jobs > 1 and candidate_rows:
+        with limit_native_threads(1):
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                rows = list(executor.map(_screen_candidate, candidate_rows))
+    else:
+        rows = [_screen_candidate(candidate) for candidate in candidate_rows]
 
     screen = pd.DataFrame(rows)
     if screen.empty:
