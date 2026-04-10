@@ -29,6 +29,7 @@ Thumbs.db
 .vscode/
 .idea/
 .agents/
+.worktrees/
 .cursorignore
 .cursorrules
 .windsurf/
