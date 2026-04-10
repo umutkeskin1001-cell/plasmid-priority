@@ -1,26 +1,26 @@
 =================================================================
   TÜBİTAK RAPORU İÇİN İSTATİSTİKSEL ÖZET
 =================================================================
-Ana Model           : parsimonious_priority
+Ana Model           : discovery_12f_source
 Ana Outcome Eşiği   : Sonradan >= 3 yeni ülke
 
 1. AYIRICILIK GÜCÜ (ROC AUC)
-   Değer            : 0.7506
-   %95 Güven Aralığı: [0.7190 - 0.7836]
+   Değer            : 0.8036
+   %95 Güven Aralığı: [0.7749 - 0.8307]
 
 2. PRECISION-RECALL ÖZETİ (Average Precision)
-   Değer            : 0.6591
+   Değer            : 0.7225
    Temel Oran       : 0.3660
-   Lift (Kazanç)    : 0.2931
+   Lift (Kazanç)    : 0.3565
 
 3. KALİBRASYON (Brier Score)
-   Değer            : 0.1867
+   Değer            : 0.1695
 
 4. FORMAL ANLAMLILIK (Permütasyon Testi)
-   Seçim-düzeltilmiş ROC AUC p-değeri : NA
+   Seçim-düzeltilmiş ROC AUC p-değeri : < 0.001
    Sabit-skor ROC AUC p-değeri      : < 0.001
    Permütasyon sayısı: 2000
 
 5. SIRALAMA UYUMU (Ham yeni ülke sayısı)
-   Spearman ρ       : 0.6238 [0.5801 - 0.6621]
+   Spearman ρ       : 0.6237 [0.5798 - 0.6613]
 =================================================================

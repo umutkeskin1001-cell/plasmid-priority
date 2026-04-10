@@ -4,7 +4,7 @@
 
 Plasmid Priority, plasmid omurga sınıflarını eğitim dönemindeki genomik sinyallerle puanlayan ve bu puanların daha sonraki coğrafi görünürlük artışıyla ilişkili olup olmadığını test eden retrospektif bir analiz hattıdır.
 
-Ana model `parsimonious_priority` için ROC AUC `0.751`, AP `0.659` ve Brier Skill Score `0.195` olarak raporlanır. Mevcut permütasyon denetimi sabit-skor label-permutation audit'i olduğu için model-seçim-düzeltilmiş anlamlılık iddiası olarak değil, keşifsel sinyal kontrolü olarak okunmalıdır. Sayım temelli karşılaştırma modeli `0.722` ROC AUC üretir; ana modelin bu taban modele karşı kazancı `NA` düzeyindedir.
+Ana model `discovery_12f_source` için ROC AUC `0.804`, AP `0.723` ve Brier Skill Score `0.270` olarak raporlanır. Mevcut permütasyon denetimi sabit-skor label-permutation audit'i olduğu için model-seçim-düzeltilmiş anlamlılık iddiası olarak değil, keşifsel sinyal kontrolü olarak okunmalıdır. Sayım temelli karşılaştırma modeli `0.722` ROC AUC üretir; ana modelin bu taban modele karşı kazancı `0.081, 95% CI [0.046, 0.116]` düzeyindedir.
 
 ## Model Seçimi
 
@@ -16,7 +16,7 @@ Model seçimi tek bir metriğe göre yapılmamıştır. Birlikte okunan ölçüt
 4. Kaynak dışlama denetimi ve diğer sağlamlık analizleri.
 5. Pratik kısa liste verimi.
 
-Bu nedenle discovery hattında `parsimonious_priority` korunur; governance watch-only hattında ise `phylo_support_fusion_priority` daha temkinli yorum katmanı olarak ele alınır.
+Bu nedenle discovery hattında `discovery_12f_source` korunur; governance watch-only hattında ise `phylo_support_fusion_priority` daha temkinli yorum katmanı olarak ele alınır.
 
 ## Metodoloji
 
@@ -37,14 +37,14 @@ Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal ge
 
 ## Ana Bulgular
 
-- Ana model: ROC AUC `0.751` | AP `0.659`.
+- Ana model: ROC AUC `0.804` | AP `0.723`.
 - Koruyucu model: ROC AUC `0.751` | AP `0.659`.
 - Baseline model: ROC AUC `0.722` | AP `0.647`.
 - Yanlış negatif incelemesi: kısa liste dışında kalan `50` pozitif vardır; baskın nedenler `low_assignment_confidence, low_training_members, low_knownness`.
-- Eşleştirilmiş bilinirlik/kaynak katmanları denetimi: ana model `0.683`, taban model `0.594`.
+- Eşleştirilmiş bilinirlik/kaynak katmanları denetimi: ana model `0.744`, taban model `0.594`.
 - Ağırlıklı yeni ülke yükü ile ilişki: Spearman ρ `0.620`.
-- Ham yeni ülke sayısı ile ilişki: Spearman ρ `0.624` [0.580, 0.662].
-- Mekânsal holdout denetimi: ağırlıklı ROC AUC `0.741`.
+- Ham yeni ülke sayısı ile ilişki: Spearman ρ `0.624` [0.580, 0.661].
+- Mekânsal holdout denetimi: ağırlıklı ROC AUC `0.789`.
 
 ## Sıralama Kararlılığı
 
@@ -61,10 +61,10 @@ Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal ge
 
 ## Örnek Adaylar
 
-- `AA282`: baskın tür `Escherichia coli`, baskın replikon `IncI-gamma/K1`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.79`, belirsizlik `0.29`. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,BETA-LACTAM,SULFONAMIDE,CEPHALOSPORIN,MONOBACTAM.
-- `AA434`: baskın tür `Klebsiella pneumoniae`, baskın replikon `IncFII`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.76`, belirsizlik `0.39`. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,CEPHALOSPORIN,MONOBACTAM,PENAM,PENEM.
-- `AA411`: baskın tür `Staphylococcus aureus`, baskın replikon `rep_cluster_1733`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.81`, belirsizlik `0.22`. Öne çıkan AMR sınıfları: PENAM,BETA-LACTAM.
-- `AA435`: baskın tür `Klebsiella pneumoniae`, baskın replikon `IncFII`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `çekimser` ve genel risk `0.73`, belirsizlik `0.48`. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,BETA-LACTAM.
+- `AA282`: baskın tür `Escherichia coli`, baskın replikon `IncI-gamma/K1`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.85`, belirsizlik `0.23`. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,BETA-LACTAM,SULFONAMIDE,CEPHALOSPORIN,MONOBACTAM.
+- `AC030`: baskın tür `Escherichia coli`, baskın replikon `IncFIA`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.82`, belirsizlik `0.33`. Öne çıkan AMR sınıfları: belirgin AMR sınıfı sinyali yok.
+- `AA411`: baskın tür `Staphylococcus aureus`, baskın replikon `rep_cluster_1733`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.86`, belirsizlik `0.18`. Öne çıkan AMR sınıfları: PENAM,BETA-LACTAM.
+- `AA316`: baskın tür `Salmonella enterica`, baskın replikon `IncFIA`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.83`, belirsizlik `0.30`. Öne çıkan AMR sınıfları: BETA-LACTAM.
 
 ## Sürüm Yüzeyi
 

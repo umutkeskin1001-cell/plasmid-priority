@@ -2169,10 +2169,19 @@ def _prune_duplicate_table_artifacts(
             stale_path.unlink()
 
 
-def _prune_shadowed_report_tables(core_dir: Path, diag_dir: Path, analysis_dir: Path) -> None:
+def _prune_shadowed_report_tables(
+    core_dir: Path,
+    diag_dir: Path,
+    analysis_dir: Path,
+    *,
+    preserve_file_names: set[str] | None = None,
+) -> None:
+    preserve_file_names = preserve_file_names or set()
     analysis_names = {path.name for path in analysis_dir.glob("*.tsv")}
     for directory in (core_dir, diag_dir):
         for path in directory.glob("*.tsv"):
+            if path.name in preserve_file_names:
+                continue
             if path.name in analysis_names and path.exists():
                 path.unlink()
 
@@ -2420,6 +2429,8 @@ def _build_headline_validation_summary(
     *,
     primary_model_name: str,
     governance_model_name: str,
+    single_model_official_decision: pd.DataFrame | None = None,
+    single_model_pareto_finalists: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     summary_specs = [
@@ -2428,45 +2439,125 @@ def _build_headline_validation_summary(
         ("counts_baseline", "baseline_both"),
         ("internal_high_integrity_subset", "internal_high_integrity_subset_primary_model"),
     ]
+    single_model_official_decision = (
+        single_model_official_decision
+        if single_model_official_decision is not None
+        else pd.DataFrame()
+    )
+    single_model_pareto_finalists = (
+        single_model_pareto_finalists
+        if single_model_pareto_finalists is not None
+        else pd.DataFrame()
+    )
+    single_model_decision_row = (
+        single_model_official_decision.iloc[0]
+        if not single_model_official_decision.empty
+        else pd.Series(dtype=object)
+    )
+    single_model_name = str(single_model_decision_row.get("official_model_name", "") or "").strip()
+    if single_model_name:
+        summary_specs.append(("single_model_pareto_official", single_model_name))
     for summary_label, model_name in summary_specs:
         row = model_metrics.loc[model_metrics["model_name"].astype(str).eq(str(model_name))].head(1)
-        if row.empty:
+        if row.empty and summary_label != "single_model_pareto_official":
             continue
-        metric_row = row.iloc[0]
+        metric_row = row.iloc[0] if not row.empty else pd.Series(dtype=object)
+        single_model_row = (
+            single_model_decision_row
+            if summary_label == "single_model_pareto_official"
+            else pd.Series(dtype=object)
+        )
+        single_model_finalist_row = pd.Series(dtype=object)
+        if summary_label == "single_model_pareto_official" and not single_model_pareto_finalists.empty:
+            finalist_match = single_model_pareto_finalists.loc[
+                single_model_pareto_finalists.get("model_name", pd.Series(dtype=str))
+                .astype(str)
+                .eq(str(model_name))
+            ].head(1)
+            if not finalist_match.empty:
+                single_model_finalist_row = finalist_match.iloc[0]
         rows.append(
             {
                 "summary_label": summary_label,
                 "model_name": str(model_name),
-                "roc_auc": float(metric_row.get("roc_auc", np.nan)),
+                "roc_auc": float(
+                    single_model_finalist_row.get(
+                        "roc_auc",
+                        single_model_row.get("roc_auc", metric_row.get("roc_auc", np.nan)),
+                    )
+                ),
                 "roc_auc_ci": _format_interval(
                     metric_row.get("roc_auc_ci_lower"), metric_row.get("roc_auc_ci_upper")
                 ),
-                "average_precision": float(metric_row.get("average_precision", np.nan)),
+                "average_precision": float(
+                    single_model_finalist_row.get(
+                        "average_precision",
+                        single_model_row.get(
+                            "average_precision",
+                            metric_row.get("average_precision", np.nan),
+                        ),
+                    )
+                ),
                 "average_precision_ci": _format_interval(
                     metric_row.get("average_precision_ci_lower"),
                     metric_row.get("average_precision_ci_upper"),
                 ),
-                "brier_score": float(metric_row.get("brier_score", np.nan)),
-                "brier_skill_score": float(metric_row.get("brier_skill_score", np.nan)),
-                "ece": float(metric_row.get("ece", np.nan)),
+                "brier_score": float(
+                    single_model_finalist_row.get("brier_score", metric_row.get("brier_score", np.nan))
+                ),
+                "brier_skill_score": float(
+                    single_model_finalist_row.get(
+                        "brier_skill_score", metric_row.get("brier_skill_score", np.nan)
+                    )
+                ),
+                "ece": float(single_model_finalist_row.get("ece", metric_row.get("ece", np.nan))),
                 "max_calibration_error": float(
-                    metric_row.get("max_calibration_error", np.nan)
+                    single_model_finalist_row.get(
+                        "max_calibration_error",
+                        metric_row.get("max_calibration_error", np.nan),
+                    )
                 ),
                 "scientific_acceptance_status": str(
-                    metric_row.get("scientific_acceptance_status", "not_scored")
+                    single_model_row.get(
+                        "scientific_acceptance_status",
+                        single_model_finalist_row.get(
+                            "scientific_acceptance_status",
+                            metric_row.get("scientific_acceptance_status", "not_scored"),
+                        ),
+                    )
                 ),
                 "scientific_acceptance_failed_criteria": str(
-                    metric_row.get("scientific_acceptance_failed_criteria", "not_scored")
+                    single_model_row.get(
+                        "scientific_acceptance_failed_criteria",
+                        single_model_finalist_row.get(
+                            "scientific_acceptance_failed_criteria",
+                            metric_row.get("scientific_acceptance_failed_criteria", "not_scored"),
+                        ),
+                    )
                 ),
                 "selection_adjusted_empirical_p_roc_auc": float(
                     pd.to_numeric(
-                        pd.Series([metric_row.get("selection_adjusted_empirical_p_roc_auc")]),
+                        pd.Series(
+                            [
+                                single_model_finalist_row.get(
+                                    "selection_adjusted_empirical_p_roc_auc",
+                                    metric_row.get("selection_adjusted_empirical_p_roc_auc"),
+                                )
+                            ]
+                        ),
                         errors="coerce",
                     ).iloc[0]
                 )
                 if pd.notna(
                     pd.to_numeric(
-                        pd.Series([metric_row.get("selection_adjusted_empirical_p_roc_auc")]),
+                        pd.Series(
+                            [
+                                single_model_finalist_row.get(
+                                    "selection_adjusted_empirical_p_roc_auc",
+                                    metric_row.get("selection_adjusted_empirical_p_roc_auc"),
+                                )
+                            ]
+                        ),
                         errors="coerce",
                     ).iloc[0]
                 )
@@ -2490,7 +2581,10 @@ def _build_headline_validation_summary(
                     metric_row.get("delta_vs_baseline_ci_upper"),
                 ),
                 "spatial_holdout_roc_auc": float(
-                    metric_row.get("spatial_holdout_roc_auc", np.nan)
+                    single_model_finalist_row.get(
+                        "spatial_holdout_roc_auc",
+                        metric_row.get("spatial_holdout_roc_auc", np.nan),
+                    )
                 ),
                 "n_backbones": int(metric_row.get("n_backbones", 0))
                 if pd.notna(metric_row.get("n_backbones"))
@@ -2498,6 +2592,18 @@ def _build_headline_validation_summary(
                 "n_positive": int(metric_row.get("n_positive", 0))
                 if pd.notna(metric_row.get("n_positive"))
                 else 0,
+                "decision_reason": str(single_model_row.get("decision_reason", "")),
+                "selected_from_n_finalists": int(single_model_row.get("selected_from_n_finalists", 0))
+                if pd.notna(single_model_row.get("selected_from_n_finalists"))
+                else 0,
+                "failure_severity": float(single_model_row.get("failure_severity", np.nan)),
+                "weighted_objective_score": float(
+                    single_model_row.get("weighted_objective_score", np.nan)
+                ),
+                "screen_fit_seconds": float(single_model_row.get("screen_fit_seconds", np.nan)),
+                "compute_efficiency_score": float(
+                    single_model_row.get("compute_efficiency_score", np.nan)
+                ),
             }
         )
     return pd.DataFrame(rows)
@@ -2597,6 +2703,51 @@ def _write_headline_validation_summary(
             )
             + " |"
         )
+    single_model_row = summary_table.loc[
+        summary_table.get("summary_label", pd.Series(dtype=str))
+        .astype(str)
+        .eq("single_model_pareto_official")
+    ].head(1)
+    if not single_model_row.empty:
+        row = single_model_row.iloc[0]
+        decision_reason = str(row.get("decision_reason", "") or "").strip() or "not_reported"
+        selected_from_n_finalists = pd.to_numeric(
+            pd.Series([row.get("selected_from_n_finalists", np.nan)]),
+            errors="coerce",
+        ).iloc[0]
+        lines.extend(
+            [
+                "",
+                "## Single-Model Pareto Decision",
+                "",
+                (
+                    f"- Official single-model candidate: `{str(row.get('model_name', '')).strip()}`; "
+                    f"status `{str(row.get('scientific_acceptance_status', 'not_scored'))}`; "
+                    f"reason `{decision_reason}`."
+                ),
+            ]
+        )
+        if pd.notna(selected_from_n_finalists) and int(selected_from_n_finalists) > 0:
+            lines.append(
+                f"- Selected from `{int(selected_from_n_finalists)}` Pareto finalists after finalist-heavy audit."
+            )
+        weighted_objective = pd.to_numeric(
+            pd.Series([row.get("weighted_objective_score", np.nan)]), errors="coerce"
+        ).iloc[0]
+        failure_severity = pd.to_numeric(
+            pd.Series([row.get("failure_severity", np.nan)]), errors="coerce"
+        ).iloc[0]
+        screen_fit_seconds = pd.to_numeric(
+            pd.Series([row.get("screen_fit_seconds", np.nan)]), errors="coerce"
+        ).iloc[0]
+        if pd.notna(weighted_objective) and pd.notna(failure_severity):
+            lines.append(
+                f"- Weighted objective `{float(weighted_objective):.3f}` with failure severity `{float(failure_severity):.3f}`."
+            )
+        if pd.notna(screen_fit_seconds):
+            lines.append(
+                f"- Full Stage A screen time for the winning candidate family row was `{float(screen_fit_seconds):.2f}` seconds."
+            )
     rolling_summary = _rolling_temporal_summary(
         rolling_temporal if rolling_temporal is not None else pd.DataFrame()
     )
@@ -2674,6 +2825,61 @@ def _write_headline_validation_summary(
         if variant_consistency_text:
             lines.append(f"- {variant_consistency_text}")
     output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _attach_single_model_decision_summary(
+    model_selection_summary: pd.DataFrame,
+    single_model_official_decision: pd.DataFrame | None,
+    *,
+    published_primary_model: str,
+) -> pd.DataFrame:
+    if model_selection_summary.empty or single_model_official_decision is None:
+        return model_selection_summary.copy()
+    if single_model_official_decision.empty:
+        return model_selection_summary.copy()
+    decision_row = single_model_official_decision.iloc[0]
+    working = model_selection_summary.copy()
+    working.loc[:, "single_model_official_model"] = str(
+        decision_row.get("official_model_name", "") or ""
+    ).strip()
+    working.loc[:, "single_model_official_decision_reason"] = str(
+        decision_row.get("decision_reason", "") or ""
+    ).strip()
+    working.loc[:, "single_model_official_scientific_acceptance_status"] = str(
+        decision_row.get("scientific_acceptance_status", "not_scored") or "not_scored"
+    ).strip()
+    working.loc[:, "single_model_official_failed_criteria"] = str(
+        decision_row.get("scientific_acceptance_failed_criteria", "") or ""
+    ).strip()
+    working.loc[:, "single_model_official_failure_severity"] = float(
+        decision_row.get("failure_severity", np.nan)
+    )
+    working.loc[:, "single_model_official_roc_auc"] = float(
+        decision_row.get("roc_auc", np.nan)
+    )
+    working.loc[:, "single_model_official_average_precision"] = float(
+        decision_row.get("average_precision", np.nan)
+    )
+    working.loc[:, "single_model_official_weighted_objective_score"] = float(
+        decision_row.get("weighted_objective_score", np.nan)
+    )
+    working.loc[:, "single_model_official_screen_fit_seconds"] = float(
+        decision_row.get("screen_fit_seconds", np.nan)
+    )
+    working.loc[:, "single_model_official_compute_efficiency_score"] = float(
+        decision_row.get("compute_efficiency_score", np.nan)
+    )
+    working.loc[:, "single_model_selected_from_n_finalists"] = int(
+        pd.to_numeric(
+            pd.Series([decision_row.get("selected_from_n_finalists", np.nan)]),
+            errors="coerce",
+        ).fillna(0).iloc[0]
+    )
+    working.loc[:, "single_model_official_matches_published_primary"] = bool(
+        str(decision_row.get("official_model_name", "") or "").strip()
+        == str(published_primary_model or "").strip()
+    )
+    return working
 
 
 def _write_executive_summary(
@@ -4970,6 +5176,15 @@ def main() -> int:
     prospective_freeze_path = context.data_dir / "analysis/prospective_candidate_freeze.tsv"
     annual_freeze_summary_path = context.data_dir / "analysis/annual_candidate_freeze_summary.tsv"
     predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
+    single_model_pareto_screen_path = (
+        context.data_dir / "analysis/single_model_pareto_screen.tsv"
+    )
+    single_model_pareto_finalists_path = (
+        context.data_dir / "analysis/single_model_pareto_finalists.tsv"
+    )
+    single_model_official_decision_path = (
+        context.data_dir / "analysis/single_model_official_decision.tsv"
+    )
     analysis_dir = context.data_dir / "analysis"
 
     class TableRouter:
@@ -5001,6 +5216,7 @@ def main() -> int:
                 "blocked_holdout_summary.tsv",
                 "spatial_holdout_summary.tsv",
                 "headline_validation_summary.tsv",
+                "single_model_official_decision.tsv",
             }
 
         def __truediv__(self, name):
@@ -5118,6 +5334,9 @@ def main() -> int:
         prospective_freeze_path,
         annual_freeze_summary_path,
         predictions_path,
+        single_model_pareto_screen_path,
+        single_model_pareto_finalists_path,
+        single_model_official_decision_path,
     ]
     cache_metadata = {
         "pipeline_settings": {
@@ -5172,6 +5391,9 @@ def main() -> int:
         run.record_output(final_tables_dir / "group_holdout_performance.tsv")
         run.record_output(final_tables_dir / "blocked_holdout_summary.tsv")
         run.record_output(core_dir / "spatial_holdout_summary.tsv")
+        run.record_output(final_tables_dir / "single_model_pareto_screen.tsv")
+        run.record_output(final_tables_dir / "single_model_pareto_finalists.tsv")
+        run.record_output(final_tables_dir / "single_model_official_decision.tsv")
         run.record_output(final_tables_dir / "permutation_null_distribution.tsv")
         run.record_output(final_tables_dir / "permutation_null_summary.tsv")
         run.record_output(final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv")
@@ -5398,6 +5620,9 @@ def main() -> int:
         variant_consistency = _read_if_exists(variant_consistency_path)
         prospective_freeze = _read_if_exists(prospective_freeze_path)
         annual_freeze_summary = _read_if_exists(annual_freeze_summary_path)
+        single_model_pareto_screen = _read_if_exists(single_model_pareto_screen_path)
+        single_model_pareto_finalists = _read_if_exists(single_model_pareto_finalists_path)
+        single_model_official_decision = _read_if_exists(single_model_official_decision_path)
         if annual_freeze_summary.empty and not rolling_temporal.empty:
             rolling_ok = rolling_temporal.loc[
                 rolling_temporal.get("status", pd.Series("", index=rolling_temporal.index)).astype(
@@ -6914,9 +7139,20 @@ def main() -> int:
             report_model_metrics,
             primary_model_name=primary_model_name,
             governance_model_name=governance_model_name,
+            single_model_official_decision=single_model_official_decision,
+            single_model_pareto_finalists=single_model_pareto_finalists,
         )
         headline_validation_summary.to_csv(
             core_dir / "headline_validation_summary.tsv", sep="\t", index=False
+        )
+        single_model_pareto_screen.to_csv(
+            final_tables_dir / "single_model_pareto_screen.tsv", sep="\t", index=False
+        )
+        single_model_pareto_finalists.to_csv(
+            final_tables_dir / "single_model_pareto_finalists.tsv", sep="\t", index=False
+        )
+        single_model_official_decision.to_csv(
+            final_tables_dir / "single_model_official_decision.tsv", sep="\t", index=False
         )
 
         core_model_coefficients = pd.DataFrame()
@@ -6967,6 +7203,11 @@ def main() -> int:
             family_summary=family_summary,
             simplicity_summary=simplicity_summary,
             model_selection_scorecard=model_selection_scorecard,
+        )
+        model_selection_summary = _attach_single_model_decision_summary(
+            model_selection_summary,
+            single_model_official_decision,
+            published_primary_model=primary_model_name,
         )
         model_selection_summary.to_csv(
             final_tables_dir / "model_selection_summary.tsv", sep="\t", index=False
@@ -7095,7 +7336,16 @@ def main() -> int:
             probability_columns=("optimal_threshold",),
         )
         _prune_duplicate_table_artifacts(core_dir, diag_dir, final_tables_dir.core_files)
-        _prune_shadowed_report_tables(core_dir, diag_dir, analysis_dir)
+        _prune_shadowed_report_tables(
+            core_dir,
+            diag_dir,
+            analysis_dir,
+            preserve_file_names={
+                "single_model_pareto_screen.tsv",
+                "single_model_pareto_finalists.tsv",
+                "single_model_official_decision.tsv",
+            },
+        )
         _write_turkish_summary(
             turkish_summary_path,
             primary_model_name=primary_model_name,

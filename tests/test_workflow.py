@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -15,6 +16,62 @@ assert SPEC is not None and SPEC.loader is not None
 run_workflow_script = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = run_workflow_script
 SPEC.loader.exec_module(run_workflow_script)
+
+VALIDATION_SPEC = importlib.util.spec_from_file_location(
+    "run_validation_script",
+    PROJECT_ROOT / "scripts/21_run_validation.py",
+)
+assert VALIDATION_SPEC is not None and VALIDATION_SPEC.loader is not None
+run_validation_script = importlib.util.module_from_spec(VALIDATION_SPEC)
+sys.modules[VALIDATION_SPEC.name] = run_validation_script
+VALIDATION_SPEC.loader.exec_module(run_validation_script)
+
+RELEASE_BUNDLE_SPEC = importlib.util.spec_from_file_location(
+    "build_release_bundle_script",
+    PROJECT_ROOT / "scripts/28_build_release_bundle.py",
+)
+assert RELEASE_BUNDLE_SPEC is not None and RELEASE_BUNDLE_SPEC.loader is not None
+build_release_bundle_script = importlib.util.module_from_spec(RELEASE_BUNDLE_SPEC)
+sys.modules[RELEASE_BUNDLE_SPEC.name] = build_release_bundle_script
+RELEASE_BUNDLE_SPEC.loader.exec_module(build_release_bundle_script)
+
+
+class _FakeValidationRun:
+    def __init__(self) -> None:
+        self.inputs: list[Path] = []
+        self.outputs: list[Path] = []
+        self.metrics: dict[str, object] = {}
+        self.notes: list[str] = []
+
+    def __enter__(self) -> _FakeValidationRun:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def record_input(self, path: Path) -> None:
+        self.inputs.append(Path(path))
+
+    def record_output(self, path: Path) -> None:
+        self.outputs.append(Path(path))
+
+    def note(self, message: str) -> None:
+        self.notes.append(message)
+
+    def set_metric(self, key: str, value: object) -> None:
+        self.metrics[key] = value
+
+
+class _FakePipelineSettings:
+    split_year = 2015
+    min_new_countries_for_spread = 3
+
+
+class _FakeValidationContext:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.data_dir = root / "data"
+        self.pipeline_settings = _FakePipelineSettings()
 
 
 class WorkflowTests(unittest.TestCase):
@@ -116,6 +173,77 @@ class WorkflowTests(unittest.TestCase):
         with mock.patch.object(run_workflow_script.os, "cpu_count", return_value=12):
             self.assertEqual(run_workflow_script._auto_job_cap(4), 3)
             self.assertEqual(run_workflow_script._auto_job_cap(1), 8)
+
+    def test_validation_script_records_single_model_pareto_screen_output(self) -> None:
+        fake_run = _FakeValidationRun()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            context = _FakeValidationContext(root)
+            with (
+                mock.patch.object(run_validation_script, "build_context", return_value=context),
+                mock.patch.object(run_validation_script, "ManagedScriptRun", return_value=fake_run),
+                mock.patch.object(run_validation_script, "project_python_source_paths", return_value=[]),
+                mock.patch.object(run_validation_script, "load_signature_manifest", return_value=True),
+            ):
+                result = run_validation_script.main()
+
+        self.assertEqual(result, 0)
+        self.assertIn(
+            Path(tmp_dir) / "data/analysis/single_model_pareto_screen.tsv",
+            fake_run.outputs,
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/analysis/single_model_pareto_finalists.tsv",
+            fake_run.outputs,
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/analysis/single_model_official_decision.tsv",
+            fake_run.outputs,
+        )
+        self.assertEqual(fake_run.metrics.get("cache_hit"), True)
+
+    def test_release_bundle_includes_single_model_report_surface(self) -> None:
+        release_files = set(build_release_bundle_script.RELEASE_FILES)
+        self.assertIn("reports/headline_validation_summary.md", release_files)
+        self.assertIn("reports/core_tables/headline_validation_summary.tsv", release_files)
+        self.assertIn("reports/core_tables/single_model_official_decision.tsv", release_files)
+        self.assertIn("reports/diagnostic_tables/single_model_pareto_screen.tsv", release_files)
+        self.assertIn("reports/diagnostic_tables/single_model_pareto_finalists.tsv", release_files)
+
+    def test_release_info_uses_single_model_official_decision_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "reports/core_tables").mkdir(parents=True)
+            (root / "reports/core_tables/model_metrics.tsv").write_text(
+                "\n".join(
+                    [
+                        "model_name\troc_auc\troc_auc_ci_lower\troc_auc_ci_upper\taverage_precision\taverage_precision_ci_lower\taverage_precision_ci_upper\tselection_adjusted_empirical_p_roc_auc\tpermutation_p_roc_auc\tn_permutations",
+                        "legacy_model\t0.71\t0.68\t0.74\t0.61\t0.57\t0.65\t0.040\t0.050\t200",
+                        "pareto_model\t0.83\t0.80\t0.86\t0.75\t0.71\t0.79\t0.006\t0.012\t200",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "reports/core_tables/single_model_official_decision.tsv").write_text(
+                "\n".join(
+                    [
+                        "official_model_name\tdecision_reason\tscientific_acceptance_status",
+                        "pareto_model\taccepted_with_best_reliability_power_tradeoff\tpass",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            release_info = build_release_bundle_script._build_release_info(root)
+
+        self.assertIn("Primary model: pareto_model", release_info)
+        self.assertIn("Single-model decision status: pass", release_info)
+        self.assertIn(
+            "Single-model decision reason: accepted_with_best_reliability_power_tradeoff",
+            release_info,
+        )
 
 
 if __name__ == "__main__":

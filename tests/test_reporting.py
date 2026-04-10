@@ -243,6 +243,169 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("geographic_jump_distance_outcome.tsv", content)
         self.assertIn("amr_uncertainty_summary.tsv", content)
 
+    def test_headline_validation_summary_includes_single_model_pareto_decision(self) -> None:
+        import pandas as pd
+
+        model_metrics = pd.DataFrame(
+            [
+                {
+                    "model_name": "primary_model",
+                    "roc_auc": 0.83,
+                    "average_precision": 0.77,
+                    "scientific_acceptance_status": "fail",
+                    "scientific_acceptance_failed_criteria": "fail:source_holdout",
+                },
+                {
+                    "model_name": "governance_model",
+                    "roc_auc": 0.79,
+                    "average_precision": 0.71,
+                },
+                {"model_name": "baseline_both", "roc_auc": 0.72, "average_precision": 0.65},
+                {
+                    "model_name": "pareto_model",
+                    "roc_auc": 0.81,
+                    "average_precision": 0.73,
+                    "scientific_acceptance_status": "pass",
+                    "scientific_acceptance_failed_criteria": "",
+                },
+            ]
+        )
+        single_model_official_decision = pd.DataFrame(
+            [
+                {
+                    "official_model_name": "pareto_model",
+                    "decision_reason": "accepted_with_best_reliability_power_tradeoff",
+                    "scientific_acceptance_status": "pass",
+                    "scientific_acceptance_failed_criteria": "",
+                    "failure_severity": 0.0,
+                    "roc_auc": 0.81,
+                    "average_precision": 0.73,
+                    "weighted_objective_score": 0.84,
+                    "screen_fit_seconds": 9.25,
+                    "compute_efficiency_score": 0.68,
+                    "selected_from_n_finalists": 3,
+                }
+            ]
+        )
+        single_model_pareto_finalists = pd.DataFrame(
+            [
+                {
+                    "model_name": "pareto_model",
+                    "roc_auc": 0.81,
+                    "average_precision": 0.73,
+                    "ece": 0.031,
+                    "spatial_holdout_roc_auc": 0.76,
+                    "selection_adjusted_empirical_p_roc_auc": 0.006,
+                    "scientific_acceptance_status": "pass",
+                    "scientific_acceptance_failed_criteria": "",
+                }
+            ]
+        )
+
+        result = build_reports_script._build_headline_validation_summary(
+            model_metrics,
+            primary_model_name="primary_model",
+            governance_model_name="governance_model",
+            single_model_official_decision=single_model_official_decision,
+            single_model_pareto_finalists=single_model_pareto_finalists,
+        )
+
+        pareto_row = result.loc[
+            result["summary_label"].astype(str).eq("single_model_pareto_official")
+        ].iloc[0]
+        self.assertEqual(str(pareto_row["model_name"]), "pareto_model")
+        self.assertEqual(
+            str(pareto_row["decision_reason"]),
+            "accepted_with_best_reliability_power_tradeoff",
+        )
+        self.assertEqual(int(pareto_row["selected_from_n_finalists"]), 3)
+        self.assertAlmostEqual(float(pareto_row["ece"]), 0.031)
+        self.assertAlmostEqual(float(pareto_row["selection_adjusted_empirical_p_roc_auc"]), 0.006)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "headline_validation_summary.md"
+            build_reports_script._write_headline_validation_summary(
+                output_path,
+                result,
+                primary_model_name="primary_model",
+                governance_model_name="governance_model",
+            )
+            content = output_path.read_text(encoding="utf-8")
+        self.assertIn("Single-Model Pareto Decision", content)
+        self.assertIn("pareto_model", content)
+        self.assertIn("accepted_with_best_reliability_power_tradeoff", content)
+
+    def test_attach_single_model_decision_summary_adds_prefixed_fields(self) -> None:
+        import pandas as pd
+
+        model_selection_summary = pd.DataFrame(
+            [
+                {
+                    "published_primary_model": "primary_model",
+                    "published_primary_roc_auc": 0.83,
+                }
+            ]
+        )
+        single_model_official_decision = pd.DataFrame(
+            [
+                {
+                    "official_model_name": "pareto_model",
+                    "decision_reason": "lowest_failure_severity_with_competitive_auc",
+                    "scientific_acceptance_status": "fail",
+                    "scientific_acceptance_failed_criteria": "fail:source_holdout",
+                    "failure_severity": 0.04,
+                    "roc_auc": 0.81,
+                    "average_precision": 0.73,
+                    "weighted_objective_score": 0.78,
+                    "screen_fit_seconds": 12.5,
+                    "compute_efficiency_score": 0.61,
+                    "selected_from_n_finalists": 2,
+                }
+            ]
+        )
+
+        result = build_reports_script._attach_single_model_decision_summary(
+            model_selection_summary,
+            single_model_official_decision,
+            published_primary_model="primary_model",
+        )
+
+        row = result.iloc[0]
+        self.assertEqual(str(row["single_model_official_model"]), "pareto_model")
+        self.assertEqual(
+            str(row["single_model_official_decision_reason"]),
+            "lowest_failure_severity_with_competitive_auc",
+        )
+        self.assertEqual(str(row["single_model_official_scientific_acceptance_status"]), "fail")
+        self.assertEqual(str(row["single_model_official_failed_criteria"]), "fail:source_holdout")
+        self.assertEqual(int(row["single_model_selected_from_n_finalists"]), 2)
+        self.assertEqual(bool(row["single_model_official_matches_published_primary"]), False)
+
+    def test_prune_shadowed_report_tables_preserves_single_model_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            core_dir = root / "core"
+            diag_dir = root / "diag"
+            analysis_dir = root / "analysis"
+            core_dir.mkdir()
+            diag_dir.mkdir()
+            analysis_dir.mkdir()
+            preserved = diag_dir / "single_model_pareto_finalists.tsv"
+            preserved.write_text("x\n1\n", encoding="utf-8")
+            shadowed = diag_dir / "ordinary_shadowed.tsv"
+            shadowed.write_text("x\n1\n", encoding="utf-8")
+            (analysis_dir / "single_model_pareto_finalists.tsv").write_text("x\n2\n", encoding="utf-8")
+            (analysis_dir / "ordinary_shadowed.tsv").write_text("x\n2\n", encoding="utf-8")
+
+            build_reports_script._prune_shadowed_report_tables(
+                core_dir,
+                diag_dir,
+                analysis_dir,
+                preserve_file_names={"single_model_pareto_finalists.tsv"},
+            )
+
+            self.assertTrue(preserved.exists())
+            self.assertFalse(shadowed.exists())
+
     def test_weighting_sensitivity_table_uses_explicit_sample_weight_modes(self) -> None:
         sensitivity = {
             "default": {

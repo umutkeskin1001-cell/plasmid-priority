@@ -40,6 +40,8 @@ from plasmid_priority.reporting import (
     build_priority_bootstrap_stability_table,
     build_score_distribution_diagnostics,
     build_selection_adjusted_permutation_null,
+    build_single_model_official_decision,
+    build_single_model_pareto_finalists,
     build_sleeper_threat_table,
     build_source_balance_resampling_table,
     build_temporal_drift_summary,
@@ -53,6 +55,99 @@ from plasmid_priority.validation import decision_utility_summary
 
 
 class ModelAuditTests(unittest.TestCase):
+    def test_build_single_model_pareto_finalists_keeps_pareto_shortlist(self) -> None:
+        screen = pd.DataFrame(
+            [
+                {
+                    "model_name": "dominant",
+                    "parent_model_name": "dominant",
+                    "feature_set": ("a", "b"),
+                    "feature_count": 2,
+                    "candidate_kind": "parent",
+                    "reliability_score": 0.90,
+                    "predictive_power_score": 0.88,
+                    "compute_efficiency_score": 0.60,
+                    "weighted_objective_score": 0.832,
+                    "failure_severity": 0.10,
+                    "roc_auc": 0.84,
+                    "average_precision": 0.80,
+                },
+                {
+                    "model_name": "dominated",
+                    "parent_model_name": "dominated",
+                    "feature_set": ("a", "b", "c"),
+                    "feature_count": 3,
+                    "candidate_kind": "pruned",
+                    "reliability_score": 0.82,
+                    "predictive_power_score": 0.80,
+                    "compute_efficiency_score": 0.55,
+                    "weighted_objective_score": 0.758,
+                    "failure_severity": 0.30,
+                    "roc_auc": 0.80,
+                    "average_precision": 0.76,
+                },
+                {
+                    "model_name": "tradeoff",
+                    "parent_model_name": "tradeoff",
+                    "feature_set": ("a",),
+                    "feature_count": 1,
+                    "candidate_kind": "pruned",
+                    "reliability_score": 0.75,
+                    "predictive_power_score": 0.81,
+                    "compute_efficiency_score": 0.95,
+                    "weighted_objective_score": 0.814,
+                    "failure_severity": 0.05,
+                    "roc_auc": 0.79,
+                    "average_precision": 0.75,
+                },
+            ]
+        )
+
+        finalists = build_single_model_pareto_finalists(screen, max_finalists=3)
+
+        self.assertEqual(list(finalists["model_name"]), ["dominant", "tradeoff"])
+        self.assertNotIn("dominated", set(finalists["model_name"]))
+
+    def test_build_single_model_official_decision_prefers_lower_failure_severity_before_auc(
+        self,
+    ) -> None:
+        finalists = pd.DataFrame(
+            [
+                {
+                    "model_name": "high_auc_fail_hard",
+                    "weighted_objective_score": 0.84,
+                    "scientific_acceptance_status": "fail",
+                    "scientific_acceptance_failed_criteria": "fail:matched_knownness,source_holdout",
+                    "failure_severity": 0.70,
+                    "roc_auc": 0.84,
+                    "average_precision": 0.79,
+                    "compute_efficiency_score": 0.30,
+                    "screen_fit_seconds": 12.0,
+                },
+                {
+                    "model_name": "slightly_lower_auc_fail_soft",
+                    "weighted_objective_score": 0.83,
+                    "scientific_acceptance_status": "fail",
+                    "scientific_acceptance_failed_criteria": "fail:matched_knownness",
+                    "failure_severity": 0.18,
+                    "roc_auc": 0.82,
+                    "average_precision": 0.78,
+                    "compute_efficiency_score": 0.45,
+                    "screen_fit_seconds": 8.0,
+                },
+            ]
+        )
+
+        decision = build_single_model_official_decision(finalists)
+
+        self.assertEqual(
+            str(decision.iloc[0]["official_model_name"]), "slightly_lower_auc_fail_soft"
+        )
+        self.assertEqual(
+            str(decision.iloc[0]["decision_reason"]),
+            "lowest_failure_severity_with_competitive_auc",
+        )
+
     def test_build_gate_consistency_audit_summarizes_half_gate_routes(self) -> None:
         adaptive_predictions = pd.DataFrame(
             {

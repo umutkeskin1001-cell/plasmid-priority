@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 
 from plasmid_priority.config import build_context
 from plasmid_priority.reporting import ManagedScriptRun
@@ -17,13 +18,18 @@ from plasmid_priority.utils.files import atomic_write_json, ensure_directory, re
 
 RELEASE_FILES = (
     "reports/executive_summary.md",
+    "reports/headline_validation_summary.md",
     "reports/jury_brief.md",
     "reports/ozet_tr.md",
     "reports/pitch_notes.md",
     "reports/tubitak_final_metrics.txt",
+    "reports/core_tables/headline_validation_summary.tsv",
     "reports/core_tables/model_metrics.tsv",
     "reports/core_tables/model_selection_summary.tsv",
     "reports/core_tables/model_selection_scorecard.tsv",
+    "reports/core_tables/single_model_official_decision.tsv",
+    "reports/diagnostic_tables/single_model_pareto_screen.tsv",
+    "reports/diagnostic_tables/single_model_pareto_finalists.tsv",
     "reports/core_tables/candidate_portfolio.tsv",
     "reports/core_tables/candidate_evidence_matrix.tsv",
     "reports/core_tables/consensus_shortlist.tsv",
@@ -54,6 +60,7 @@ def _project_version(project_root: Path) -> str:
 
 def _build_release_info(context_root: Path) -> str:
     metrics_path = context_root / "reports/core_tables/model_metrics.tsv"
+    single_model_decision_path = context_root / "reports/core_tables/single_model_official_decision.tsv"
     version = _project_version(context_root)
     if not metrics_path.exists():
         return (
@@ -67,9 +74,20 @@ def _build_release_info(context_root: Path) -> str:
             + "\n"
         )
     metrics = pd.read_csv(metrics_path, sep="\t")
-    primary = metrics.loc[
-        metrics["model_name"].astype(str) == "phylo_support_fusion_priority"
-    ].head(1)
+    decision_row = pd.Series(dtype=object)
+    if single_model_decision_path.exists():
+        try:
+            decision_frame = pd.read_csv(single_model_decision_path, sep="\t")
+        except EmptyDataError:
+            decision_frame = pd.DataFrame()
+        if not decision_frame.empty:
+            decision_row = decision_frame.iloc[0]
+    chosen_model_name = str(decision_row.get("official_model_name", "") or "").strip()
+    primary = metrics.loc[metrics["model_name"].astype(str) == chosen_model_name].head(1)
+    if primary.empty:
+        primary = metrics.loc[
+            metrics["model_name"].astype(str) == "phylo_support_fusion_priority"
+        ].head(1)
     if primary.empty:
         primary = metrics.sort_values("roc_auc", ascending=False).head(1)
     row = primary.iloc[0]
@@ -91,8 +109,14 @@ def _build_release_info(context_root: Path) -> str:
             if float(selection_adjusted_p) < 0.001
             else f"= {float(selection_adjusted_p):.3f}"
         )
-    n_permutations = pd.to_numeric(pd.Series([row.get("n_permutations", pd.NA)]), errors="coerce").iloc[0]
+    n_permutations = pd.to_numeric(
+        pd.Series([row.get("n_permutations", pd.NA)]), errors="coerce"
+    ).iloc[0]
     n_permutations_text = int(n_permutations) if pd.notna(n_permutations) else 0
+    decision_reason = str(decision_row.get("decision_reason", "") or "").strip()
+    decision_status = str(
+        decision_row.get("scientific_acceptance_status", "not_scored") or "not_scored"
+    ).strip()
     return (
         "\n".join(
             [
@@ -100,6 +124,8 @@ def _build_release_info(context_root: Path) -> str:
                 f"Version: {version}",
                 f"Generated on: {datetime.now().date().isoformat()}",
                 f"Primary model: {row.get('model_name', 'unknown')}",
+                f"Single-model decision status: {decision_status}",
+                f"Single-model decision reason: {decision_reason or 'not_reported'}",
                 f"ROC AUC: {float(row.get('roc_auc', float('nan'))):.4f} [{float(row.get('roc_auc_ci_lower', float('nan'))):.4f}–{float(row.get('roc_auc_ci_upper', float('nan'))):.4f}]",
                 f"AP: {float(row.get('average_precision', float('nan'))):.4f} [{float(row.get('average_precision_ci_lower', float('nan'))):.4f}–{float(row.get('average_precision_ci_upper', float('nan'))):.4f}]",
                 f"Selection-adjusted permutation p {selection_adjusted_text} (n={n_permutations_text})",
