@@ -66,7 +66,7 @@ def build_outcome_permutation_falsification(
     permuted_aucs = []
     permuted_aps = []
 
-    for i in range(n_permutations):
+    for _i in range(n_permutations):
         permuted = eligible.copy()
         permuted["spread_label"] = rng.permutation(permuted["spread_label"].to_numpy())
 

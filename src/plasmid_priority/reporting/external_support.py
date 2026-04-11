@@ -51,7 +51,10 @@ def _dominant_non_empty(series: pd.Series) -> str:
     values = values.loc[values != ""]
     if values.empty:
         return ""
-    return str(values.value_counts().index[0])
+    value_counts = values.value_counts()
+    if value_counts.empty:
+        return ""
+    return str(value_counts.index[0])
 
 
 def _first_tar_member(tar: tarfile.TarFile, suffix: str) -> tarfile.TarInfo:
@@ -683,7 +686,7 @@ def build_mobsuite_support(
                     series.fillna("")
                     .astype(str)
                     .str.strip()
-                    .replace({"": pd.NA})
+                    .replace({"": np.nan})
                     .dropna()
                     .nunique()
                 ),

@@ -25,6 +25,7 @@ DEFAULT_SINGLE_MODEL_OBJECTIVE_WEIGHTS: dict[str, float] = {
     "predictive_power": 0.4,
     "compute_efficiency": 0.2,
 }
+BENCHMARK_CONTRACT_VERSION = "2026-04-10"
 
 
 def _coerce_int(value: object, *, default: int) -> int:
@@ -66,6 +67,8 @@ def _deduplicate(names: Iterable[str]) -> tuple[str, ...]:
 
 def build_protocol_snapshot(protocol: "ScientificProtocol") -> dict[str, Any]:
     return {
+        "benchmark_contract_version": protocol.benchmark_contract_version,
+        "benchmark_scope": protocol.benchmark_scope,
         "acceptance_thresholds": protocol.acceptance_thresholds,
         "ablation_model_names": list(protocol.ablation_model_names),
         "conservative_model_name": protocol.conservative_model_name,
@@ -121,6 +124,29 @@ class ScientificProtocol:
             "outcome_label": "spread_label",
             "split_year": int(self.split_year),
             "min_new_countries_for_spread": int(self.min_new_countries_for_spread),
+        }
+
+    @property
+    def benchmark_contract_version(self) -> str:
+        return BENCHMARK_CONTRACT_VERSION
+
+    @property
+    def benchmark_scope(self) -> dict[str, object]:
+        return {
+            "split_year": int(self.split_year),
+            "required_assignment_mode": "training_only",
+            "outcome_definition": self.outcome_definition,
+            "eligible_cohort": {
+                "temporal_split_year": int(self.split_year),
+                "min_new_countries_for_spread": int(self.min_new_countries_for_spread),
+                "requires_temporal_metadata": True,
+            },
+            "official_model_names": list(self.official_model_names),
+            "accepted_audit_gates": list(self.acceptance_thresholds.keys()),
+            "calibration_metric_definitions": {
+                "ece_max": "Expected calibration error upper bound.",
+                "selection_adjusted_p_max": "Selection-adjusted empirical p-value upper bound.",
+            },
         }
 
     @property

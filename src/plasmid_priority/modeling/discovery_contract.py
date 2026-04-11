@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
+import numpy as np
 import pandas as pd
 
 from plasmid_priority.modeling.module_a import get_feature_track, get_model_track
@@ -83,7 +84,7 @@ def validate_discovery_input_contract(
 
     if contract.require_training_only_assignment:
         assignment_modes = (
-            scored["backbone_assignment_mode"].fillna("").astype(str).str.strip().replace("", pd.NA)
+            scored["backbone_assignment_mode"].fillna("").astype(str).str.strip().replace("", np.nan)
         )
         invalid_modes = sorted(
             {

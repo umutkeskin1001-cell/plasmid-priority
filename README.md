@@ -90,7 +90,7 @@ The current implementation now covers the main retrospective pipeline:
 The results of the pipeline are structured to be directly usable for scientific presentations and jury evaluations:
 
 1. **Narratives** (`reports/jury_brief.md` & `reports/ozet_tr.md`): The main English and Turkish narrative summaries for jury-facing interpretation, with a short release-surface note that points to the blocked-holdout audit and calibration/threshold figure.
-2. **Canonical One-Page Summary** (`reports/headline_validation_summary.md`): The single-sheet validation surface with discovery, governance, baseline, and confirmatory metrics.
+2. **Canonical One-Page Summary** (`reports/headline_validation_summary.md`): The single-sheet validation surface with discovery, governance, baseline, and confirmatory metrics, plus an explicit benchmark-scope note and strict-acceptance status.
 3. **Core Figures** (`reports/core_figures/`): The high-impact visualizations ready for slide decks, including the compact calibration/threshold diagnostic when threshold-sensitivity data are available.
 4. **Core Report Tables** (`reports/core_tables/`): The curated shortlist, model-selection, and portfolio tables that belong in presentations and handouts.
 5. **Canonical Analysis Tables** (`data/analysis/`): The full machine-readable audit outputs. Large technical tables live here instead of being mirrored into multiple report folders.
@@ -99,7 +99,7 @@ The results of the pipeline are structured to be directly usable for scientific 
 
 Canonical outputs live under `reports/`. Frozen release snapshots live under `reports/release/bundle/`. Each release workflow run refreshes the snapshot from the current canonical report surface; `reports/release/` stays git-ignored by design because it is a generated export layer.
 
-The release surface also includes `blocked_holdout_summary.tsv` for the blocked-holdout stress test and `calibration_threshold_summary.png` for the combined calibration/threshold view, and the jury brief now points directly to those artifacts.
+The release surface also includes `blocked_holdout_summary.tsv` for the blocked-holdout stress test and `calibration_threshold_summary.png` for the combined calibration/threshold view, and the jury brief now points directly to those artifacts. The top-level summaries stay benchmark-limited: they only narrate the headline benchmark as accepted when the frozen scientific acceptance gate passes.
 
 The curated shortlist is not a raw top-score dump. It is source-diverse and low-knownness-aware so that the portfolio keeps both operationally strong candidates and early-signal candidates in view.
 

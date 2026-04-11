@@ -198,7 +198,7 @@ def _prepare_scored_components(
         if training_only_backbones:
             records = assign_backbone_ids_training_only(records, split_year=split_year)
         if force_fallback_backbones:
-            records = assign_backbone_ids(records.assign(primary_cluster_id=""))
+            records = assign_backbone_ids(records.assign(primary_cluster_id=""), backbone_assignment_mode="all_records")
         if assigned_records_cache is not None:
             assigned_records_cache[assignment_key] = records.copy()
 
@@ -227,11 +227,24 @@ def _prepare_scored_components(
     feature_h = compute_feature_h(records, split_year=split_year)
     feature_a = compute_feature_a(training_canonical)
     coherence = compute_backbone_coherence(records, split_year=split_year)
+    assignment_mode_series = (
+        records.get("backbone_assignment_mode", pd.Series(dtype=str))
+        .astype(str)
+        .str.strip()
+        .replace("", pd.NA)
+        .dropna()
+    )
+    assignment_mode = (
+        str(assignment_mode_series.iloc[0]).strip()
+        if not assignment_mode_series.empty
+        else "training_only"
+    )
     backbone_base = build_backbone_table(
         records,
         coherence,
         split_year=split_year,
         test_year_end=split_year,
+        backbone_assignment_mode=assignment_mode,
     ).copy()
     working_records = records.copy()
     years = pd.to_numeric(working_records["resolved_year"], errors="coerce").fillna(0).astype(int)

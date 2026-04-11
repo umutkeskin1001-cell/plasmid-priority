@@ -299,7 +299,7 @@ def validate_harmonized_plasmids(
             "n_rows": int(len(df)),
             "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
         }
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
         return {
             "status": "error",
             "table": "harmonized_plasmids",
@@ -338,7 +338,7 @@ def validate_backbone_table(
             "n_rows": int(len(df)),
             "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
         }
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
         return {
             "status": "error",
             "table": "backbone_table",
@@ -377,7 +377,7 @@ def validate_scored_backbones(
             "n_rows": int(len(df)),
             "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
         }
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
         return {
             "status": "error",
             "table": "scored_backbones",
@@ -416,7 +416,7 @@ def validate_deduplicated_plasmids(
             "n_rows": int(len(df)),
             "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
         }
-    except Exception as e:
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
         return {
             "status": "error",
             "table": "deduplicated_plasmids",

@@ -2133,7 +2133,7 @@ def plot_mobsuite_support_summary(summary: pd.DataFrame, output_path: Path) -> N
     _style()
     ensure_directory(output_path.parent)
     working = summary.copy()
-    coverage = working["n_with_literature_support"] / working["n_backbones"].replace(0, pd.NA)
+    coverage = working["n_with_literature_support"] / working["n_backbones"].replace(0, np.nan)
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.8))
     colors = (
         working["priority_group"].map({"high": PALETTE["high"], "low": PALETTE["low"]}).tolist()
@@ -2218,7 +2218,7 @@ def plot_amrfinder_concordance(summary: pd.DataFrame, output_path: Path) -> None
         return
     working["amr_evidence_fraction"] = working["n_with_any_amr_evidence"] / working[
         "n_sequences"
-    ].replace(0, pd.NA)
+    ].replace(0, np.nan)
     fig, axes = plt.subplots(1, 3, figsize=(13.2, 4.8))
     colors = (
         working["priority_group"].map({"high": PALETTE["high"], "low": PALETTE["low"]}).tolist()

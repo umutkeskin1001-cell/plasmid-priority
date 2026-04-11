@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -27,7 +28,8 @@ def _load_project_config() -> dict:
     return build_context().config
 
 
-_project_config = None
+# Thread-local storage for project config - thread-safe
+_project_config_local = threading.local()
 
 _DEFAULT_MODEL_CONFIG = {
     "primary_model_name": "bio_clean_priority",
@@ -63,10 +65,9 @@ SINGLE_MODEL_PARETO_PARENT_MODEL_NAMES: tuple[str, ...] = (
 
 
 def _get_model_config() -> dict:
-    global _project_config
-    if _project_config is None:
-        _project_config = _load_project_config()
-    models = _project_config.get("models", {}) if isinstance(_project_config, dict) else {}
+    if not hasattr(_project_config_local, 'value') or _project_config_local.value is None:
+        _project_config_local.value = _load_project_config()
+    models = _project_config_local.value.get("models", {}) if isinstance(_project_config_local.value, dict) else {}
     if not isinstance(models, dict):
         return _DEFAULT_MODEL_CONFIG
     return {
@@ -860,7 +861,9 @@ def _fit_firth_logistic_regression_with_diagnostics(
                 fit_backend="logistic",
             )
             beta = np.asarray(warm_start_beta, dtype=float)
-        except Exception:
+        except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
+            import warnings
+            warnings.warn(f"Warm-start logistic fit failed, using zero initialization: {e}")
             beta = np.zeros(X_aug.shape[1], dtype=float)
     ridge_penalty = np.eye(X_aug.shape[1], dtype=float) * float(max(l2, 0.0))
     ridge_penalty[0, 0] = 0.0

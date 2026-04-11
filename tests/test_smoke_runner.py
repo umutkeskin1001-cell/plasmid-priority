@@ -128,11 +128,12 @@ class SmokeRunnerTests(unittest.TestCase):
 
     def test_smoke_skips_real_data_when_required_inputs_are_absent(self) -> None:
         fake_run = _FakeRun()
+        missing_path = Path(tempfile.mkdtemp()) / "missing_plsdb_sequences.fasta"
         report = ValidationReport(
             results=[
                 AssetCheckResult(
                     key="plsdb_sequences_fasta",
-                    path=str(PROJECT_ROOT / "data/raw/plsdb_sequences.fasta"),
+                    path=str(missing_path),
                     status="error",
                     required=True,
                     stage="raw",
@@ -157,11 +158,12 @@ class SmokeRunnerTests(unittest.TestCase):
 
     def test_smoke_skip_is_allowed_when_tests_have_run(self) -> None:
         fake_run = _FakeRun()
+        missing_path = Path(tempfile.mkdtemp()) / "missing_plsdb_sequences.fasta"
         report = ValidationReport(
             results=[
                 AssetCheckResult(
                     key="plsdb_sequences_fasta",
-                    path=str(PROJECT_ROOT / "data/raw/plsdb_sequences.fasta"),
+                    path=str(missing_path),
                     status="error",
                     required=True,
                     stage="raw",

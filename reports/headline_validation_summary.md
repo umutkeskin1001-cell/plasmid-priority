@@ -2,31 +2,33 @@
 
 This is the canonical one-page validation surface for jury review.
 
-- Discovery primary: `discovery_12f_source`
+- Discovery primary benchmark candidate: `discovery_12f_source`
 - Governance watch-only: `phylo_support_fusion_priority`
 - Baseline comparator: `baseline_both`
+- Benchmark scope note: the headline benchmark does not clear the frozen scientific acceptance gate, so the narrative remains conditional and benchmark-limited.
 - Permutation entries below include the selection-adjusted official-model null; the fixed-score label-permutation audit is retained only as an exploratory appendix diagnostic.
 - The explicit leakage canary is exported separately in `future_sentinel_audit.tsv`.
 - The frozen acceptance audit is exported separately in `frozen_scientific_acceptance_audit.tsv`.
 - The nonlinear deconfounding audit is exported separately in `nonlinear_deconfounding_audit.tsv`.
+- Calibration metrics below are fixed-bin diagnostics: ECE, max calibration error, calibration slope, and calibration intercept are reported with their binning semantics made explicit.
 - Alternative endpoint audits are exported separately in `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv`.
 - The prospective freeze audits are exported separately in `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv`.
 - The graph, counterfactual, geographic-jump, and AMR-uncertainty diagnostics are exported separately in `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv`.
 - Frozen scientific acceptance combines matched-knownness, source holdout, spatial holdout, calibration, selection-adjusted null, and leakage review.
 
-| Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | ECE | Max CE | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |
-| --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |
-| discovery_primary | discovery_12f_source | 0.804 | [0.775, 0.831] | 0.723 | [0.678, 0.770] | 0.169 | 0.270 | 0.049 | NA | fail | fail:matched_knownness,source_holdout | <0.001 | <0.001 | 0.081 ([0.046, 0.116]) | 0.789 | 989 | 362 |
-| governance_watch_only | phylo_support_fusion_priority | 0.827 | [0.800, 0.852] | 0.767 | [0.725, 0.803] | 0.166 | 0.284 | 0.085 | NA | fail | fail:matched_knownness,source_holdout,calibration | <0.001 | NA | NA | 0.821 | 989 | 362 |
-| counts_baseline | baseline_both | 0.722 | [0.689, 0.756] | 0.647 | [0.596, 0.698] | 0.186 | 0.198 | 0.039 | NA | fail | fail:matched_knownness | <0.001 | <0.001 | NA | 0.740 | 989 | 362 |
-| single_model_pareto_official | discovery_12f_source | 0.804 | [0.775, 0.831] | 0.723 | [0.678, 0.770] | 0.169 | 0.270 | 0.049 | NA | fail | fail:matched_knownness | 0.005 | <0.001 | 0.081 ([0.046, 0.116]) | 0.789 | 989 | 362 |
+| Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | Fixed-bin ECE | Fixed-bin Max CE | Calibration Slope | Calibration Intercept | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |
+| --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |
+| discovery_primary | discovery_12f_source | 0.804 | [0.775, 0.831] | 0.723 | [0.678, 0.770] | 0.169 | 0.270 | 0.049 | NA | NA | NA | not_scored | missing:matched_knownness_weighted_roc_auc | 0.005 | <0.001 | 0.081 ([0.046, 0.116]) | 0.789 | 989 | 362 |
+| governance_watch_only | phylo_support_fusion_priority | 0.827 | [0.800, 0.852] | 0.767 | [0.725, 0.803] | 0.166 | 0.284 | 0.085 | NA | NA | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | NA | NA | 0.821 | 989 | 362 |
+| counts_baseline | baseline_both | 0.722 | [0.689, 0.756] | 0.647 | [0.596, 0.698] | 0.186 | 0.198 | 0.039 | NA | NA | NA | fail | fail:matched_knownness | 0.005 | <0.001 | NA | 0.740 | 989 | 362 |
+| single_model_pareto_official | discovery_12f_source__pruned | 0.792 | NA | 0.712 | NA | NA | NA | 0.040 | NA | NA | NA | fail | fail:matched_knownness,selection_adjusted_null | 0.020 | NA | NA | NA | 0 | 0 |
 
 ## Single-Model Pareto Decision
 
-- Official single-model candidate: `discovery_12f_source`; status `fail`; reason `lowest_failure_severity_with_competitive_auc`.
+- Official single-model candidate: `discovery_12f_source__pruned`; status `fail`; reason `lowest_failure_severity_with_competitive_auc`.
 - Selected from `3` Pareto finalists after finalist-heavy audit.
-- Weighted objective `0.500` with failure severity `1.993`.
-- Full Stage A screen time for the winning candidate family row was `0.20` seconds.
+- Weighted objective `0.200` with failure severity `3.612`.
+- Full Stage A screen time for the winning candidate family row was `0.08` seconds.
 
 ## Rolling-Origin Validation
 
@@ -36,11 +38,11 @@ Mean Brier score across the successful outer splits is 0.095.
 
 ## Blocked Holdout Audit
 
-- discovery_12f_source blocked holdout audit (dominant_region_train + dominant_source): weighted ROC AUC `0.786` across `7` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.684`.
+- discovery_12f_source blocked holdout audit (dominant_source): weighted ROC AUC `0.782` across `2` blocked groups; hardest group `dominant_source:insd_leaning` at ROC AUC `0.684`. discovery_12f_source blocked holdout audit (dominant_region_train): weighted ROC AUC `0.789` across `5` blocked groups; hardest group `dominant_region_train:Oceania` at ROC AUC `0.721`.
 
 ## Country Missingness
 
-- discovery_12f_source country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.793 to 0.804 and AP 0.723 to 0.780..
+- discovery_12f_source country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives..
 
 ## Ranking Stability
 

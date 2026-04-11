@@ -41,9 +41,8 @@ Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal ge
 - Koruyucu model: ROC AUC `0.751` | AP `0.659`.
 - Baseline model: ROC AUC `0.722` | AP `0.647`.
 - Yanlış negatif incelemesi: kısa liste dışında kalan `50` pozitif vardır; baskın nedenler `low_assignment_confidence, low_training_members, low_knownness`.
-- Eşleştirilmiş bilinirlik/kaynak katmanları denetimi: ana model `0.744`, taban model `0.594`.
 - Ağırlıklı yeni ülke yükü ile ilişki: Spearman ρ `0.620`.
-- Ham yeni ülke sayısı ile ilişki: Spearman ρ `0.624` [0.580, 0.661].
+- Ham yeni ülke sayısı ile ilişki: Spearman ρ `0.624` [0.580, 0.662].
 - Mekânsal holdout denetimi: ağırlıklı ROC AUC `0.789`.
 
 ## Sıralama Kararlılığı
@@ -61,10 +60,10 @@ Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal ge
 
 ## Örnek Adaylar
 
-- `AA282`: baskın tür `Escherichia coli`, baskın replikon `IncI-gamma/K1`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.85`, belirsizlik `0.23`. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,BETA-LACTAM,SULFONAMIDE,CEPHALOSPORIN,MONOBACTAM.
-- `AC030`: baskın tür `Escherichia coli`, baskın replikon `IncFIA`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.82`, belirsizlik `0.33`. Öne çıkan AMR sınıfları: belirgin AMR sınıfı sinyali yok.
-- `AA411`: baskın tür `Staphylococcus aureus`, baskın replikon `rep_cluster_1733`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.86`, belirsizlik `0.18`. Öne çıkan AMR sınıfları: PENAM,BETA-LACTAM.
-- `AA316`: baskın tür `Salmonella enterica`, baskın replikon `IncFIA`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.83`, belirsizlik `0.30`. Öne çıkan AMR sınıfları: BETA-LACTAM.
+- `AA282`: baskın tür `Escherichia coli`, baskın replikon `IncI-gamma/K1`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `belirsiz` ve risk özeti mevcut değil. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,BETA-LACTAM,SULFONAMIDE,CEPHALOSPORIN,MONOBACTAM.
+- `AC030`: baskın tür `Escherichia coli`, baskın replikon `IncFIA`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `belirsiz` ve risk özeti mevcut değil. Öne çıkan AMR sınıfları: belirgin AMR sınıfı sinyali yok.
+- `AA411`: baskın tür `Staphylococcus aureus`, baskın replikon `rep_cluster_1733`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `belirsiz` ve risk özeti mevcut değil. Öne çıkan AMR sınıfları: PENAM,BETA-LACTAM.
+- `AA316`: baskın tür `Salmonella enterica`, baskın replikon `IncFIA`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `belirsiz` ve risk özeti mevcut değil. Öne çıkan AMR sınıfları: BETA-LACTAM.
 
 ## Sürüm Yüzeyi
 

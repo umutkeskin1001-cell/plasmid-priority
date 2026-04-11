@@ -160,7 +160,7 @@ def concatenate_fastas(
             "input_files": per_file,
             "dry_run": dry_run,
         }
-    except Exception:
+    except (OSError, IOError):
         if writer is not None and not writer.closed:
             writer.close()
         if temp_path is not None and temp_path.exists():

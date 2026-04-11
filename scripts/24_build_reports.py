@@ -18,7 +18,6 @@ from plasmid_priority.modeling import (
     annotate_knownness_metadata,
     build_discovery_input_contract,
     build_standardized_coefficient_table,
-    fit_full_model_predictions,
     get_active_model_names,
     get_conservative_model_name,
     get_governance_model_name,
@@ -48,6 +47,7 @@ from plasmid_priority.reporting import (
     build_model_family_summary,
     build_model_selection_scorecard,
     build_model_simplicity_summary,
+    build_multiverse_stability_table,
     build_module_f_enrichment_table,
     build_module_f_top_hits,
     build_novelty_margin_summary,
@@ -63,8 +63,25 @@ from plasmid_priority.reporting import (
     normalize_drug_class_token,
     validate_report_artifact,
 )
+from plasmid_priority.reporting.narrative_utils import (
+    benchmark_scope_note as _benchmark_scope_note,
+    blocked_holdout_summary_text as _blocked_holdout_summary_text,
+    blocked_holdout_summary_text_tr as _blocked_holdout_summary_text_tr,
+    candidate_stability_summary_text as _candidate_stability_summary_text,
+    country_missingness_summary_text as _country_missingness_summary_text,
+    format_interval as _format_interval,
+    format_pvalue as _format_pvalue,
+    governance_watch_label as _governance_watch_label,
+    pretty_report_model_label as _pretty_report_model_label,
+    rolling_temporal_summary as _rolling_temporal_summary,
+    select_confirmatory_row as _select_confirmatory_row,
+    strict_acceptance_status as _strict_acceptance_status,
+    summarize_false_negative_audit as _summarize_false_negative_audit,
+    top_sign_stable_features as _top_sign_stable_features,
+)
 from plasmid_priority.reporting.figures import generate_all_figures
-from plasmid_priority.utils.dataframe import coalescing_left_merge, read_tsv
+from plasmid_priority.utils import benchmark_runtime
+from plasmid_priority.utils.dataframe import coalescing_left_merge, read_parquet, read_tsv
 from plasmid_priority.utils.files import (
     ensure_directory,
     load_signature_manifest,
@@ -206,205 +223,6 @@ def _build_spatial_holdout_summary(group_holdout: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
-
-
-def _blocked_holdout_summary_text(
-    blocked_holdout_summary: pd.DataFrame,
-    *,
-    model_name: str,
-) -> str:
-    if blocked_holdout_summary.empty:
-        return ""
-    working = blocked_holdout_summary.loc[
-        blocked_holdout_summary.get("model_name", pd.Series(dtype=str))
-        .astype(str)
-        .eq(str(model_name))
-    ].head(1)
-    if working.empty:
-        return ""
-    row = working.iloc[0]
-    weighted_auc = pd.to_numeric(
-        pd.Series([row.get("blocked_holdout_roc_auc")]), errors="coerce"
-    ).iloc[0]
-    if pd.isna(weighted_auc):
-        return ""
-    group_columns = str(row.get("blocked_holdout_group_columns", "") or "").strip()
-    if group_columns:
-        group_columns = group_columns.replace(",", " + ")
-    else:
-        group_columns = "blocked source/region groups"
-    group_count = pd.to_numeric(
-        pd.Series([row.get("blocked_holdout_group_count")]), errors="coerce"
-    ).iloc[0]
-    worst_group = str(row.get("worst_blocked_holdout_group", "") or "").strip()
-    worst_auc = pd.to_numeric(
-        pd.Series([row.get("worst_blocked_holdout_group_roc_auc")]), errors="coerce"
-    ).iloc[0]
-    text = (
-        f"{_pretty_report_model_label(model_name)} blocked holdout audit ({group_columns}): "
-        f"weighted ROC AUC `{float(weighted_auc):.3f}`"
-    )
-    if pd.notna(group_count):
-        text += f" across `{int(group_count)}` blocked groups"
-    if worst_group and pd.notna(worst_auc):
-        text += f"; hardest group `{worst_group}` at ROC AUC `{float(worst_auc):.3f}`"
-    return f"{text}."
-
-
-def _blocked_holdout_summary_text_tr(
-    blocked_holdout_summary: pd.DataFrame,
-    *,
-    model_name: str,
-) -> str:
-    if blocked_holdout_summary.empty:
-        return ""
-    working = blocked_holdout_summary.loc[
-        blocked_holdout_summary.get("model_name", pd.Series(dtype=str))
-        .astype(str)
-        .eq(str(model_name))
-    ].head(1)
-    if working.empty:
-        return ""
-    row = working.iloc[0]
-    weighted_auc = pd.to_numeric(
-        pd.Series([row.get("blocked_holdout_roc_auc")]), errors="coerce"
-    ).iloc[0]
-    if pd.isna(weighted_auc):
-        return ""
-    group_columns = str(row.get("blocked_holdout_group_columns", "") or "").strip()
-    if group_columns:
-        group_columns = group_columns.replace(",", " + ")
-    else:
-        group_columns = "kaynak/bölge grupları"
-    group_count = pd.to_numeric(
-        pd.Series([row.get("blocked_holdout_group_count")]), errors="coerce"
-    ).iloc[0]
-    worst_group = str(row.get("worst_blocked_holdout_group", "") or "").strip()
-    worst_auc = pd.to_numeric(
-        pd.Series([row.get("worst_blocked_holdout_group_roc_auc")]), errors="coerce"
-    ).iloc[0]
-    text = (
-        f"{_pretty_report_model_label(model_name)} için bloke edilmiş holdout denetimi ({group_columns}): "
-        f"ağırlıklı ROC AUC `{float(weighted_auc):.3f}`"
-    )
-    if pd.notna(group_count):
-        text += f" `{int(group_count)}` bloke grup üzerinde"
-    if worst_group and pd.notna(worst_auc):
-        text += f"; en zor grup `{worst_group}` ROC AUC `{float(worst_auc):.3f}`"
-    return f"{text}."
-
-
-def _country_missingness_summary_text(
-    country_missingness_bounds: pd.DataFrame,
-    country_missingness_sensitivity: pd.DataFrame,
-    *,
-    model_name: str,
-) -> str:
-    if country_missingness_bounds.empty:
-        return ""
-    working = country_missingness_bounds.loc[
-        country_missingness_bounds.get("backbone_id", pd.Series(dtype=str)).astype(str).ne("")
-    ].copy()
-    if working.empty:
-        return ""
-    eligible = working.loc[
-        working.get("eligible_for_country_bounds", pd.Series(False, index=working.index))
-        .fillna(False)
-        .astype(bool)
-    ].copy()
-    if eligible.empty:
-        return ""
-
-    def _label_count(column_name: str) -> tuple[int, int]:
-        values = pd.to_numeric(
-            eligible.get(column_name, pd.Series(np.nan, index=eligible.index)), errors="coerce"
-        ).fillna(0.0)
-        binary = values.astype(int)
-        return int(binary.sum()), int((eligible["label_observed"].fillna(0).astype(int) != binary).sum())
-
-    observed_pos, _ = _label_count("label_observed")
-    midpoint_pos, midpoint_flips = _label_count("label_midpoint")
-    optimistic_pos, optimistic_flips = _label_count("label_optimistic")
-    weighted_pos, weighted_flips = _label_count("label_weighted")
-
-    text = (
-        f"{_pretty_report_model_label(model_name)} country-missingness audit "
-        f"(`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): "
-        f"observed labels mark {observed_pos}/{len(eligible)} eligible backbones positive; "
-        f"midpoint / optimistic / weighted interpretations shift {midpoint_flips}/{optimistic_flips}/{weighted_flips} labels "
-        f"and yield {midpoint_pos}/{optimistic_pos}/{weighted_pos} positives."
-    )
-
-    if not country_missingness_sensitivity.empty and "model_name" in country_missingness_sensitivity.columns:
-        model_rows = country_missingness_sensitivity.loc[
-            country_missingness_sensitivity["model_name"].astype(str).eq(str(model_name))
-        ].copy()
-        if not model_rows.empty:
-            if "outcome_name" in model_rows.columns:
-                model_rows = model_rows.loc[
-                    model_rows["outcome_name"].astype(str).isin(
-                        ["label_observed", "label_midpoint", "label_optimistic", "label_weighted"]
-                    )
-                ].copy()
-            if not model_rows.empty and {"roc_auc", "average_precision"}.issubset(model_rows.columns):
-                roc_auc = pd.to_numeric(model_rows["roc_auc"], errors="coerce")
-                average_precision = pd.to_numeric(model_rows["average_precision"], errors="coerce")
-                if roc_auc.notna().any() and average_precision.notna().any():
-                    text += (
-                        f" Sensitivity across those label variants spans ROC AUC "
-                        f"{float(roc_auc.min()):.3f} to {float(roc_auc.max()):.3f} and AP "
-                        f"{float(average_precision.min()):.3f} to {float(average_precision.max()):.3f}."
-                    )
-    return f"{text}."
-
-
-def _candidate_stability_summary_text(
-    frame: pd.DataFrame,
-    *,
-    file_name: str,
-    frequency_column: str,
-    language: str = "en",
-) -> str:
-    if frame.empty or frequency_column not in frame.columns:
-        return ""
-    working = frame.loc[
-        frame.get("backbone_id", pd.Series(dtype=str)).astype(str).ne("")
-    ].copy()
-    if working.empty:
-        return ""
-    sort_columns = [frequency_column]
-    if frequency_column != "bootstrap_top_10_frequency" and "bootstrap_top_10_frequency" in working.columns:
-        sort_columns.append("bootstrap_top_10_frequency")
-    if frequency_column != "variant_top_10_frequency" and "variant_top_10_frequency" in working.columns:
-        sort_columns.append("variant_top_10_frequency")
-    working = working.sort_values(sort_columns, ascending=[False] * len(sort_columns))
-    row = working.iloc[0]
-    backbone_id = str(row.get("backbone_id", "") or "").strip()
-    top_k = pd.to_numeric(pd.Series([row.get("top_k", np.nan)]), errors="coerce").iloc[0]
-    frequency = pd.to_numeric(pd.Series([row.get(frequency_column, np.nan)]), errors="coerce").iloc[0]
-    if language == "tr":
-        intro = f"`{file_name}` aday siralama kararliligini raporlar"
-        if backbone_id and pd.notna(frequency):
-            if pd.notna(top_k):
-                return (
-                    f"{intro}; en kararlı örnek `{backbone_id}` için ilk `{int(top_k)}` içinde kalma sıklığı "
-                    f"`{float(frequency):.2f}`."
-                )
-            return f"{intro}; en kararlı örnek `{backbone_id}` için sıklık `{float(frequency):.2f}`."
-        return f"{intro}."
-    intro = f"`{file_name}` records candidate rank stability"
-    if frequency_column == "bootstrap_top_k_frequency":
-        intro += " across bootstrap resamples"
-    else:
-        intro += " across model variants"
-    if backbone_id and pd.notna(frequency):
-        if pd.notna(top_k):
-            return (
-                f"{intro}; the strongest stable backbone `{backbone_id}` remains in the top-`{int(top_k)}` "
-                f"set at frequency `{float(frequency):.2f}`."
-            )
-        return f"{intro}; the strongest stable backbone `{backbone_id}` has frequency `{float(frequency):.2f}`."
-    return f"{intro}."
 
 
 def _build_report_model_metrics(
@@ -1030,7 +848,10 @@ def _dominant_non_empty(series: pd.Series) -> str:
     values = values.loc[values != ""]
     if values.empty:
         return ""
-    return str(values.value_counts().index[0])
+    value_counts = values.value_counts()
+    if value_counts.empty:
+        return ""
+    return str(value_counts.index[0])
 
 
 def _top_tokens(series: pd.Series, *, n: int = 5) -> str:
@@ -1120,34 +941,6 @@ def _top_likely_amr_genes(series: pd.Series, *, n: int = 5) -> str:
                 counts[token] = counts.get(token, 0) + 1
     ordered = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return ",".join(token for token, _ in ordered[:n])
-
-
-def _pretty_report_model_label(model_name: str) -> str:
-    labels = {
-        "visibility_adjusted_priority": "visibility-adjusted model",
-        "bio_clean_priority": "bio-clean model",
-        "balanced_evidence_priority": "balanced evidence model",
-        "baseline_both": "counts-only baseline",
-        "natural_auc_priority": "augmented biological model",
-        "phylogeny_aware_priority": "taxonomy-aware H model",
-        "structured_signal_priority": "structure-aware biological model",
-        "ecology_clinical_priority": "ecology-clinical biological model",
-        "knownness_robust_priority": "knownness-robust biological model",
-        "support_calibrated_priority": "support-calibrated biological model",
-        "support_synergy_priority": "support-synergy biological model",
-        "monotonic_latent_priority": "monotonic latent biological model",
-        "phylo_support_fusion_priority": "phylo-support fusion model",
-        "host_transfer_synergy_priority": "host-transfer synergy biological model",
-        "threat_architecture_priority": "threat-architecture biological model",
-        "adaptive_natural_priority": "knownness-gated natural audit",
-        "adaptive_knownness_robust_priority": "knownness-gated specialist-switch audit",
-        "adaptive_knownness_blend_priority": "knownness-gated blended audit",
-        "adaptive_support_calibrated_blend_priority": "support-calibrated gated audit",
-        "adaptive_support_synergy_blend_priority": "support-synergy gated audit",
-        "adaptive_host_transfer_synergy_blend_priority": "host-transfer synergy gated audit",
-        "adaptive_threat_architecture_blend_priority": "threat-architecture gated audit",
-    }
-    return labels.get(str(model_name), str(model_name))
 
 
 def _build_backbone_assignment_summary(
@@ -1822,15 +1615,43 @@ def _build_operational_risk_watchlist(
     candidate_portfolio: pd.DataFrame | None = None,
     top_k: int = 50,
 ) -> pd.DataFrame:
+    keep_columns = [
+        "operational_risk_rank",
+        "backbone_id",
+        "model_name",
+        "portfolio_track",
+        "track_rank",
+        "candidate_confidence_tier",
+        "recommended_monitoring_tier",
+        "false_positive_risk_tier",
+        "consensus_rank",
+        "operational_risk_score",
+        "risk_spread_probability",
+        "risk_spread_severity",
+        "risk_macro_region_jump_3y",
+        "risk_event_within_3y",
+        "risk_three_countries_within_5y",
+        "risk_uncertainty",
+        "risk_uncertainty_quantile",
+        "risk_component_std",
+        "risk_abstain_flag",
+        "risk_decision_tier",
+        "risk_route_context",
+        "knownness_score",
+        "knownness_half",
+        "source_band",
+        "member_count_band",
+        "country_count_band",
+    ]
     if operational_risk_dictionary.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=keep_columns)
     working = operational_risk_dictionary.loc[
         operational_risk_dictionary.get("model_name", pd.Series(dtype=str))
         .astype(str)
         .eq(primary_model_name)
     ].copy()
     if working.empty:
-        return working
+        return pd.DataFrame(columns=keep_columns)
     if candidate_portfolio is not None and not candidate_portfolio.empty:
         portfolio_columns = [
             column
@@ -1863,34 +1684,6 @@ def _build_operational_risk_watchlist(
     working["_decision_order"] = (
         working["risk_decision_tier"].map(decision_order).fillna(3).astype(int)
     )
-    keep_columns = [
-        "operational_risk_rank",
-        "backbone_id",
-        "model_name",
-        "portfolio_track",
-        "track_rank",
-        "candidate_confidence_tier",
-        "recommended_monitoring_tier",
-        "false_positive_risk_tier",
-        "consensus_rank",
-        "operational_risk_score",
-        "risk_spread_probability",
-        "risk_spread_severity",
-        "risk_macro_region_jump_3y",
-        "risk_event_within_3y",
-        "risk_three_countries_within_5y",
-        "risk_uncertainty",
-        "risk_uncertainty_quantile",
-        "risk_component_std",
-        "risk_abstain_flag",
-        "risk_decision_tier",
-        "risk_route_context",
-        "knownness_score",
-        "knownness_half",
-        "source_band",
-        "member_count_band",
-        "country_count_band",
-    ]
     tier_targets = {
         "action": max(1, int(round(top_k * 0.45))),
         "review": max(1, int(round(top_k * 0.35))),
@@ -2214,116 +2007,6 @@ def _select_summary_candidate_briefs(
     )
 
 
-def _summarize_false_negative_audit(false_negative_audit: pd.DataFrame) -> tuple[int, str]:
-    if false_negative_audit.empty:
-        return 0, "none"
-    top_flags: dict[str, int] = {}
-    for value in (
-        false_negative_audit.get("miss_driver_flags", pd.Series(dtype=str)).fillna("").astype(str)
-    ):
-        for token in [
-            part.strip() for part in value.split(",") if part.strip() and part.strip() != "none"
-        ]:
-            top_flags[token] = top_flags.get(token, 0) + 1
-    if not top_flags:
-        return int(len(false_negative_audit)), "none"
-    ordered = sorted(top_flags.items(), key=lambda item: (-item[1], item[0]))
-    return int(len(false_negative_audit)), ", ".join(flag for flag, _ in ordered[:3])
-
-
-def _select_confirmatory_row(
-    confirmatory_cohort_summary: pd.DataFrame,
-    *,
-    cohort_name: str,
-    model_name: str,
-) -> pd.Series:
-    if confirmatory_cohort_summary.empty:
-        return pd.Series(dtype=object)
-    match = confirmatory_cohort_summary.loc[
-        (
-            confirmatory_cohort_summary.get("cohort_name", pd.Series(dtype=str)).astype(str)
-            == str(cohort_name)
-        )
-        & (
-            confirmatory_cohort_summary.get("model_name", pd.Series(dtype=str)).astype(str)
-            == str(model_name)
-        )
-        & (confirmatory_cohort_summary.get("status", pd.Series(dtype=str)).astype(str) == "ok")
-    ].head(1)
-    return match.iloc[0] if not match.empty else pd.Series(dtype=object)
-
-
-def _format_interval(lower: object, upper: object, *, digits: int = 3) -> str:
-    lower_value = pd.to_numeric(pd.Series([lower]), errors="coerce").iloc[0]
-    upper_value = pd.to_numeric(pd.Series([upper]), errors="coerce").iloc[0]
-    if pd.isna(lower_value) or pd.isna(upper_value):
-        return "NA"
-    return f"[{float(lower_value):.{digits}f}, {float(upper_value):.{digits}f}]"
-
-
-def _format_pvalue(value: object) -> str:
-    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-    if pd.isna(numeric):
-        return "NA"
-    if float(numeric) < 0.001:
-        return "<0.001"
-    return f"{float(numeric):.3f}"
-
-
-def _governance_watch_label() -> str:
-    return "Governance watch-only"
-
-
-def _rolling_temporal_summary(rolling_temporal: pd.DataFrame) -> dict[str, object]:
-    if rolling_temporal.empty or "status" not in rolling_temporal.columns:
-        return {}
-    working = rolling_temporal.loc[
-        rolling_temporal["status"].astype(str).eq("ok")
-    ].copy()
-    if working.empty:
-        return {}
-    roc_auc = pd.to_numeric(
-        working.get("roc_auc", pd.Series(dtype=float)), errors="coerce"
-    ).dropna()
-    average_precision = pd.to_numeric(
-        working.get("average_precision", pd.Series(dtype=float)), errors="coerce"
-    ).dropna()
-    brier_score = pd.to_numeric(
-        working.get("brier_score", pd.Series(dtype=float)), errors="coerce"
-    ).dropna()
-    split_years = pd.to_numeric(
-        working.get("split_year", pd.Series(dtype=float)), errors="coerce"
-    ).dropna()
-    horizons = pd.to_numeric(
-        working.get("horizon_years", pd.Series(dtype=float)), errors="coerce"
-    ).dropna()
-    assignment_modes = working.get("backbone_assignment_mode", pd.Series(dtype=str)).astype(str)
-    return {
-        "n_rows": int(len(working)),
-        "split_year_min": int(split_years.min()) if not split_years.empty else None,
-        "split_year_max": int(split_years.max()) if not split_years.empty else None,
-        "horizon_values": ",".join(str(int(value)) for value in sorted(horizons.unique()))
-        if not horizons.empty
-        else "",
-        "assignment_modes": ",".join(sorted(set(mode for mode in assignment_modes if mode))),
-        "roc_auc_mean": float(roc_auc.mean()) if not roc_auc.empty else np.nan,
-        "roc_auc_min": float(roc_auc.min()) if not roc_auc.empty else np.nan,
-        "roc_auc_max": float(roc_auc.max()) if not roc_auc.empty else np.nan,
-        "average_precision_mean": float(average_precision.mean())
-        if not average_precision.empty
-        else np.nan,
-        "average_precision_min": float(average_precision.min())
-        if not average_precision.empty
-        else np.nan,
-        "average_precision_max": float(average_precision.max())
-        if not average_precision.empty
-        else np.nan,
-        "brier_score_mean": float(brier_score.mean()) if not brier_score.empty else np.nan,
-        "brier_score_min": float(brier_score.min()) if not brier_score.empty else np.nan,
-        "brier_score_max": float(brier_score.max()) if not brier_score.empty else np.nan,
-    }
-
-
 def _primary_baseline_delta_text(model_metrics: pd.DataFrame, primary_model_name: str) -> str:
     row = model_metrics.loc[
         model_metrics["model_name"].astype(str) == str(primary_model_name)
@@ -2339,26 +2022,6 @@ def _primary_baseline_delta_text(model_metrics: pd.DataFrame, primary_model_name
     if pd.isna(delta):
         return "NA"
     return f"{float(delta):.3f}, 95% CI {_format_interval(lower, upper)}"
-
-
-def _top_sign_stable_features(coefficient_stability_cv: pd.DataFrame, *, top_n: int = 3) -> str:
-    if coefficient_stability_cv.empty:
-        return "NA"
-    working = coefficient_stability_cv.copy()
-    if "sign_stable" in working.columns:
-        working = working.loc[working["sign_stable"].fillna(False).astype(bool)]
-    if working.empty:
-        return "NA"
-    sort_column = "cv_of_coef" if "cv_of_coef" in working.columns else None
-    if sort_column:
-        working = working.sort_values(
-            [
-                sort_column,
-                "abs_mean_coefficient" if "abs_mean_coefficient" in working.columns else "feature",
-            ]
-        )
-    labels = working.head(top_n)["feature"].astype(str).tolist()
-    return ", ".join(labels) if labels else "NA"
 
 
 def _build_candidate_case_studies(
@@ -2455,6 +2118,20 @@ def _build_headline_validation_summary(
         else pd.Series(dtype=object)
     )
     single_model_name = str(single_model_decision_row.get("official_model_name", "") or "").strip()
+    primary_status_row = model_metrics.loc[
+        model_metrics["model_name"].astype(str).eq(str(primary_model_name))
+    ].head(1)
+    primary_status = (
+        _strict_acceptance_status(primary_status_row.iloc[0])
+        if not primary_status_row.empty
+        else "not_scored"
+    )
+    benchmark_scope_note = _benchmark_scope_note(primary_status)
+    discovery_primary_label = (
+        "Discovery primary benchmark"
+        if primary_status == "pass"
+        else "Discovery primary benchmark candidate"
+    )
     if single_model_name:
         summary_specs.append(("single_model_pareto_official", single_model_name))
     for summary_label, model_name in summary_specs:
@@ -2639,25 +2316,41 @@ def _write_headline_validation_summary(
     variant_consistency = (
         variant_consistency if variant_consistency is not None else pd.DataFrame()
     )
+    primary_status_row = summary_table.loc[
+        summary_table["summary_label"].astype(str).eq("discovery_primary")
+    ].head(1)
+    primary_status = (
+        _strict_acceptance_status(primary_status_row.iloc[0])
+        if not primary_status_row.empty
+        else "not_scored"
+    )
+    benchmark_scope_note = _benchmark_scope_note(primary_status)
+    discovery_primary_label = (
+        "Discovery primary benchmark"
+        if primary_status == "pass"
+        else "Discovery primary benchmark candidate"
+    )
     lines = [
         "# Headline Validation Summary",
         "",
         "This is the canonical one-page validation surface for jury review.",
         "",
-        f"- Discovery primary: `{primary_model_name}`",
+        f"- {discovery_primary_label}: `{primary_model_name}`",
         f"- {_governance_watch_label()}: `{governance_model_name}`",
         "- Baseline comparator: `baseline_both`",
+        f"- {benchmark_scope_note}",
         "- Permutation entries below include the selection-adjusted official-model null; the fixed-score label-permutation audit is retained only as an exploratory appendix diagnostic.",
         "- The explicit leakage canary is exported separately in `future_sentinel_audit.tsv`.",
         "- The frozen acceptance audit is exported separately in `frozen_scientific_acceptance_audit.tsv`.",
         "- The nonlinear deconfounding audit is exported separately in `nonlinear_deconfounding_audit.tsv`.",
+        "- Calibration metrics below are fixed-bin diagnostics: ECE, max calibration error, calibration slope, and calibration intercept are reported with their binning semantics made explicit.",
         "- Alternative endpoint audits are exported separately in `ordinal_outcome_audit.tsv`, `exposure_adjusted_event_outcomes.tsv`, and `macro_region_jump_outcome.tsv`.",
         "- The prospective freeze audits are exported separately in `prospective_candidate_freeze.tsv` and `annual_candidate_freeze_summary.tsv`.",
         "- The graph, counterfactual, geographic-jump, and AMR-uncertainty diagnostics are exported separately in `mash_similarity_graph.tsv`, `counterfactual_shortlist_comparison.tsv`, `geographic_jump_distance_outcome.tsv`, and `amr_uncertainty_summary.tsv`.",
         "- Frozen scientific acceptance combines matched-knownness, source holdout, spatial holdout, calibration, selection-adjusted null, and leakage review.",
         "",
-        "| Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | ECE | Max CE | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |",
-        "| --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |",
+        "| Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | Fixed-bin ECE | Fixed-bin Max CE | Calibration Slope | Calibration Intercept | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |",
+        "| --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |",
     ]
     for row in summary_table.to_dict(orient="records"):
         lines.append(
@@ -2683,6 +2376,12 @@ def _write_headline_validation_summary(
                     f"{float(row.get('ece', np.nan)):.3f}" if pd.notna(row.get("ece")) else "NA",
                     f"{float(row.get('max_calibration_error', np.nan)):.3f}"
                     if pd.notna(row.get("max_calibration_error"))
+                    else "NA",
+                    f"{float(row.get('calibration_slope', np.nan)):.3f}"
+                    if pd.notna(row.get("calibration_slope"))
+                    else "NA",
+                    f"{float(row.get('calibration_intercept', np.nan)):.3f}"
+                    if pd.notna(row.get("calibration_intercept"))
                     else "NA",
                     str(row.get("scientific_acceptance_status", "not_scored")),
                     str(row.get("scientific_acceptance_failed_criteria", "not_scored")),
@@ -2938,6 +2637,13 @@ def _write_executive_summary(
         blocked_holdout_summary,
         model_name=primary_model_name,
     ).rstrip(".")
+    primary_status = _strict_acceptance_status(primary)
+    benchmark_scope_note = _benchmark_scope_note(primary_status)
+    headline_label = (
+        "accepted headline benchmark"
+        if primary_status == "pass"
+        else "conditional benchmark candidate"
+    )
     country_missingness_text = _country_missingness_summary_text(
         country_missingness_bounds,
         country_missingness_sensitivity,
@@ -2948,9 +2654,12 @@ def _write_executive_summary(
         "",
         "Plasmid Priority is a retrospective surveillance ranking framework for plasmid backbone classes. It does not claim causal spread prediction; it asks whether pre-2016 genomic signals are associated with post-2015 international visibility increase.",
         "",
-        f"The Seer (headline model): `{_pretty_report_model_label(primary_model_name)}` | ROC AUC `{float(primary['roc_auc']):.3f}` | AP `{float(primary['average_precision']):.3f}`.",
+        f"The Seer ({headline_label}): `{_pretty_report_model_label(primary_model_name)}` | ROC AUC `{float(primary['roc_auc']):.3f}` | AP `{float(primary['average_precision']):.3f}`.",
         f"The Guard (governance watch-only): `{_pretty_report_model_label(governance_model_name)}` | ROC AUC `{float(governance.get('roc_auc', np.nan)):.3f}` | AP `{float(governance.get('average_precision', np.nan)):.3f}`.",
         f"The Baseline: `{_pretty_report_model_label(baseline_model_name)}` | ROC AUC `{float(baseline.get('roc_auc', np.nan)):.3f}` | AP `{float(baseline.get('average_precision', np.nan)):.3f}`.",
+        "",
+        f"Benchmark scope: {benchmark_scope_note}",
+        "Calibration note: fixed-bin ECE, max calibration error, calibration slope, and calibration intercept are reported explicitly, rather than being treated as uninterpreted summary numbers.",
         "",
         "## Method Overview",
         "",
@@ -5048,6 +4757,7 @@ def _write_jury_brief(
 def main() -> int:
     context = build_context(PROJECT_ROOT)
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
+    scored_parquet_path = context.data_dir / "scores/backbone_scored.parquet"
     backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
     amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
     metrics_path = context.data_dir / "analysis/module_a_metrics.json"
@@ -5274,6 +4984,11 @@ def main() -> int:
         source_validation_path,
         calibration_path,
         family_summary_path,
+        # Full-fit prediction artifacts (upstream science outputs)
+        context.data_dir / "analysis" / "primary_model_full_fit_predictions.tsv",
+        context.data_dir / "analysis" / "baseline_both_full_fit_predictions.tsv",
+        context.data_dir / "analysis" / "conservative_model_full_fit_predictions.tsv",
+        context.data_dir / "analysis" / "governance_model_full_fit_predictions.tsv",
         subgroup_performance_path,
         comparison_path,
         calibration_metrics_path,
@@ -5347,667 +5062,797 @@ def main() -> int:
         }
     }
 
-    with ManagedScriptRun(context, "24_build_reports") as run:
-        for path in input_paths:
-            if path.exists():
-                run.record_input(path)
-        run.record_output(jury_brief_path)
-        run.record_output(turkish_summary_path)
-        run.record_output(executive_summary_path)
-        run.record_output(pitch_notes_path)
-        run.record_output(headline_summary_path)
-        run.record_output(final_tables_dir / "top_primary_candidates.tsv")
-        run.record_output(final_tables_dir / "consensus_shortlist.tsv")
-        run.record_output(final_tables_dir / "candidate_evidence_matrix.tsv")
-        run.record_output(final_tables_dir / "candidate_threshold_flip.tsv")
-        run.record_output(final_tables_dir / "decision_yield_summary.tsv")
-        run.record_output(final_tables_dir / "threshold_utility_summary.tsv")
-        run.record_output(final_tables_dir / "report_overview.tsv")
-        run.record_output(final_tables_dir / "decision_budget_curve.tsv")
-        run.record_output(final_tables_dir / "false_negative_audit.tsv")
-        run.record_output(final_tables_dir / "confirmatory_cohort_summary.tsv")
-        run.record_output(final_tables_dir / "model_selection_scorecard.tsv")
-        run.record_output(final_tables_dir / "frozen_scientific_acceptance_audit.tsv")
-        run.record_output(final_tables_dir / "model_selection_summary.tsv")
-        run.record_output(final_tables_dir / "benchmark_protocol.tsv")
-        run.record_output(final_tables_dir / "official_benchmark_panel.tsv")
-        run.record_output(final_tables_dir / "module_b_amr_class_comparison.tsv")
-        run.record_output(final_tables_dir / "model_metrics.tsv")
-        run.record_output(final_tables_dir / "sensitivity_summary.tsv")
-        run.record_output(final_tables_dir / "source_stratified_consistency.tsv")
-        run.record_output(final_tables_dir / "calibration_table.tsv")
-        run.record_output(final_tables_dir / "model_family_summary.tsv")
-        run.record_output(family_summary_path)
-        run.record_output(final_tables_dir / "model_subgroup_performance.tsv")
-        run.record_output(final_tables_dir / "model_comparison_summary.tsv")
-        run.record_output(final_tables_dir / "calibration_metrics.tsv")
-        run.record_output(final_tables_dir / "blocked_holdout_calibration_summary.tsv")
-        run.record_output(final_tables_dir / "primary_model_coefficients.tsv")
-        run.record_output(final_tables_dir / "primary_model_coefficient_stability.tsv")
-        run.record_output(final_tables_dir / "coefficient_stability_cv.tsv")
-        run.record_output(core_dir / "core_model_coefficients.tsv")
-        run.record_output(final_tables_dir / "feature_dropout_importance.tsv")
-        run.record_output(final_tables_dir / "source_balance_resampling.tsv")
-        run.record_output(final_tables_dir / "group_holdout_performance.tsv")
-        run.record_output(final_tables_dir / "blocked_holdout_summary.tsv")
-        run.record_output(core_dir / "spatial_holdout_summary.tsv")
-        run.record_output(final_tables_dir / "single_model_pareto_screen.tsv")
-        run.record_output(final_tables_dir / "single_model_pareto_finalists.tsv")
-        run.record_output(final_tables_dir / "single_model_official_decision.tsv")
-        run.record_output(final_tables_dir / "permutation_null_distribution.tsv")
-        run.record_output(final_tables_dir / "permutation_null_summary.tsv")
-        run.record_output(final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv")
-        run.record_output(final_tables_dir / "selection_adjusted_permutation_null_summary.tsv")
-        run.record_output(final_tables_dir / "rolling_temporal_validation.tsv")
-        run.record_output(final_tables_dir / "rolling_assignment_diagnostics.tsv")
-        run.record_output(final_tables_dir / "candidate_rank_stability.tsv")
-        run.record_output(final_tables_dir / "candidate_variant_consistency.tsv")
-        run.record_output(final_tables_dir / "candidate_multiverse_stability.tsv")
-        run.record_output(final_tables_dir / "model_simplicity_summary.tsv")
-        run.record_output(final_tables_dir / "knownness_audit_summary.tsv")
-        run.record_output(final_tables_dir / "knownness_stratified_performance.tsv")
-        run.record_output(final_tables_dir / "negative_control_audit.tsv")
-        run.record_output(final_tables_dir / "future_sentinel_audit.tsv")
-        run.record_output(final_tables_dir / "logistic_implementation_audit.tsv")
-        run.record_output(final_tables_dir / "logistic_convergence_audit.tsv")
-        run.record_output(final_tables_dir / "outcome_robustness_grid.tsv")
-        run.record_output(final_tables_dir / "threshold_sensitivity_summary.tsv")
-        run.record_output(final_tables_dir / "l2_sensitivity_summary.tsv")
-        run.record_output(final_tables_dir / "weighting_sensitivity_summary.tsv")
-        run.record_output(final_tables_dir / "h_feature_diagnostics.tsv")
-        run.record_output(final_tables_dir / "score_axis_summary.tsv")
-        run.record_output(final_tables_dir / "score_distribution_diagnostics.tsv")
-        run.record_output(final_tables_dir / "component_floor_diagnostics.tsv")
-        run.record_output(final_tables_dir / "temporal_drift_summary.tsv")
-        run.record_output(final_tables_dir / "country_quality_summary.tsv")
-        run.record_output(final_tables_dir / "backbone_purity_atlas.tsv")
-        run.record_output(final_tables_dir / "assignment_confidence_summary.tsv")
-        run.record_output(final_tables_dir / "incremental_value_over_baseline.tsv")
-        run.record_output(final_tables_dir / "novelty_specialist_metrics.tsv")
-        run.record_output(final_tables_dir / "novelty_specialist_predictions.tsv")
-        run.record_output(final_tables_dir / "adaptive_gated_metrics.tsv")
-        run.record_output(final_tables_dir / "adaptive_gated_predictions.tsv")
-        run.record_output(final_tables_dir / "gate_consistency_audit.tsv")
-        run.record_output(final_tables_dir / "knownness_matched_validation.tsv")
-        run.record_output(final_tables_dir / "matched_stratum_propensity_audit.tsv")
-        run.record_output(final_tables_dir / "nonlinear_deconfounding_audit.tsv")
-        run.record_output(final_tables_dir / "country_upload_propensity.tsv")
-        run.record_output(final_tables_dir / "macro_region_jump_outcome.tsv")
-        run.record_output(final_tables_dir / "secondary_outcome_performance.tsv")
-        run.record_output(final_tables_dir / "weighted_country_outcome_audit.tsv")
-        run.record_output(final_tables_dir / "new_country_count_audit.tsv")
-        run.record_output(final_tables_dir / "metadata_quality_summary.tsv")
-        run.record_output(final_tables_dir / "event_timing_outcomes.tsv")
-        run.record_output(final_tables_dir / "exposure_adjusted_event_outcomes.tsv")
-        run.record_output(final_tables_dir / "exposure_adjusted_outcome_audit.tsv")
-        run.record_output(final_tables_dir / "ordinal_outcome_audit.tsv")
-        run.record_output(final_tables_dir / "country_missingness_bounds.tsv")
-        run.record_output(final_tables_dir / "country_missingness_sensitivity.tsv")
-        run.record_output(final_tables_dir / "geographic_jump_distance_outcome.tsv")
-        run.record_output(final_tables_dir / "duplicate_completeness_change_audit.tsv")
-        run.record_output(final_tables_dir / "amr_uncertainty_summary.tsv")
-        run.record_output(final_tables_dir / "mash_similarity_graph.tsv")
-        run.record_output(final_tables_dir / "counterfactual_shortlist_comparison.tsv")
-        run.record_output(final_tables_dir / "annual_candidate_freeze_summary.tsv")
-        run.record_output(final_tables_dir / "pathogen_detection_group_comparison.tsv")
-        run.record_output(final_tables_dir / "prospective_candidate_freeze.tsv")
-        run.record_output(final_tables_dir / "candidate_dossiers.tsv")
-        run.record_output(final_tables_dir / "candidate_risk_flags.tsv")
-        run.record_output(final_tables_dir / "novelty_watchlist.tsv")
-        run.record_output(final_tables_dir / "novelty_margin_summary.tsv")
-        run.record_output(final_tables_dir / "candidate_portfolio.tsv")
-        run.record_output(final_tables_dir / "candidate_case_studies.tsv")
-        run.record_output(final_tables_dir / "operational_risk_watchlist.tsv")
-        run.record_output(final_tables_dir / "operational_risk_dictionary_full.tsv")
-        run.record_output(final_tables_dir / "module_f_backbone_identity.tsv")
-        run.record_output(final_tables_dir / "module_f_enrichment.tsv")
-        run.record_output(final_tables_dir / "module_f_top_hits.tsv")
-        if load_signature_manifest(
-            manifest_path,
-            input_paths=[path for path in input_paths if path.exists()],
-            source_paths=source_paths,
-            metadata=cache_metadata,
-        ):
-            run.note("Inputs, code, and config unchanged; reusing cached report outputs.")
-            run.set_metric("cache_hit", True)
-            return 0
+    with benchmark_runtime("24_build_reports_total"):
+        with ManagedScriptRun(context, "24_build_reports") as run:
+            for path in input_paths:
+                if path.exists():
+                    run.record_input(path)
+            run.record_output(jury_brief_path)
+            run.record_output(turkish_summary_path)
+            run.record_output(executive_summary_path)
+            run.record_output(pitch_notes_path)
+            run.record_output(headline_summary_path)
+            run.record_output(final_tables_dir / "top_primary_candidates.tsv")
+            run.record_output(final_tables_dir / "consensus_shortlist.tsv")
+            run.record_output(final_tables_dir / "candidate_evidence_matrix.tsv")
+            run.record_output(final_tables_dir / "candidate_threshold_flip.tsv")
+            run.record_output(final_tables_dir / "decision_yield_summary.tsv")
+            run.record_output(final_tables_dir / "threshold_utility_summary.tsv")
+            run.record_output(final_tables_dir / "report_overview.tsv")
+            run.record_output(final_tables_dir / "decision_budget_curve.tsv")
+            run.record_output(final_tables_dir / "false_negative_audit.tsv")
+            run.record_output(final_tables_dir / "confirmatory_cohort_summary.tsv")
+            run.record_output(final_tables_dir / "model_selection_scorecard.tsv")
+            run.record_output(final_tables_dir / "frozen_scientific_acceptance_audit.tsv")
+            run.record_output(final_tables_dir / "model_selection_summary.tsv")
+            run.record_output(final_tables_dir / "benchmark_protocol.tsv")
+            run.record_output(final_tables_dir / "official_benchmark_panel.tsv")
+            run.record_output(final_tables_dir / "module_b_amr_class_comparison.tsv")
+            run.record_output(final_tables_dir / "model_metrics.tsv")
+            run.record_output(final_tables_dir / "sensitivity_summary.tsv")
+            run.record_output(final_tables_dir / "source_stratified_consistency.tsv")
+            run.record_output(final_tables_dir / "calibration_table.tsv")
+            run.record_output(final_tables_dir / "model_family_summary.tsv")
+            run.record_output(family_summary_path)
+            run.record_output(final_tables_dir / "model_subgroup_performance.tsv")
+            run.record_output(final_tables_dir / "model_comparison_summary.tsv")
+            run.record_output(final_tables_dir / "calibration_metrics.tsv")
+            run.record_output(final_tables_dir / "blocked_holdout_calibration_summary.tsv")
+            run.record_output(final_tables_dir / "primary_model_coefficients.tsv")
+            run.record_output(final_tables_dir / "primary_model_coefficient_stability.tsv")
+            run.record_output(final_tables_dir / "coefficient_stability_cv.tsv")
+            run.record_output(core_dir / "core_model_coefficients.tsv")
+            run.record_output(final_tables_dir / "feature_dropout_importance.tsv")
+            run.record_output(final_tables_dir / "source_balance_resampling.tsv")
+            run.record_output(final_tables_dir / "group_holdout_performance.tsv")
+            run.record_output(final_tables_dir / "blocked_holdout_summary.tsv")
+            run.record_output(core_dir / "spatial_holdout_summary.tsv")
+            run.record_output(final_tables_dir / "single_model_pareto_screen.tsv")
+            run.record_output(final_tables_dir / "single_model_pareto_finalists.tsv")
+            run.record_output(final_tables_dir / "single_model_official_decision.tsv")
+            run.record_output(final_tables_dir / "permutation_null_distribution.tsv")
+            run.record_output(final_tables_dir / "permutation_null_summary.tsv")
+            run.record_output(final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv")
+            run.record_output(final_tables_dir / "selection_adjusted_permutation_null_summary.tsv")
+            run.record_output(final_tables_dir / "rolling_temporal_validation.tsv")
+            run.record_output(final_tables_dir / "rolling_assignment_diagnostics.tsv")
+            run.record_output(final_tables_dir / "candidate_rank_stability.tsv")
+            run.record_output(final_tables_dir / "candidate_variant_consistency.tsv")
+            run.record_output(final_tables_dir / "candidate_multiverse_stability.tsv")
+            run.record_output(final_tables_dir / "model_simplicity_summary.tsv")
+            run.record_output(final_tables_dir / "knownness_audit_summary.tsv")
+            run.record_output(final_tables_dir / "knownness_stratified_performance.tsv")
+            run.record_output(final_tables_dir / "negative_control_audit.tsv")
+            run.record_output(final_tables_dir / "future_sentinel_audit.tsv")
+            run.record_output(final_tables_dir / "logistic_implementation_audit.tsv")
+            run.record_output(final_tables_dir / "logistic_convergence_audit.tsv")
+            run.record_output(final_tables_dir / "outcome_robustness_grid.tsv")
+            run.record_output(final_tables_dir / "threshold_sensitivity_summary.tsv")
+            run.record_output(final_tables_dir / "l2_sensitivity_summary.tsv")
+            run.record_output(final_tables_dir / "weighting_sensitivity_summary.tsv")
+            run.record_output(final_tables_dir / "h_feature_diagnostics.tsv")
+            run.record_output(final_tables_dir / "score_axis_summary.tsv")
+            run.record_output(final_tables_dir / "score_distribution_diagnostics.tsv")
+            run.record_output(final_tables_dir / "component_floor_diagnostics.tsv")
+            run.record_output(final_tables_dir / "temporal_drift_summary.tsv")
+            run.record_output(final_tables_dir / "country_quality_summary.tsv")
+            run.record_output(final_tables_dir / "backbone_purity_atlas.tsv")
+            run.record_output(final_tables_dir / "assignment_confidence_summary.tsv")
+            run.record_output(final_tables_dir / "incremental_value_over_baseline.tsv")
+            run.record_output(final_tables_dir / "novelty_specialist_metrics.tsv")
+            run.record_output(final_tables_dir / "novelty_specialist_predictions.tsv")
+            run.record_output(final_tables_dir / "adaptive_gated_metrics.tsv")
+            run.record_output(final_tables_dir / "adaptive_gated_predictions.tsv")
+            run.record_output(final_tables_dir / "gate_consistency_audit.tsv")
+            run.record_output(final_tables_dir / "knownness_matched_validation.tsv")
+            run.record_output(final_tables_dir / "matched_stratum_propensity_audit.tsv")
+            run.record_output(final_tables_dir / "nonlinear_deconfounding_audit.tsv")
+            run.record_output(final_tables_dir / "country_upload_propensity.tsv")
+            run.record_output(final_tables_dir / "macro_region_jump_outcome.tsv")
+            run.record_output(final_tables_dir / "secondary_outcome_performance.tsv")
+            run.record_output(final_tables_dir / "weighted_country_outcome_audit.tsv")
+            run.record_output(final_tables_dir / "new_country_count_audit.tsv")
+            run.record_output(final_tables_dir / "metadata_quality_summary.tsv")
+            run.record_output(final_tables_dir / "event_timing_outcomes.tsv")
+            run.record_output(final_tables_dir / "exposure_adjusted_event_outcomes.tsv")
+            run.record_output(final_tables_dir / "exposure_adjusted_outcome_audit.tsv")
+            run.record_output(final_tables_dir / "ordinal_outcome_audit.tsv")
+            run.record_output(final_tables_dir / "country_missingness_bounds.tsv")
+            run.record_output(final_tables_dir / "country_missingness_sensitivity.tsv")
+            run.record_output(final_tables_dir / "geographic_jump_distance_outcome.tsv")
+            run.record_output(final_tables_dir / "duplicate_completeness_change_audit.tsv")
+            run.record_output(final_tables_dir / "amr_uncertainty_summary.tsv")
+            run.record_output(final_tables_dir / "mash_similarity_graph.tsv")
+            run.record_output(final_tables_dir / "counterfactual_shortlist_comparison.tsv")
+            run.record_output(final_tables_dir / "annual_candidate_freeze_summary.tsv")
+            run.record_output(final_tables_dir / "pathogen_detection_group_comparison.tsv")
+            run.record_output(final_tables_dir / "prospective_candidate_freeze.tsv")
+            run.record_output(final_tables_dir / "candidate_dossiers.tsv")
+            run.record_output(final_tables_dir / "candidate_risk_flags.tsv")
+            run.record_output(final_tables_dir / "novelty_watchlist.tsv")
+            run.record_output(final_tables_dir / "novelty_margin_summary.tsv")
+            run.record_output(final_tables_dir / "candidate_portfolio.tsv")
+            run.record_output(final_tables_dir / "candidate_case_studies.tsv")
+            run.record_output(final_tables_dir / "operational_risk_watchlist.tsv")
+            run.record_output(final_tables_dir / "operational_risk_dictionary_full.tsv")
+            run.record_output(final_tables_dir / "module_f_backbone_identity.tsv")
+            run.record_output(final_tables_dir / "module_f_enrichment.tsv")
+            run.record_output(final_tables_dir / "module_f_top_hits.tsv")
+            if load_signature_manifest(
+                manifest_path,
+                input_paths=[path for path in input_paths if path.exists()],
+                source_paths=source_paths,
+                metadata=cache_metadata,
+            ):
+                run.note("Inputs, code, and config unchanged; reusing cached report outputs.")
+                run.set_metric("cache_hit", True)
+                return 0
 
-        scored = annotate_knownness_metadata(read_tsv(scored_path))
-        pipeline = context.pipeline_settings
-        backbones = read_tsv(backbones_path)
-        amr_consensus = _read_if_exists(amr_consensus_path)
-        model_metrics = _metrics_to_frame(metrics_path)
-        predictions = read_tsv(predictions_path)
-        calibration = read_tsv(calibration_path)
-        source_validation = read_tsv(source_validation_path)
-        active_model_names = get_active_model_names(model_metrics)
-        active_model_name_set = set(active_model_names)
-        primary_model_name = get_primary_model_name(active_model_names)
-        conservative_model_name = get_conservative_model_name(active_model_names)
-        governance_model_name = get_governance_model_name(active_model_names)
-        validate_discovery_input_contract(
-            scored,
-            model_names=[primary_model_name],
-            contract=build_discovery_input_contract(int(pipeline.split_year)),
-            label="Report score input",
-        )
-
-        def _compute_knownness(frame: pd.DataFrame) -> pd.DataFrame:
-            return annotate_knownness_metadata(frame.copy())
-
-        contextual_prediction_frames: dict[str, pd.DataFrame] = {}
-        seen_contextual_models: set[str] = set()
-        for model_name, output_column in (
-            (primary_model_name, "primary_model_full_fit_prediction"),
-            ("baseline_both", "baseline_both_full_fit_prediction"),
-            (conservative_model_name, "conservative_model_full_fit_prediction"),
-            (governance_model_name, "governance_model_full_fit_prediction"),
-        ):
-            if model_name in seen_contextual_models:
-                continue
-            if model_name not in active_model_name_set:
-                continue
-            if output_column in contextual_prediction_frames:
-                continue
-            seen_contextual_models.add(model_name)
-            contextual_prediction_frames[output_column] = fit_full_model_predictions(
+            if scored_parquet_path.exists():
+                scored = annotate_knownness_metadata(read_parquet(scored_parquet_path))
+                run.note("Loaded scored backbone table from Parquet via DuckDB.")
+                run.set_metric("scored_input_engine", "duckdb_parquet")
+            else:
+                scored = annotate_knownness_metadata(read_tsv(scored_path))
+                run.set_metric("scored_input_engine", "tsv")
+            pipeline = context.pipeline_settings
+            backbones = read_tsv(backbones_path)
+            amr_consensus = _read_if_exists(amr_consensus_path)
+            model_metrics = _metrics_to_frame(metrics_path)
+            predictions = read_tsv(predictions_path)
+            calibration = read_tsv(calibration_path)
+            source_validation = read_tsv(source_validation_path)
+            active_model_names = get_active_model_names(model_metrics)
+            active_model_name_set = set(active_model_names)
+            primary_model_name = get_primary_model_name(active_model_names)
+            conservative_model_name = get_conservative_model_name(active_model_names)
+            governance_model_name = get_governance_model_name(active_model_names)
+            validate_discovery_input_contract(
                 scored,
-                model_name=model_name,
-            ).rename(
-                columns={
-                    "prediction": output_column,
-                    "prediction_posterior_mean": f"{output_column}_posterior_mean",
-                    "prediction_std": f"{output_column}_std",
-                    "prediction_ci_lower": f"{output_column}_ci_lower",
-                    "prediction_ci_upper": f"{output_column}_ci_upper",
-                }
+                model_names=[primary_model_name],
+                contract=build_discovery_input_contract(int(pipeline.split_year)),
+                label="Report score input",
             )
-        family_summary = read_tsv(family_summary_path)
-        if (
-            family_summary.empty
-            or "model_name" not in family_summary.columns
-            or "evidence_role" not in family_summary.columns
-            or "model_track" not in family_summary.columns
-            or "track_summary" not in family_summary.columns
-            or primary_model_name not in set(family_summary["model_name"].astype(str))
-            or (
-                "bio_residual_synergy_priority" in active_model_name_set
-                and "bio_residual_synergy_priority"
-                not in set(family_summary["model_name"].astype(str))
-            )
-        ):
-            family_summary = build_model_family_summary(model_metrics)
-        subgroup_performance = read_tsv(subgroup_performance_path)
-        comparison_table = read_tsv(comparison_path)
-        calibration_metrics = read_tsv(calibration_metrics_path)
-        blocked_holdout_calibration_summary = _read_if_exists(blocked_holdout_calibration_path)
-        coefficient_table = read_tsv(coefficient_path)
-        coefficient_stability = read_tsv(coefficient_stability_path)
-        coefficient_stability_cv = _read_if_exists(coefficient_stability_cv_path)
-        dropout_table = read_tsv(dropout_path)
-        source_balance_resampling = read_tsv(source_balance_resampling_path)
-        if stale_turkiye_context_path.exists():
-            stale_turkiye_context_path.unlink()
-        group_holdout = _read_if_exists(group_holdout_path)
-        blocked_holdout_summary = build_blocked_holdout_summary(group_holdout)
-        spatial_holdout_summary = _build_spatial_holdout_summary(group_holdout)
-        permutation_detail = _read_if_exists(permutation_detail_path)
-        permutation_summary = _read_if_exists(permutation_summary_path)
-        selection_adjusted_permutation_detail = _read_if_exists(
-            selection_adjusted_permutation_detail_path
-        )
-        selection_adjusted_permutation_summary = _read_if_exists(
-            selection_adjusted_permutation_summary_path
-        )
-        negative_control = _read_if_exists(negative_control_path)
-        future_sentinel_audit = _read_if_exists(future_sentinel_path)
-        logistic_impl = _read_if_exists(logistic_impl_path)
-        logistic_convergence = _read_if_exists(logistic_convergence_path)
-        simplicity_summary = _read_if_exists(simplicity_path)
-        knownness_summary = _read_if_exists(knownness_summary_path)
-        knownness_strata = _read_if_exists(knownness_strata_path)
-        knownness_matched_validation = _read_if_exists(knownness_matched_validation_path)
-        matched_propensity_audit = _read_if_exists(matched_propensity_audit_path)
-        country_quality = _read_if_exists(country_quality_path)
-        country_upload_propensity = _read_if_exists(country_upload_propensity_path)
-        purity_atlas = _read_if_exists(purity_atlas_path)
-        assignment_confidence = _read_if_exists(assignment_confidence_path)
-        incremental_value = _read_if_exists(incremental_value_path)
-        novelty_specialist_metrics = _read_if_exists(novelty_specialist_metrics_path)
-        novelty_specialist_predictions = _read_if_exists(novelty_specialist_predictions_path)
-        adaptive_gated_metrics = _read_if_exists(adaptive_gated_metrics_path)
-        adaptive_gated_predictions = _read_if_exists(adaptive_gated_predictions_path)
-        gate_consistency_audit = _read_if_exists(gate_consistency_audit_path)
-        nonlinear_deconfounding = _read_if_exists(nonlinear_deconfounding_path)
-        operational_risk_dictionary = _read_if_exists(operational_risk_dictionary_path)
-        macro_region_jump = _read_if_exists(macro_region_jump_path)
-        secondary_outcome_performance = _read_if_exists(secondary_outcome_performance_path)
-        weighted_country_outcome = _read_if_exists(weighted_country_outcome_path)
-        count_outcome_audit = _read_if_exists(count_outcome_audit_path)
-        metadata_quality_summary = _read_if_exists(metadata_quality_summary_path)
-        event_timing_outcomes = _read_if_exists(event_timing_outcomes_path)
-        exposure_adjusted_event = _read_if_exists(exposure_adjusted_event_path)
-        exposure_adjusted_outcome_audit = _read_if_exists(exposure_adjusted_outcome_audit_path)
-        ordinal_outcome_audit = _read_if_exists(ordinal_outcome_audit_path)
-        country_missingness_bounds = _read_if_exists(country_missingness_bounds_path)
-        country_missingness_sensitivity = _read_if_exists(country_missingness_sensitivity_path)
-        geographic_jump = _read_if_exists(geographic_jump_path)
-        duplicate_quality = _read_if_exists(duplicate_quality_path)
-        amr_uncertainty = _read_if_exists(amr_uncertainty_path)
-        mash_graph = _read_if_exists(mash_graph_path)
-        counterfactual_shortlist = _read_if_exists(counterfactual_shortlist_path)
-        module_f_identity = _read_if_exists(module_f_identity_path)
-        module_f_enrichment = _read_if_exists(module_f_enrichment_path)
-        module_f_top_hits = _read_if_exists(module_f_top_hits_path)
-        if module_f_identity.empty and not backbones.empty and not amr_consensus.empty:
-            module_f_identity = build_backbone_identity_table(
-                scored,
-                backbones,
-                amr_consensus,
-                split_year=pipeline.split_year,
-            )
-        if module_f_enrichment.empty and not module_f_identity.empty:
-            module_f_enrichment = build_module_f_enrichment_table(
-                module_f_identity, label_column="spread_label", min_backbones=10
-            )
-        if module_f_top_hits.empty and not module_f_enrichment.empty:
-            module_f_top_hits = build_module_f_top_hits(
-                module_f_enrichment, q_threshold=0.05, max_per_group=3, max_total=20
-            )
-        rolling_temporal = _read_if_exists(rolling_temporal_path)
-        rolling_assignment_diagnostics = _read_if_exists(rolling_assignment_diagnostic_path)
-        rank_stability = _read_if_exists(rank_stability_path)
-        variant_consistency = _read_if_exists(variant_consistency_path)
-        prospective_freeze = _read_if_exists(prospective_freeze_path)
-        annual_freeze_summary = _read_if_exists(annual_freeze_summary_path)
-        single_model_pareto_screen = _read_if_exists(single_model_pareto_screen_path)
-        single_model_pareto_finalists = _read_if_exists(single_model_pareto_finalists_path)
-        single_model_official_decision = _read_if_exists(single_model_official_decision_path)
-        if annual_freeze_summary.empty and not rolling_temporal.empty:
-            rolling_ok = rolling_temporal.loc[
-                rolling_temporal.get("status", pd.Series("", index=rolling_temporal.index)).astype(
-                    str
+
+            def _compute_knownness(frame: pd.DataFrame) -> pd.DataFrame:
+                return annotate_knownness_metadata(frame.copy())
+
+            contextual_prediction_frames: dict[str, pd.DataFrame] = {}
+            seen_contextual_models: set[str] = set()
+            for model_name, output_column in (
+                (primary_model_name, "primary_model_full_fit_prediction"),
+                ("baseline_both", "baseline_both_full_fit_prediction"),
+                (conservative_model_name, "conservative_model_full_fit_prediction"),
+                (governance_model_name, "governance_model_full_fit_prediction"),
+            ):
+                if model_name in seen_contextual_models:
+                    continue
+                if model_name not in active_model_name_set:
+                    continue
+                if output_column in contextual_prediction_frames:
+                    continue
+                seen_contextual_models.add(model_name)
+                # Read full-fit predictions from upstream artifact instead of computing them
+                prediction_path = context.data_dir / "analysis" / f"{model_name}_full_fit_predictions.tsv"
+                if prediction_path.exists():
+                    contextual_prediction_frames[output_column] = read_tsv(prediction_path).rename(
+                        columns={
+                            "prediction": output_column,
+                            "prediction_posterior_mean": f"{output_column}_posterior_mean",
+                            "prediction_std": f"{output_column}_std",
+                            "prediction_ci_lower": f"{output_column}_ci_lower",
+                            "prediction_ci_upper": f"{output_column}_ci_upper",
+                        }
+                    )
+                else:
+                    # Fallback to empty dataframe if file doesn't exist
+                    contextual_prediction_frames[output_column] = pd.DataFrame(columns=[
+                        "backbone_id", output_column, f"{output_column}_posterior_mean",
+                        f"{output_column}_std", f"{output_column}_ci_lower", f"{output_column}_ci_upper"
+                    ])
+            family_summary = read_tsv(family_summary_path)
+            if (
+                family_summary.empty
+                or "model_name" not in family_summary.columns
+                or "evidence_role" not in family_summary.columns
+                or "model_track" not in family_summary.columns
+                or "track_summary" not in family_summary.columns
+                or primary_model_name not in set(family_summary["model_name"].astype(str))
+                or (
+                    "bio_residual_synergy_priority" in active_model_name_set
+                    and "bio_residual_synergy_priority"
+                    not in set(family_summary["model_name"].astype(str))
                 )
-                == "ok"
-            ].copy()
-            if not rolling_ok.empty:
-                annual_freeze_summary = rolling_ok.copy()
-                if "horizon_years" not in annual_freeze_summary.columns:
-                    annual_freeze_summary["horizon_years"] = annual_freeze_summary[
-                        "test_year_end"
-                    ].astype(int) - annual_freeze_summary["split_year"].astype(int)
-                annual_freeze_summary["n_candidates"] = 25
-                annual_freeze_summary["n_positive_candidates"] = np.nan
-                annual_freeze_summary["precision_at_25"] = np.nan
-                annual_freeze_summary["mean_n_new_countries"] = np.nan
-                annual_freeze_summary["top_backbone_id"] = ""
-        with sensitivity_path.open("r", encoding="utf-8") as handle:
-            sensitivity = json.load(handle)
-        scored["operational_priority_index"] = scored.get(
-            "operational_priority_index", scored.get("priority_index", 0.0)
-        ).fillna(scored.get("priority_index", 0.0))
-        top = (
-            scored.loc[scored["spread_label"].notna()]
-            .sort_values("operational_priority_index", ascending=False)
-            .head(100)
-        )
-        top_operational_backlog = (
-            scored.loc[scored["member_count_train"].fillna(0).astype(int) > 0]
-            .sort_values(
-                "operational_priority_index",
-                ascending=False,
+            ):
+                family_summary = build_model_family_summary(model_metrics)
+            subgroup_performance = read_tsv(subgroup_performance_path)
+            comparison_table = read_tsv(comparison_path)
+            calibration_metrics = read_tsv(calibration_metrics_path)
+            blocked_holdout_calibration_summary = _read_if_exists(blocked_holdout_calibration_path)
+            coefficient_table = read_tsv(coefficient_path)
+            coefficient_stability = read_tsv(coefficient_stability_path)
+            coefficient_stability_cv = _read_if_exists(coefficient_stability_cv_path)
+            dropout_table = read_tsv(dropout_path)
+            source_balance_resampling = read_tsv(source_balance_resampling_path)
+            if stale_turkiye_context_path.exists():
+                stale_turkiye_context_path.unlink()
+            group_holdout = _read_if_exists(group_holdout_path)
+            blocked_holdout_summary = build_blocked_holdout_summary(group_holdout)
+            spatial_holdout_summary = _build_spatial_holdout_summary(group_holdout)
+            permutation_detail = _read_if_exists(permutation_detail_path)
+            permutation_summary = _read_if_exists(permutation_summary_path)
+            selection_adjusted_permutation_detail = _read_if_exists(
+                selection_adjusted_permutation_detail_path
             )
-            .head(100)
-        )
-        top_bio = (
-            scored.loc[scored["spread_label"].notna()]
-            .sort_values("bio_priority_index", ascending=False)
-            .head(100)
-        )
-        top_bio_backlog = (
-            scored.loc[scored["member_count_train"].fillna(0).astype(int) > 0]
-            .sort_values(
-                "bio_priority_index",
-                ascending=False,
+            selection_adjusted_permutation_summary = _read_if_exists(
+                selection_adjusted_permutation_summary_path
             )
-            .head(100)
-        )
-        top_primary = scored.loc[scored["spread_label"].notna()].copy()
-        if primary_model_name in set(predictions["model_name"].astype(str)):
-            top_primary = top_primary.merge(
-                predictions.loc[
-                    predictions["model_name"] == primary_model_name,
-                    ["backbone_id", "oof_prediction"],
-                ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
-                on="backbone_id",
-                how="left",
-            ).sort_values("primary_model_oof_prediction", ascending=False)
-        top_primary = top_primary.head(100)
-        top = _add_visibility_alias(top)
-        top_operational_backlog = _add_visibility_alias(top_operational_backlog)
-        top_bio = _add_visibility_alias(top_bio)
-        top_bio_backlog = _add_visibility_alias(top_bio_backlog)
-        top_primary = _add_visibility_alias(top_primary)
-        top_primary.to_csv(final_tables_dir / "top_primary_candidates.tsv", sep="\t", index=False)
-        model_metrics.to_csv(final_tables_dir / "model_metrics.tsv", sep="\t", index=False)
-        source_validation.to_csv(
-            final_tables_dir / "source_stratified_consistency.tsv", sep="\t", index=False
-        )
-        calibration.to_csv(final_tables_dir / "calibration_table.tsv", sep="\t", index=False)
-        family_summary.to_csv(family_summary_path, sep="\t", index=False)
-        family_summary.to_csv(final_tables_dir / "model_family_summary.tsv", sep="\t", index=False)
-        subgroup_performance.to_csv(
-            final_tables_dir / "model_subgroup_performance.tsv", sep="\t", index=False
-        )
-        comparison_table.to_csv(
-            final_tables_dir / "model_comparison_summary.tsv", sep="\t", index=False
-        )
-        calibration_metrics.to_csv(
-            final_tables_dir / "calibration_metrics.tsv", sep="\t", index=False
-        )
-        blocked_holdout_calibration_summary.to_csv(
-            final_tables_dir / "blocked_holdout_calibration_summary.tsv", sep="\t", index=False
-        )
-        coefficient_table.to_csv(
-            final_tables_dir / "primary_model_coefficients.tsv", sep="\t", index=False
-        )
-        coefficient_stability.to_csv(
-            final_tables_dir / "primary_model_coefficient_stability.tsv", sep="\t", index=False
-        )
-        coefficient_stability_cv.to_csv(
-            final_tables_dir / "coefficient_stability_cv.tsv", sep="\t", index=False
-        )
-        dropout_table.to_csv(
-            final_tables_dir / "feature_dropout_importance.tsv", sep="\t", index=False
-        )
-        source_balance_resampling.to_csv(
-            final_tables_dir / "source_balance_resampling.tsv", sep="\t", index=False
-        )
-        group_holdout.to_csv(
-            final_tables_dir / "group_holdout_performance.tsv", sep="\t", index=False
-        )
-        blocked_holdout_summary.to_csv(
-            final_tables_dir / "blocked_holdout_summary.tsv", sep="\t", index=False
-        )
-        permutation_detail.to_csv(
-            final_tables_dir / "permutation_null_distribution.tsv", sep="\t", index=False
-        )
-        permutation_summary.to_csv(
-            final_tables_dir / "permutation_null_summary.tsv", sep="\t", index=False
-        )
-        selection_adjusted_permutation_detail.to_csv(
-            final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv",
-            sep="\t",
-            index=False,
-        )
-        selection_adjusted_permutation_summary.to_csv(
-            final_tables_dir / "selection_adjusted_permutation_null_summary.tsv",
-            sep="\t",
-            index=False,
-        )
-        negative_control.to_csv(
-            final_tables_dir / "negative_control_audit.tsv", sep="\t", index=False
-        )
-        future_sentinel_audit.to_csv(
-            final_tables_dir / "future_sentinel_audit.tsv", sep="\t", index=False
-        )
-        logistic_impl.to_csv(
-            final_tables_dir / "logistic_implementation_audit.tsv", sep="\t", index=False
-        )
-        logistic_convergence.to_csv(
-            final_tables_dir / "logistic_convergence_audit.tsv", sep="\t", index=False
-        )
-        simplicity_summary.to_csv(
-            final_tables_dir / "model_simplicity_summary.tsv", sep="\t", index=False
-        )
-        knownness_summary.to_csv(
-            final_tables_dir / "knownness_audit_summary.tsv", sep="\t", index=False
-        )
-        knownness_strata.to_csv(
-            final_tables_dir / "knownness_stratified_performance.tsv", sep="\t", index=False
-        )
-        country_quality.to_csv(
-            final_tables_dir / "country_quality_summary.tsv", sep="\t", index=False
-        )
-        purity_atlas.to_csv(final_tables_dir / "backbone_purity_atlas.tsv", sep="\t", index=False)
-        assignment_confidence.to_csv(
-            final_tables_dir / "assignment_confidence_summary.tsv", sep="\t", index=False
-        )
-        incremental_value.to_csv(
-            final_tables_dir / "incremental_value_over_baseline.tsv", sep="\t", index=False
-        )
-        novelty_specialist_metrics.to_csv(
-            final_tables_dir / "novelty_specialist_metrics.tsv", sep="\t", index=False
-        )
-        novelty_specialist_predictions.to_csv(
-            final_tables_dir / "novelty_specialist_predictions.tsv", sep="\t", index=False
-        )
-        adaptive_gated_metrics.to_csv(
-            final_tables_dir / "adaptive_gated_metrics.tsv", sep="\t", index=False
-        )
-        adaptive_gated_predictions.to_csv(
-            final_tables_dir / "adaptive_gated_predictions.tsv", sep="\t", index=False
-        )
-        gate_consistency_audit.to_csv(
-            final_tables_dir / "gate_consistency_audit.tsv", sep="\t", index=False
-        )
-        knownness_matched_validation.to_csv(
-            final_tables_dir / "knownness_matched_validation.tsv", sep="\t", index=False
-        )
-        matched_propensity_audit.to_csv(
-            final_tables_dir / "matched_stratum_propensity_audit.tsv", sep="\t", index=False
-        )
-        nonlinear_deconfounding.to_csv(
-            final_tables_dir / "nonlinear_deconfounding_audit.tsv", sep="\t", index=False
-        )
-        operational_risk_dictionary.to_csv(
-            final_tables_dir / "operational_risk_dictionary_full.tsv", sep="\t", index=False
-        )
-        country_upload_propensity.to_csv(
-            final_tables_dir / "country_upload_propensity.tsv", sep="\t", index=False
-        )
-        macro_region_jump.to_csv(
-            final_tables_dir / "macro_region_jump_outcome.tsv", sep="\t", index=False
-        )
-        secondary_outcome_performance.to_csv(
-            final_tables_dir / "secondary_outcome_performance.tsv", sep="\t", index=False
-        )
-        weighted_country_outcome.to_csv(
-            final_tables_dir / "weighted_country_outcome_audit.tsv", sep="\t", index=False
-        )
-        count_outcome_audit.to_csv(
-            final_tables_dir / "new_country_count_audit.tsv", sep="\t", index=False
-        )
-        metadata_quality_summary.to_csv(
-            final_tables_dir / "metadata_quality_summary.tsv", sep="\t", index=False
-        )
-        event_timing_outcomes.to_csv(
-            final_tables_dir / "event_timing_outcomes.tsv", sep="\t", index=False
-        )
-        exposure_adjusted_event.to_csv(
-            final_tables_dir / "exposure_adjusted_event_outcomes.tsv", sep="\t", index=False
-        )
-        exposure_adjusted_outcome_audit.to_csv(
-            final_tables_dir / "exposure_adjusted_outcome_audit.tsv", sep="\t", index=False
-        )
-        ordinal_outcome_audit.to_csv(
-            final_tables_dir / "ordinal_outcome_audit.tsv", sep="\t", index=False
-        )
-        country_missingness_bounds.to_csv(
-            final_tables_dir / "country_missingness_bounds.tsv", sep="\t", index=False
-        )
-        country_missingness_sensitivity.to_csv(
-            final_tables_dir / "country_missingness_sensitivity.tsv", sep="\t", index=False
-        )
-        geographic_jump.to_csv(
-            final_tables_dir / "geographic_jump_distance_outcome.tsv", sep="\t", index=False
-        )
-        duplicate_quality.to_csv(
-            final_tables_dir / "duplicate_completeness_change_audit.tsv", sep="\t", index=False
-        )
-        amr_uncertainty.to_csv(
-            final_tables_dir / "amr_uncertainty_summary.tsv", sep="\t", index=False
-        )
-        mash_graph.to_csv(final_tables_dir / "mash_similarity_graph.tsv", sep="\t", index=False)
-        counterfactual_shortlist.to_csv(
-            final_tables_dir / "counterfactual_shortlist_comparison.tsv", sep="\t", index=False
-        )
-        module_f_identity.to_csv(
-            final_tables_dir / "module_f_backbone_identity.tsv", sep="\t", index=False
-        )
-        module_f_enrichment.to_csv(
-            final_tables_dir / "module_f_enrichment.tsv", sep="\t", index=False
-        )
-        module_f_top_hits.to_csv(final_tables_dir / "module_f_top_hits.tsv", sep="\t", index=False)
-        rolling_temporal.to_csv(
-            final_tables_dir / "rolling_temporal_validation.tsv", sep="\t", index=False
-        )
-        rolling_assignment_diagnostics.to_csv(
-            final_tables_dir / "rolling_assignment_diagnostics.tsv", sep="\t", index=False
-        )
-        rank_stability.to_csv(
-            final_tables_dir / "candidate_rank_stability.tsv", sep="\t", index=False
-        )
-        variant_consistency.to_csv(
-            final_tables_dir / "candidate_variant_consistency.tsv", sep="\t", index=False
-        )
-        prospective_freeze_export = (
-            prospective_freeze.loc[prospective_freeze["spread_label"].notna()].copy()
-            if not prospective_freeze.empty and "spread_label" in prospective_freeze.columns
-            else prospective_freeze.copy()
-        )
-        prospective_freeze_export = _add_visibility_alias(prospective_freeze_export)
-        prospective_freeze_export.to_csv(
-            final_tables_dir / "prospective_candidate_freeze.tsv", sep="\t", index=False
-        )
-        annual_freeze_summary.to_csv(
-            final_tables_dir / "annual_candidate_freeze_summary.tsv", sep="\t", index=False
-        )
+            negative_control = _read_if_exists(negative_control_path)
+            future_sentinel_audit = _read_if_exists(future_sentinel_path)
+            logistic_impl = _read_if_exists(logistic_impl_path)
+            logistic_convergence = _read_if_exists(logistic_convergence_path)
+            simplicity_summary = _read_if_exists(simplicity_path)
+            knownness_summary = _read_if_exists(knownness_summary_path)
+            knownness_strata = _read_if_exists(knownness_strata_path)
+            knownness_matched_validation = _read_if_exists(knownness_matched_validation_path)
+            matched_propensity_audit = _read_if_exists(matched_propensity_audit_path)
+            country_quality = _read_if_exists(country_quality_path)
+            country_upload_propensity = _read_if_exists(country_upload_propensity_path)
+            purity_atlas = _read_if_exists(purity_atlas_path)
+            assignment_confidence = _read_if_exists(assignment_confidence_path)
+            incremental_value = _read_if_exists(incremental_value_path)
+            novelty_specialist_metrics = _read_if_exists(novelty_specialist_metrics_path)
+            novelty_specialist_predictions = _read_if_exists(novelty_specialist_predictions_path)
+            adaptive_gated_metrics = _read_if_exists(adaptive_gated_metrics_path)
+            adaptive_gated_predictions = _read_if_exists(adaptive_gated_predictions_path)
+            gate_consistency_audit = _read_if_exists(gate_consistency_audit_path)
+            nonlinear_deconfounding = _read_if_exists(nonlinear_deconfounding_path)
+            operational_risk_dictionary = _read_if_exists(operational_risk_dictionary_path)
+            macro_region_jump = _read_if_exists(macro_region_jump_path)
+            secondary_outcome_performance = _read_if_exists(secondary_outcome_performance_path)
+            weighted_country_outcome = _read_if_exists(weighted_country_outcome_path)
+            count_outcome_audit = _read_if_exists(count_outcome_audit_path)
+            metadata_quality_summary = _read_if_exists(metadata_quality_summary_path)
+            event_timing_outcomes = _read_if_exists(event_timing_outcomes_path)
+            exposure_adjusted_event = _read_if_exists(exposure_adjusted_event_path)
+            exposure_adjusted_outcome_audit = _read_if_exists(exposure_adjusted_outcome_audit_path)
+            ordinal_outcome_audit = _read_if_exists(ordinal_outcome_audit_path)
+            country_missingness_bounds = _read_if_exists(country_missingness_bounds_path)
+            country_missingness_sensitivity = _read_if_exists(country_missingness_sensitivity_path)
+            geographic_jump = _read_if_exists(geographic_jump_path)
+            duplicate_quality = _read_if_exists(duplicate_quality_path)
+            amr_uncertainty = _read_if_exists(amr_uncertainty_path)
+            mash_graph = _read_if_exists(mash_graph_path)
+            counterfactual_shortlist = _read_if_exists(counterfactual_shortlist_path)
+            module_f_identity = _read_if_exists(module_f_identity_path)
+            module_f_enrichment = _read_if_exists(module_f_enrichment_path)
+            module_f_top_hits = _read_if_exists(module_f_top_hits_path)
+            if module_f_identity.empty and not backbones.empty and not amr_consensus.empty:
+                module_f_identity = build_backbone_identity_table(
+                    scored,
+                    backbones,
+                    amr_consensus,
+                    split_year=pipeline.split_year,
+                )
+            if module_f_enrichment.empty and not module_f_identity.empty:
+                module_f_enrichment = build_module_f_enrichment_table(
+                    module_f_identity, label_column="spread_label", min_backbones=10
+                )
+            if module_f_top_hits.empty and not module_f_enrichment.empty:
+                module_f_top_hits = build_module_f_top_hits(
+                    module_f_enrichment, q_threshold=0.05, max_per_group=3, max_total=20
+                )
+            rolling_temporal = _read_if_exists(rolling_temporal_path)
+            rolling_assignment_diagnostics = _read_if_exists(rolling_assignment_diagnostic_path)
+            rank_stability = _read_if_exists(rank_stability_path)
+            variant_consistency = _read_if_exists(variant_consistency_path)
+            prospective_freeze = _read_if_exists(prospective_freeze_path)
+            annual_freeze_summary = _read_if_exists(annual_freeze_summary_path)
+            single_model_pareto_screen = _read_if_exists(single_model_pareto_screen_path)
+            single_model_pareto_finalists = _read_if_exists(single_model_pareto_finalists_path)
+            single_model_official_decision = _read_if_exists(single_model_official_decision_path)
+            if annual_freeze_summary.empty and not rolling_temporal.empty:
+                rolling_ok = rolling_temporal.loc[
+                    rolling_temporal.get("status", pd.Series("", index=rolling_temporal.index)).astype(
+                        str
+                    )
+                    == "ok"
+                ].copy()
+                if not rolling_ok.empty:
+                    annual_freeze_summary = rolling_ok.copy()
+                    if "horizon_years" not in annual_freeze_summary.columns:
+                        annual_freeze_summary["horizon_years"] = annual_freeze_summary[
+                            "test_year_end"
+                        ].astype(int) - annual_freeze_summary["split_year"].astype(int)
+                    annual_freeze_summary["n_candidates"] = 25
+                    annual_freeze_summary["n_positive_candidates"] = np.nan
+                    annual_freeze_summary["precision_at_25"] = np.nan
+                    annual_freeze_summary["mean_n_new_countries"] = np.nan
+                    annual_freeze_summary["top_backbone_id"] = ""
+            with sensitivity_path.open("r", encoding="utf-8") as handle:
+                sensitivity = json.load(handle)
+            scored["operational_priority_index"] = scored.get(
+                "operational_priority_index", scored.get("priority_index", 0.0)
+            ).fillna(scored.get("priority_index", 0.0))
+            top = (
+                scored.loc[scored["spread_label"].notna()]
+                .sort_values("operational_priority_index", ascending=False)
+                .head(100)
+            )
+            top_operational_backlog = (
+                scored.loc[scored["member_count_train"].fillna(0).astype(int) > 0]
+                .sort_values(
+                    "operational_priority_index",
+                    ascending=False,
+                )
+                .head(100)
+            )
+            top_bio = (
+                scored.loc[scored["spread_label"].notna()]
+                .sort_values("bio_priority_index", ascending=False)
+                .head(100)
+            )
+            top_bio_backlog = (
+                scored.loc[scored["member_count_train"].fillna(0).astype(int) > 0]
+                .sort_values(
+                    "bio_priority_index",
+                    ascending=False,
+                )
+                .head(100)
+            )
+            top_primary = scored.loc[scored["spread_label"].notna()].copy()
+            if primary_model_name in set(predictions["model_name"].astype(str)):
+                top_primary = top_primary.merge(
+                    predictions.loc[
+                        predictions["model_name"] == primary_model_name,
+                        ["backbone_id", "oof_prediction"],
+                    ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
+                    on="backbone_id",
+                    how="left",
+                ).sort_values("primary_model_oof_prediction", ascending=False)
+            top_primary = top_primary.head(100)
+            top = _add_visibility_alias(top)
+            top_operational_backlog = _add_visibility_alias(top_operational_backlog)
+            top_bio = _add_visibility_alias(top_bio)
+            top_bio_backlog = _add_visibility_alias(top_bio_backlog)
+            top_primary = _add_visibility_alias(top_primary)
+            top_primary.to_csv(final_tables_dir / "top_primary_candidates.tsv", sep="\t", index=False)
+            model_metrics.to_csv(final_tables_dir / "model_metrics.tsv", sep="\t", index=False)
+            source_validation.to_csv(
+                final_tables_dir / "source_stratified_consistency.tsv", sep="\t", index=False
+            )
+            calibration.to_csv(final_tables_dir / "calibration_table.tsv", sep="\t", index=False)
+            family_summary.to_csv(family_summary_path, sep="\t", index=False)
+            family_summary.to_csv(final_tables_dir / "model_family_summary.tsv", sep="\t", index=False)
+            subgroup_performance.to_csv(
+                final_tables_dir / "model_subgroup_performance.tsv", sep="\t", index=False
+            )
+            comparison_table.to_csv(
+                final_tables_dir / "model_comparison_summary.tsv", sep="\t", index=False
+            )
+            calibration_metrics.to_csv(
+                final_tables_dir / "calibration_metrics.tsv", sep="\t", index=False
+            )
+            blocked_holdout_calibration_summary.to_csv(
+                final_tables_dir / "blocked_holdout_calibration_summary.tsv", sep="\t", index=False
+            )
+            coefficient_table.to_csv(
+                final_tables_dir / "primary_model_coefficients.tsv", sep="\t", index=False
+            )
+            coefficient_stability.to_csv(
+                final_tables_dir / "primary_model_coefficient_stability.tsv", sep="\t", index=False
+            )
+            coefficient_stability_cv.to_csv(
+                final_tables_dir / "coefficient_stability_cv.tsv", sep="\t", index=False
+            )
+            dropout_table.to_csv(
+                final_tables_dir / "feature_dropout_importance.tsv", sep="\t", index=False
+            )
+            source_balance_resampling.to_csv(
+                final_tables_dir / "source_balance_resampling.tsv", sep="\t", index=False
+            )
+            group_holdout.to_csv(
+                final_tables_dir / "group_holdout_performance.tsv", sep="\t", index=False
+            )
+            blocked_holdout_summary.to_csv(
+                final_tables_dir / "blocked_holdout_summary.tsv", sep="\t", index=False
+            )
+            permutation_detail.to_csv(
+                final_tables_dir / "permutation_null_distribution.tsv", sep="\t", index=False
+            )
+            permutation_summary.to_csv(
+                final_tables_dir / "permutation_null_summary.tsv", sep="\t", index=False
+            )
+            selection_adjusted_permutation_detail.to_csv(
+                final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv", sep="\t", index=False
+            )
+            selection_adjusted_permutation_summary.to_csv(
+                final_tables_dir / "selection_adjusted_permutation_null_summary.tsv", sep="\t", index=False
+            )
+            negative_control.to_csv(
+                final_tables_dir / "negative_control_audit.tsv", sep="\t", index=False
+            )
+            future_sentinel_audit.to_csv(
+                final_tables_dir / "future_sentinel_audit.tsv", sep="\t", index=False
+            )
+            logistic_impl.to_csv(
+                final_tables_dir / "logistic_implementation_audit.tsv", sep="\t", index=False
+            )
+            logistic_convergence.to_csv(
+                final_tables_dir / "logistic_convergence_audit.tsv", sep="\t", index=False
+            )
+            simplicity_summary.to_csv(
+                final_tables_dir / "model_simplicity_summary.tsv", sep="\t", index=False
+            )
+            knownness_summary.to_csv(
+                final_tables_dir / "knownness_audit_summary.tsv", sep="\t", index=False
+            )
+            knownness_strata.to_csv(
+                final_tables_dir / "knownness_stratified_performance.tsv", sep="\t", index=False
+            )
+            country_quality.to_csv(
+                final_tables_dir / "country_quality_summary.tsv", sep="\t", index=False
+            )
+            purity_atlas.to_csv(final_tables_dir / "backbone_purity_atlas.tsv", sep="\t", index=False)
+            assignment_confidence.to_csv(
+                final_tables_dir / "assignment_confidence_summary.tsv", sep="\t", index=False
+            )
+            incremental_value.to_csv(
+                final_tables_dir / "incremental_value_over_baseline.tsv", sep="\t", index=False
+            )
+            novelty_specialist_metrics.to_csv(
+                final_tables_dir / "novelty_specialist_metrics.tsv", sep="\t", index=False
+            )
+            novelty_specialist_predictions.to_csv(
+                final_tables_dir / "novelty_specialist_predictions.tsv", sep="\t", index=False
+            )
+            adaptive_gated_metrics.to_csv(
+                final_tables_dir / "adaptive_gated_metrics.tsv", sep="\t", index=False
+            )
+            adaptive_gated_predictions.to_csv(
+                final_tables_dir / "adaptive_gated_predictions.tsv", sep="\t", index=False
+            )
+            gate_consistency_audit.to_csv(
+                final_tables_dir / "gate_consistency_audit.tsv", sep="\t", index=False
+            )
+            knownness_matched_validation.to_csv(
+                final_tables_dir / "knownness_matched_validation.tsv", sep="\t", index=False
+            )
+            matched_propensity_audit.to_csv(
+                final_tables_dir / "matched_stratum_propensity_audit.tsv", sep="\t", index=False
+            )
+            nonlinear_deconfounding.to_csv(
+                final_tables_dir / "nonlinear_deconfounding_audit.tsv", sep="\t", index=False
+            )
+            operational_risk_dictionary.to_csv(
+                final_tables_dir / "operational_risk_dictionary_full.tsv", sep="\t", index=False
+            )
+            country_upload_propensity.to_csv(
+                final_tables_dir / "country_upload_propensity.tsv", sep="\t", index=False
+            )
+            macro_region_jump.to_csv(
+                final_tables_dir / "macro_region_jump_outcome.tsv", sep="\t", index=False
+            )
+            secondary_outcome_performance.to_csv(
+                final_tables_dir / "secondary_outcome_performance.tsv", sep="\t", index=False
+            )
+            weighted_country_outcome.to_csv(
+                final_tables_dir / "weighted_country_outcome_audit.tsv", sep="\t", index=False
+            )
+            count_outcome_audit.to_csv(
+                final_tables_dir / "new_country_count_audit.tsv", sep="\t", index=False
+            )
+            metadata_quality_summary.to_csv(
+                final_tables_dir / "metadata_quality_summary.tsv", sep="\t", index=False
+            )
+            event_timing_outcomes.to_csv(
+                final_tables_dir / "event_timing_outcomes.tsv", sep="\t", index=False
+            )
+            exposure_adjusted_event.to_csv(
+                final_tables_dir / "exposure_adjusted_event_outcomes.tsv", sep="\t", index=False
+            )
+            exposure_adjusted_outcome_audit.to_csv(
+                final_tables_dir / "exposure_adjusted_outcome_audit.tsv", sep="\t", index=False
+            )
+            ordinal_outcome_audit.to_csv(
+                final_tables_dir / "ordinal_outcome_audit.tsv", sep="\t", index=False
+            )
+            country_missingness_bounds.to_csv(
+                final_tables_dir / "country_missingness_bounds.tsv", sep="\t", index=False
+            )
+            country_missingness_sensitivity.to_csv(
+                final_tables_dir / "country_missingness_sensitivity.tsv", sep="\t", index=False
+            )
+            geographic_jump.to_csv(
+                final_tables_dir / "geographic_jump_distance_outcome.tsv", sep="\t", index=False
+            )
+            duplicate_quality.to_csv(
+                final_tables_dir / "duplicate_completeness_change_audit.tsv", sep="\t", index=False
+            )
+            amr_uncertainty.to_csv(
+                final_tables_dir / "amr_uncertainty_summary.tsv", sep="\t", index=False
+            )
+            mash_graph.to_csv(final_tables_dir / "mash_similarity_graph.tsv", sep="\t", index=False)
+            counterfactual_shortlist.to_csv(
+                final_tables_dir / "counterfactual_shortlist_comparison.tsv", sep="\t", index=False
+            )
+            module_f_identity.to_csv(
+                final_tables_dir / "module_f_backbone_identity.tsv", sep="\t", index=False
+            )
+            module_f_enrichment.to_csv(
+                final_tables_dir / "module_f_enrichment.tsv", sep="\t", index=False
+            )
+            module_f_top_hits.to_csv(final_tables_dir / "module_f_top_hits.tsv", sep="\t", index=False)
+            rolling_temporal.to_csv(
+                final_tables_dir / "rolling_temporal_validation.tsv", sep="\t", index=False
+            )
+            rolling_assignment_diagnostics.to_csv(
+                final_tables_dir / "rolling_assignment_diagnostics.tsv", sep="\t", index=False
+            )
+            rank_stability.to_csv(
+                final_tables_dir / "candidate_rank_stability.tsv", sep="\t", index=False
+            )
+            variant_consistency.to_csv(
+                final_tables_dir / "candidate_variant_consistency.tsv", sep="\t", index=False
+            )
+            multiverse_stability = build_multiverse_stability_table(rank_stability, variant_consistency)
+            multiverse_stability.to_csv(
+                final_tables_dir / "candidate_multiverse_stability.tsv", sep="\t", index=False
+            )
+            simplicity_summary.to_csv(
+                final_tables_dir / "model_simplicity_summary.tsv", sep="\t", index=False
+            )
+            knownness_summary.to_csv(
+                final_tables_dir / "knownness_audit_summary.tsv", sep="\t", index=False
+            )
+            knownness_strata.to_csv(
+                final_tables_dir / "knownness_stratified_performance.tsv", sep="\t", index=False
+            )
+            country_quality.to_csv(
+                final_tables_dir / "country_quality_summary.tsv", sep="\t", index=False
+            )
+            purity_atlas.to_csv(
+                final_tables_dir / "backbone_purity_atlas.tsv", sep="\t", index=False
+            )
+            assignment_confidence.to_csv(
+                final_tables_dir / "assignment_confidence_summary.tsv", sep="\t", index=False
+            )
+            incremental_value.to_csv(
+                final_tables_dir / "incremental_value_over_baseline.tsv", sep="\t", index=False
+            )
+            novelty_specialist_metrics.to_csv(
+                final_tables_dir / "novelty_specialist_metrics.tsv", sep="\t", index=False
+            )
+            novelty_specialist_predictions.to_csv(
+                final_tables_dir / "novelty_specialist_predictions.tsv", sep="\t", index=False
+            )
+            adaptive_gated_metrics.to_csv(
+                final_tables_dir / "adaptive_gated_metrics.tsv", sep="\t", index=False
+            )
+            adaptive_gated_predictions.to_csv(
+                final_tables_dir / "adaptive_gated_predictions.tsv", sep="\t", index=False
+            )
+            gate_consistency_audit.to_csv(
+                final_tables_dir / "gate_consistency_audit.tsv", sep="\t", index=False
+            )
+            knownness_matched_validation.to_csv(
+                final_tables_dir / "knownness_matched_validation.tsv", sep="\t", index=False
+            )
+            matched_propensity_audit.to_csv(
+                final_tables_dir / "matched_stratum_propensity_audit.tsv", sep="\t", index=False
+            )
+            nonlinear_deconfounding.to_csv(
+                final_tables_dir / "nonlinear_deconfounding_audit.tsv", sep="\t", index=False
+            )
+            country_upload_propensity.to_csv(
+                final_tables_dir / "country_upload_propensity.tsv", sep="\t", index=False
+            )
+            macro_region_jump.to_csv(
+                final_tables_dir / "macro_region_jump_outcome.tsv", sep="\t", index=False
+            )
+            secondary_outcome_performance.to_csv(
+                final_tables_dir / "secondary_outcome_performance.tsv", sep="\t", index=False
+            )
+            weighted_country_outcome.to_csv(
+                final_tables_dir / "weighted_country_outcome_audit.tsv", sep="\t", index=False
+            )
+            count_outcome_audit.to_csv(
+                final_tables_dir / "new_country_count_audit.tsv", sep="\t", index=False
+            )
+            metadata_quality_summary.to_csv(
+                final_tables_dir / "metadata_quality_summary.tsv", sep="\t", index=False
+            )
+            event_timing_outcomes.to_csv(
+                final_tables_dir / "event_timing_outcomes.tsv", sep="\t", index=False
+            )
+            exposure_adjusted_event.to_csv(
+                final_tables_dir / "exposure_adjusted_event_outcomes.tsv", sep="\t", index=False
+            )
+            exposure_adjusted_outcome_audit.to_csv(
+                final_tables_dir / "exposure_adjusted_outcome_audit.tsv", sep="\t", index=False
+            )
+            ordinal_outcome_audit.to_csv(
+                final_tables_dir / "ordinal_outcome_audit.tsv", sep="\t", index=False
+            )
+            country_missingness_bounds.to_csv(
+                final_tables_dir / "country_missingness_bounds.tsv", sep="\t", index=False
+            )
+            country_missingness_sensitivity.to_csv(
+                final_tables_dir / "country_missingness_sensitivity.tsv", sep="\t", index=False
+            )
+            geographic_jump.to_csv(
+                final_tables_dir / "geographic_jump_distance_outcome.tsv", sep="\t", index=False
+            )
+            duplicate_quality.to_csv(
+                final_tables_dir / "duplicate_completeness_change_audit.tsv", sep="\t", index=False
+            )
+            amr_uncertainty.to_csv(
+                final_tables_dir / "amr_uncertainty_summary.tsv", sep="\t", index=False
+            )
+            mash_graph.to_csv(
+                final_tables_dir / "mash_similarity_graph.tsv", sep="\t", index=False
+            )
+            counterfactual_shortlist.to_csv(
+                final_tables_dir / "counterfactual_shortlist_comparison.tsv", sep="\t", index=False
+            )
+            annual_freeze_summary.to_csv(
+                final_tables_dir / "annual_candidate_freeze_summary.tsv", sep="\t", index=False
+            )
+            prospective_freeze.to_csv(
+                final_tables_dir / "prospective_candidate_freeze.tsv", sep="\t", index=False
+            )
+            module_f_identity.to_csv(
+                final_tables_dir / "module_f_backbone_identity.tsv", sep="\t", index=False
+            )
+            module_f_enrichment.to_csv(
+                final_tables_dir / "module_f_enrichment.tsv", sep="\t", index=False
+            )
+            module_f_top_hits.to_csv(
+                final_tables_dir / "module_f_top_hits.tsv", sep="\t", index=False
+            )
+            rank_stability.to_csv(
+                final_tables_dir / "candidate_rank_stability.tsv", sep="\t", index=False
+            )
+            variant_consistency.to_csv(
+                final_tables_dir / "candidate_variant_consistency.tsv", sep="\t", index=False
+            )
+            prospective_freeze_export = (
+                prospective_freeze.loc[prospective_freeze["spread_label"].notna()].copy()
+                if not prospective_freeze.empty and "spread_label" in prospective_freeze.columns
+                else prospective_freeze.copy()
+            )
+            prospective_freeze_export = _add_visibility_alias(prospective_freeze_export)
+            prospective_freeze_export.to_csv(
+                final_tables_dir / "prospective_candidate_freeze.tsv", sep="\t", index=False
+            )
+            annual_freeze_summary.to_csv(
+                final_tables_dir / "annual_candidate_freeze_summary.tsv", sep="\t", index=False
+            )
 
-        sensitivity_rows = []
-        for variant, metrics in sensitivity.items():
-            row = {"variant": variant}
-            row.update(metrics)
-            sensitivity_rows.append(row)
-        pd.DataFrame(sensitivity_rows).to_csv(
-            final_tables_dir / "sensitivity_summary.tsv", sep="\t", index=False
-        )
-        threshold_sensitivity = _build_threshold_sensitivity_table(
-            sensitivity,
-            default_threshold=pipeline.min_new_countries_for_spread,
-        )
-        threshold_sensitivity.to_csv(
-            final_tables_dir / "threshold_sensitivity_summary.tsv", sep="\t", index=False
-        )
-        l2_sensitivity = _build_l2_sensitivity_table(sensitivity)
-        l2_sensitivity.to_csv(
-            final_tables_dir / "l2_sensitivity_summary.tsv", sep="\t", index=False
-        )
-        weighting_sensitivity = _build_weighting_sensitivity_table(sensitivity)
-        weighting_sensitivity.to_csv(
-            final_tables_dir / "weighting_sensitivity_summary.tsv", sep="\t", index=False
-        )
+            sensitivity_rows = []
+            for variant, metrics in sensitivity.items():
+                row = {"variant": variant}
+                row.update(metrics)
+                sensitivity_rows.append(row)
+            pd.DataFrame(sensitivity_rows).to_csv(
+                final_tables_dir / "sensitivity_summary.tsv", sep="\t", index=False
+            )
+            threshold_sensitivity = _build_threshold_sensitivity_table(
+                sensitivity,
+                default_threshold=pipeline.min_new_countries_for_spread,
+            )
+            threshold_sensitivity.to_csv(
+                final_tables_dir / "threshold_sensitivity_summary.tsv", sep="\t", index=False
+            )
+            l2_sensitivity = _build_l2_sensitivity_table(sensitivity)
+            l2_sensitivity.to_csv(
+                final_tables_dir / "l2_sensitivity_summary.tsv", sep="\t", index=False
+            )
+            weighting_sensitivity = _build_weighting_sensitivity_table(sensitivity)
+            weighting_sensitivity.to_csv(
+                final_tables_dir / "weighting_sensitivity_summary.tsv", sep="\t", index=False
+            )
 
-        if module_b_path.exists():
-            module_b = _read_if_exists(module_b_path)
-            module_b.to_csv(
-                final_tables_dir / "module_b_amr_class_comparison.tsv", sep="\t", index=False
-            )
-        else:
-            module_b = pd.DataFrame()
+            if module_b_path.exists():
+                module_b = _read_if_exists(module_b_path)
+                module_b.to_csv(
+                    final_tables_dir / "module_b_amr_class_comparison.tsv", sep="\t", index=False
+                )
+            else:
+                module_b = pd.DataFrame()
 
-        module_c = _read_if_exists(module_c_path)
-        module_c_group = _read_if_exists(module_c_group_path)
-        module_c_clinical = _read_if_exists(module_c_clinical_path)
-        module_c_clinical_group = _read_if_exists(module_c_clinical_group_path)
-        module_c_environmental = _read_if_exists(module_c_environmental_path)
-        module_c_environmental_group = _read_if_exists(module_c_environmental_group_path)
-        module_c_strata_group = _read_if_exists(module_c_strata_group_path)
-        if not module_c.empty:
-            module_c.to_csv(
-                final_tables_dir / "pathogen_detection_support.tsv", sep="\t", index=False
-            )
-            run.record_output(final_tables_dir / "pathogen_detection_support.tsv")
-        if not module_c_group.empty:
-            module_c_group.to_csv(
-                final_tables_dir / "pathogen_detection_group_summary.tsv", sep="\t", index=False
-            )
-            run.record_output(final_tables_dir / "pathogen_detection_group_summary.tsv")
-        if not module_c_clinical.empty:
-            module_c_clinical.to_csv(
-                final_tables_dir / "pathogen_detection_clinical_support.tsv", sep="\t", index=False
-            )
-            run.record_output(final_tables_dir / "pathogen_detection_clinical_support.tsv")
-        if not module_c_clinical_group.empty:
-            module_c_clinical_group.to_csv(
-                final_tables_dir / "pathogen_detection_clinical_group_summary.tsv",
-                sep="\t",
-                index=False,
-            )
-            run.record_output(final_tables_dir / "pathogen_detection_clinical_group_summary.tsv")
-        if not module_c_environmental.empty:
-            module_c_environmental.to_csv(
-                final_tables_dir / "pathogen_detection_environmental_support.tsv",
-                sep="\t",
-                index=False,
-            )
-            run.record_output(final_tables_dir / "pathogen_detection_environmental_support.tsv")
-        if not module_c_environmental_group.empty:
-            module_c_environmental_group.to_csv(
-                final_tables_dir / "pathogen_detection_environmental_group_summary.tsv",
-                sep="\t",
-                index=False,
-            )
-            run.record_output(
-                final_tables_dir / "pathogen_detection_environmental_group_summary.tsv"
-            )
-        if not module_c_strata_group.empty:
-            module_c_strata_group.to_csv(
-                final_tables_dir / "pathogen_detection_strata_group_summary.tsv",
-                sep="\t",
-                index=False,
-            )
-            run.record_output(final_tables_dir / "pathogen_detection_strata_group_summary.tsv")
+            module_c = _read_if_exists(module_c_path)
+            module_c_group = _read_if_exists(module_c_group_path)
+            module_c_clinical = _read_if_exists(module_c_clinical_path)
+            module_c_clinical_group = _read_if_exists(module_c_clinical_group_path)
+            module_c_environmental = _read_if_exists(module_c_environmental_path)
+            module_c_environmental_group = _read_if_exists(module_c_environmental_group_path)
+            module_c_strata_group = _read_if_exists(module_c_strata_group_path)
+            if not module_c.empty:
+                module_c.to_csv(
+                    final_tables_dir / "pathogen_detection_support.tsv", sep="\t", index=False
+                )
+                run.record_output(final_tables_dir / "pathogen_detection_support.tsv")
+            if not module_c_group.empty:
+                module_c_group.to_csv(
+                    final_tables_dir / "pathogen_detection_group_summary.tsv", sep="\t", index=False
+                )
+                run.record_output(final_tables_dir / "pathogen_detection_group_summary.tsv")
+            if not module_c_clinical.empty:
+                module_c_clinical.to_csv(
+                    final_tables_dir / "pathogen_detection_clinical_support.tsv", sep="\t", index=False
+                )
+                run.record_output(final_tables_dir / "pathogen_detection_clinical_support.tsv")
+            if not module_c_clinical_group.empty:
+                module_c_clinical_group.to_csv(
+                    final_tables_dir / "pathogen_detection_clinical_group_summary.tsv",
+                    sep="\t",
+                    index=False,
+                )
+                run.record_output(final_tables_dir / "pathogen_detection_clinical_group_summary.tsv")
+            if not module_c_environmental.empty:
+                module_c_environmental.to_csv(
+                    final_tables_dir / "pathogen_detection_environmental_support.tsv",
+                    sep="\t",
+                    index=False,
+                )
+                run.record_output(final_tables_dir / "pathogen_detection_environmental_support.tsv")
+            if not module_c_environmental_group.empty:
+                module_c_environmental_group.to_csv(
+                    final_tables_dir / "pathogen_detection_environmental_group_summary.tsv",
+                    sep="\t",
+                    index=False,
+                )
+                run.record_output(
+                    final_tables_dir / "pathogen_detection_environmental_group_summary.tsv"
+                )
+            if not module_c_strata_group.empty:
+                module_c_strata_group.to_csv(
+                    final_tables_dir / "pathogen_detection_strata_group_summary.tsv",
+                    sep="\t",
+                    index=False,
+                )
+                run.record_output(final_tables_dir / "pathogen_detection_strata_group_summary.tsv")
 
-        who_detail = _read_if_exists(who_detail_path)
-        who_summary = _read_if_exists(who_summary_path)
-        who_category = _read_if_exists(who_category_path)
-        who_reference = _read_if_exists(who_reference_path)
-        card_detail = _read_if_exists(card_detail_path)
-        card_summary = _read_if_exists(card_summary_path)
-        card_family = _read_if_exists(card_family_path)
-        card_mechanism = _read_if_exists(card_mechanism_path)
-        mobsuite_detail = _read_if_exists(mobsuite_detail_path)
-        mobsuite_summary = _read_if_exists(mobsuite_summary_path)
-        amrfinder_probe_panel = _read_if_exists(amrfinder_probe_panel_path)
-        amrfinder_probe_hits = _read_if_exists(amrfinder_probe_hits_path)
-        amrfinder_detail = _read_if_exists(amrfinder_detail_path)
-        amrfinder_summary = _read_if_exists(amrfinder_summary_path)
-        amrfinder_coverage = build_amrfinder_coverage_table(amrfinder_summary)
-        amrfinder_reportable = _is_amrfinder_reportable(amrfinder_coverage)
-        amrfinder_sequences_total = (
-            int(amrfinder_coverage["n_sequences"].sum()) if not amrfinder_coverage.empty else 0
-        )
-        if amrfinder_sequences_total == 0:
-            amrfinder_reason = (
-                "AMRFinder executable/report unavailable; appendix-only probe skipped"
+            who_detail = _read_if_exists(who_detail_path)
+            who_summary = _read_if_exists(who_summary_path)
+            who_category = _read_if_exists(who_category_path)
+            who_reference = _read_if_exists(who_reference_path)
+            card_detail = _read_if_exists(card_detail_path)
+            card_summary = _read_if_exists(card_summary_path)
+            card_family = _read_if_exists(card_family_path)
+            card_mechanism = _read_if_exists(card_mechanism_path)
+            mobsuite_detail = _read_if_exists(mobsuite_detail_path)
+            mobsuite_summary = _read_if_exists(mobsuite_summary_path)
+            amrfinder_probe_panel = _read_if_exists(amrfinder_probe_panel_path)
+            amrfinder_probe_hits = _read_if_exists(amrfinder_probe_hits_path)
+            amrfinder_detail = _read_if_exists(amrfinder_detail_path)
+            amrfinder_summary = _read_if_exists(amrfinder_summary_path)
+            amrfinder_coverage = build_amrfinder_coverage_table(amrfinder_summary)
+            amrfinder_reportable = _is_amrfinder_reportable(amrfinder_coverage)
+            amrfinder_sequences_total = (
+                int(amrfinder_coverage["n_sequences"].sum()) if not amrfinder_coverage.empty else 0
             )
-        elif not amrfinder_reportable:
-            amrfinder_reason = (
-                "probe panel too small or imbalanced; keep as appendix-only sanity check"
-            )
-        else:
-            amrfinder_reason = "coverage acceptable for descriptive appendix reporting"
-        pd.DataFrame(
-            [
-                {
-                    "reportable_in_main_report": bool(amrfinder_reportable),
-                    "reason": amrfinder_reason,
-                    "n_sequences_total": amrfinder_sequences_total,
-                    "high_group_sequences": int(
-                        amrfinder_coverage.loc[
-                            amrfinder_coverage["priority_group"] == "high", "n_sequences"
-                        ].sum()
+            if amrfinder_sequences_total == 0:
+                amrfinder_reason = (
+                    "AMRFinder executable/report unavailable; appendix-only probe skipped"
+                )
+            elif not amrfinder_reportable:
+                amrfinder_reason = (
+                    "probe panel too small or imbalanced; keep as appendix-only sanity check"
+                )
+            else:
+                amrfinder_reason = "coverage acceptable for descriptive appendix reporting"
+            amrfinder_summary_table = pd.DataFrame(
+                [
+                    {
+                        "reportable_in_main_report": bool(amrfinder_reportable),
+                        "reason": amrfinder_reason,
+                        "n_sequences_total": amrfinder_sequences_total,
+                        "high_group_sequences": int(
+                            amrfinder_coverage.loc[
+                                amrfinder_coverage["priority_group"] == "high", "n_sequences"
+                            ].sum()
                     )
                     if not amrfinder_coverage.empty
                     else 0,
@@ -6020,104 +5865,108 @@ def main() -> int:
                     else 0,
                 }
             ]
-        )
-        if not who_detail.empty:
-            who_detail.to_csv(final_tables_dir / "who_mia_support.tsv", sep="\t", index=False)
-            run.record_output(final_tables_dir / "who_mia_support.tsv")
-        if not who_summary.empty:
-            who_summary.to_csv(
-                final_tables_dir / "who_mia_group_summary.tsv", sep="\t", index=False
             )
-            run.record_output(final_tables_dir / "who_mia_group_summary.tsv")
-        if not who_category.empty:
-            who_category.to_csv(
-                final_tables_dir / "who_mia_category_comparison.tsv", sep="\t", index=False
+            amrfinder_summary_table.to_csv(
+                final_tables_dir / "amrfinder_coverage_summary.tsv", sep="\t", index=False
             )
-            run.record_output(final_tables_dir / "who_mia_category_comparison.tsv")
-        if not who_reference.empty:
-            who_reference.to_csv(
-                final_tables_dir / "who_mia_reference_catalog.tsv", sep="\t", index=False
-            )
-            run.record_output(final_tables_dir / "who_mia_reference_catalog.tsv")
-        if not card_detail.empty:
-            card_detail.to_csv(final_tables_dir / "card_gene_support.tsv", sep="\t", index=False)
-            run.record_output(final_tables_dir / "card_gene_support.tsv")
-        if not card_summary.empty:
-            card_summary.to_csv(final_tables_dir / "card_group_summary.tsv", sep="\t", index=False)
-            run.record_output(final_tables_dir / "card_group_summary.tsv")
-        if not card_family.empty:
-            card_family.to_csv(
+            run.record_output(final_tables_dir / "amrfinder_coverage_summary.tsv")
+            if not who_detail.empty:
+                who_detail.to_csv(final_tables_dir / "who_mia_support.tsv", sep="\t", index=False)
+                run.record_output(final_tables_dir / "who_mia_support.tsv")
+            if not who_summary.empty:
+                who_summary.to_csv(
+                    final_tables_dir / "who_mia_group_summary.tsv", sep="\t", index=False
+                )
+                run.record_output(final_tables_dir / "who_mia_group_summary.tsv")
+            if not who_category.empty:
+                who_category.to_csv(
+                    final_tables_dir / "who_mia_category_comparison.tsv", sep="\t", index=False
+                )
+                run.record_output(final_tables_dir / "who_mia_category_comparison.tsv")
+            if not who_reference.empty:
+                who_reference.to_csv(
+                    final_tables_dir / "who_mia_reference_catalog.tsv", sep="\t", index=False
+                )
+                run.record_output(final_tables_dir / "who_mia_reference_catalog.tsv")
+            if not card_detail.empty:
+                card_detail.to_csv(final_tables_dir / "card_gene_support.tsv", sep="\t", index=False)
+                run.record_output(final_tables_dir / "card_gene_support.tsv")
+            if not card_summary.empty:
+                card_summary.to_csv(final_tables_dir / "card_group_summary.tsv", sep="\t", index=False)
+                run.record_output(final_tables_dir / "card_group_summary.tsv")
+            if not card_family.empty:
+                card_family.to_csv(
                 final_tables_dir / "card_gene_family_comparison.tsv", sep="\t", index=False
             )
             run.record_output(final_tables_dir / "card_gene_family_comparison.tsv")
-        if not card_mechanism.empty:
-            card_mechanism.to_csv(
-                final_tables_dir / "card_mechanism_comparison.tsv", sep="\t", index=False
-            )
-            run.record_output(final_tables_dir / "card_mechanism_comparison.tsv")
-        if not mobsuite_detail.empty:
-            mobsuite_detail.to_csv(
-                final_tables_dir / "mobsuite_host_range_support.tsv", sep="\t", index=False
-            )
-            run.record_output(final_tables_dir / "mobsuite_host_range_support.tsv")
-        if not mobsuite_summary.empty:
-            mobsuite_summary.to_csv(
-                final_tables_dir / "mobsuite_host_range_group_summary.tsv", sep="\t", index=False
-            )
-            run.record_output(final_tables_dir / "mobsuite_host_range_group_summary.tsv")
-        if amrfinder_reportable:
-            if not amrfinder_probe_panel.empty:
-                amrfinder_probe_panel.to_csv(
-                    final_tables_dir / "amrfinder_probe_panel.tsv", sep="\t", index=False
+            if not card_mechanism.empty:
+                card_mechanism.to_csv(
+                    final_tables_dir / "card_mechanism_comparison.tsv", sep="\t", index=False
                 )
-                run.record_output(final_tables_dir / "amrfinder_probe_panel.tsv")
-            if not amrfinder_probe_hits.empty:
-                amrfinder_probe_hits.to_csv(
-                    final_tables_dir / "amrfinder_probe_hits.tsv", sep="\t", index=False
+                run.record_output(final_tables_dir / "card_mechanism_comparison.tsv")
+            if not mobsuite_detail.empty:
+                mobsuite_detail.to_csv(
+                    final_tables_dir / "mobsuite_host_range_support.tsv", sep="\t", index=False
                 )
-                run.record_output(final_tables_dir / "amrfinder_probe_hits.tsv")
-            if not amrfinder_detail.empty:
-                amrfinder_detail.to_csv(
-                    final_tables_dir / "amrfinder_concordance_detail.tsv", sep="\t", index=False
+                run.record_output(final_tables_dir / "mobsuite_host_range_support.tsv")
+            if not mobsuite_summary.empty:
+                mobsuite_summary.to_csv(
+                    final_tables_dir / "mobsuite_host_range_group_summary.tsv", sep="\t", index=False
                 )
-                run.record_output(final_tables_dir / "amrfinder_concordance_detail.tsv")
+                run.record_output(final_tables_dir / "mobsuite_host_range_group_summary.tsv")
+            if amrfinder_reportable:
+                if not amrfinder_probe_panel.empty:
+                    amrfinder_probe_panel.to_csv(
+                        final_tables_dir / "amrfinder_probe_panel.tsv", sep="\t", index=False
+                    )
+                    run.record_output(final_tables_dir / "amrfinder_probe_panel.tsv")
+                if not amrfinder_probe_hits.empty:
+                    amrfinder_probe_hits.to_csv(
+                        final_tables_dir / "amrfinder_probe_hits.tsv", sep="\t", index=False
+                    )
+                    run.record_output(final_tables_dir / "amrfinder_probe_hits.tsv")
+                if not amrfinder_detail.empty:
+                    amrfinder_detail.to_csv(
+                        final_tables_dir / "amrfinder_concordance_detail.tsv", sep="\t", index=False
+                    )
+                    run.record_output(final_tables_dir / "amrfinder_concordance_detail.tsv")
             if not amrfinder_summary.empty:
                 amrfinder_summary.to_csv(
                     final_tables_dir / "amrfinder_concordance_summary.tsv", sep="\t", index=False
                 )
                 run.record_output(final_tables_dir / "amrfinder_concordance_summary.tsv")
-        else:
-            for stale_name in (
-                "amrfinder_probe_panel.tsv",
-                "amrfinder_probe_hits.tsv",
-                "amrfinder_concordance_detail.tsv",
-                "amrfinder_concordance_summary.tsv",
-            ):
-                stale_path = final_tables_dir / stale_name
-                if stale_path.exists():
-                    stale_path.unlink()
+            else:
+                for stale_name in (
+                    "amrfinder_probe_panel.tsv",
+                    "amrfinder_probe_hits.tsv",
+                    "amrfinder_concordance_detail.tsv",
+                    "amrfinder_concordance_summary.tsv",
+                ):
+                    stale_path = final_tables_dir / stale_name
+                    if stale_path.exists():
+                        stale_path.unlink()
 
-        pathogen_detail_frames = [
+            pathogen_detail_frames = [
             frame
             for frame in (module_c, module_c_clinical, module_c_environmental)
             if not frame.empty
-        ]
-        pathogen_group_comparison = build_pathogen_group_comparison(
+            ]
+            pathogen_group_comparison = build_pathogen_group_comparison(
             pd.concat(pathogen_detail_frames, ignore_index=True)
             if pathogen_detail_frames
             else pd.DataFrame()
-        )
-        pathogen_group_comparison.to_csv(
-            final_tables_dir / "pathogen_detection_group_comparison.tsv", sep="\t", index=False
-        )
+            )
+            pathogen_group_comparison.to_csv(
+                final_tables_dir / "pathogen_detection_group_comparison.tsv", sep="\t", index=False
+            )
 
-        primary_operational_risk = pd.DataFrame()
-        if not operational_risk_dictionary.empty:
-            primary_operational_risk = operational_risk_dictionary.loc[
-                operational_risk_dictionary.get("model_name", pd.Series(dtype=str))
-                .astype(str)
-                .eq(primary_model_name)
-            ].copy()
+            primary_operational_risk = pd.DataFrame()
+            if not operational_risk_dictionary.empty:
+                primary_operational_risk = operational_risk_dictionary.loc[
+                    operational_risk_dictionary.get("model_name", pd.Series(dtype=str))
+                    .astype(str)
+                    .eq(primary_model_name)
+                ].copy()
             if not primary_operational_risk.empty:
                 risk_columns = [
                     column
@@ -6147,85 +5996,85 @@ def main() -> int:
                     "backbone_id"
                 )
 
-        candidate_context_frames = [top.copy(), top_bio.copy(), top_primary.copy()]
-        if not prospective_freeze.empty and "backbone_id" in prospective_freeze.columns:
-            freeze_ids = prospective_freeze["backbone_id"].astype(str).unique().tolist()
-            freeze_rows = scored.loc[scored["backbone_id"].astype(str).isin(freeze_ids)].copy()
-            if not freeze_rows.empty:
-                candidate_context_frames.append(freeze_rows)
-        candidate_context = (
-            pd.concat(candidate_context_frames, ignore_index=True)
-            .drop_duplicates(subset=["backbone_id"], keep="first")
-            .sort_values("priority_index", ascending=False)
-            .reset_index(drop=True)
-        )
-        candidate_context = candidate_context.loc[candidate_context["spread_label"].notna()].copy()
-        candidate_stability = candidate_context.copy()
-        if not rank_stability.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                rank_stability.drop(columns=["base_priority_index"], errors="ignore"),
-                on="backbone_id",
+            candidate_context_frames = [top.copy(), top_bio.copy(), top_primary.copy()]
+            if not prospective_freeze.empty and "backbone_id" in prospective_freeze.columns:
+                freeze_ids = prospective_freeze["backbone_id"].astype(str).unique().tolist()
+                freeze_rows = scored.loc[scored["backbone_id"].astype(str).isin(freeze_ids)].copy()
+                if not freeze_rows.empty:
+                    candidate_context_frames.append(freeze_rows)
+            candidate_context = (
+                pd.concat(candidate_context_frames, ignore_index=True)
+                .drop_duplicates(subset=["backbone_id"], keep="first")
+                .sort_values("priority_index", ascending=False)
+                .reset_index(drop=True)
             )
-        if not variant_consistency.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                variant_consistency.drop(columns=["base_priority_index"], errors="ignore"),
-                on="backbone_id",
-            )
-        if not who_detail.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                who_detail[
-                    [
-                        "backbone_id",
-                        "who_mia_any_support",
-                        "who_mia_any_hpecia",
-                        "who_mia_mapped_fraction",
-                    ]
-                ],
-                on="backbone_id",
-            )
-        if not card_detail.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                card_detail[["backbone_id", "card_any_support", "card_match_fraction"]],
-                on="backbone_id",
-            )
-        if not mobsuite_detail.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                mobsuite_detail[
-                    [
-                        "backbone_id",
-                        "mobsuite_any_literature_support",
-                        "mobsuite_any_cluster_support",
-                    ]
-                ],
-                on="backbone_id",
-            )
-        if not module_c.empty:
-            pd_combined = module_c.loc[
-                module_c["pathogen_dataset"] == "combined",
-                ["backbone_id", "pd_any_support", "pd_matching_fraction"],
-            ]
-            candidate_stability = coalescing_left_merge(
-                candidate_stability, pd_combined, on="backbone_id"
-            )
-        if primary_model_name in set(predictions["model_name"].astype(str)):
-            primary_predictions = predictions.loc[
-                predictions["model_name"] == primary_model_name, ["backbone_id", "oof_prediction"]
-            ]
+            candidate_context = candidate_context.loc[candidate_context["spread_label"].notna()].copy()
+            candidate_stability = candidate_context.copy()
+            if not rank_stability.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    rank_stability.drop(columns=["base_priority_index"], errors="ignore"),
+                    on="backbone_id",
+                )
+            if not variant_consistency.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    variant_consistency.drop(columns=["base_priority_index"], errors="ignore"),
+                    on="backbone_id",
+                )
+            if not who_detail.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    who_detail[
+                        [
+                            "backbone_id",
+                            "who_mia_any_support",
+                            "who_mia_any_hpecia",
+                            "who_mia_mapped_fraction",
+                        ]
+                    ],
+                    on="backbone_id",
+                )
+            if not card_detail.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    card_detail[["backbone_id", "card_any_support", "card_match_fraction"]],
+                    on="backbone_id",
+                )
+            if not mobsuite_detail.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    mobsuite_detail[
+                        [
+                            "backbone_id",
+                            "mobsuite_any_literature_support",
+                            "mobsuite_any_cluster_support",
+                        ]
+                    ],
+                    on="backbone_id",
+                )
+            if not module_c.empty:
+                pd_combined = module_c.loc[
+                    module_c["pathogen_dataset"] == "combined",
+                    ["backbone_id", "pd_any_support", "pd_matching_fraction"],
+                ]
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability, pd_combined, on="backbone_id"
+                )
+            if primary_model_name in set(predictions["model_name"].astype(str)):
+                primary_predictions = predictions.loc[
+                    predictions["model_name"] == primary_model_name, ["backbone_id", "oof_prediction"]
+                ]
             primary_predictions = primary_predictions.rename(
                 columns={"oof_prediction": "primary_model_oof_prediction"}
             )
             candidate_stability = coalescing_left_merge(
                 candidate_stability, primary_predictions, on="backbone_id"
             )
-        if "baseline_both" in set(predictions["model_name"].astype(str)):
-            baseline_predictions = predictions.loc[
-                predictions["model_name"] == "baseline_both", ["backbone_id", "oof_prediction"]
-            ]
+            if "baseline_both" in set(predictions["model_name"].astype(str)):
+                baseline_predictions = predictions.loc[
+                    predictions["model_name"] == "baseline_both", ["backbone_id", "oof_prediction"]
+                ]
             baseline_predictions = baseline_predictions.rename(
                 columns={"oof_prediction": "baseline_both_oof_prediction"}
             )
@@ -6243,20 +6092,20 @@ def main() -> int:
             candidate_stability["novelty_margin_vs_baseline"] = primary_oof.fillna(
                 0.0
             ) - baseline_oof.fillna(0.0)
-        for prediction_frame in contextual_prediction_frames.values():
-            if prediction_frame.empty:
-                continue
-            candidate_stability = coalescing_left_merge(
-                candidate_stability, prediction_frame, on="backbone_id"
-            )
-        knownness_meta_all = pd.DataFrame()
-        knownness_meta_eligible = pd.DataFrame()
-        if not knownness_summary.empty:
-            knownness_meta_all = _compute_knownness(
-                scored[
-                    [
-                        "backbone_id",
-                        "log1p_member_count_train",
+            for prediction_frame in contextual_prediction_frames.values():
+                if prediction_frame.empty:
+                    continue
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability, prediction_frame, on="backbone_id"
+                )
+            knownness_meta_all = pd.DataFrame()
+            knownness_meta_eligible = pd.DataFrame()
+            if not knownness_summary.empty:
+                knownness_meta_all = _compute_knownness(
+                    scored[
+                        [
+                            "backbone_id",
+                            "log1p_member_count_train",
                         "log1p_n_countries_train",
                         "refseq_share_train",
                     ]
@@ -6284,13 +6133,13 @@ def main() -> int:
                 knownness_meta_all[["backbone_id", "knownness_score", "knownness_half"]],
                 on="backbone_id",
             )
-        if not metadata_quality_summary.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                metadata_quality_summary[
-                    [
-                        column
-                        for column in [
+            if not metadata_quality_summary.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    metadata_quality_summary[
+                        [
+                            column
+                            for column in [
                             "backbone_id",
                             "metadata_quality_score",
                             "metadata_quality_tier",
@@ -6302,13 +6151,13 @@ def main() -> int:
                 ],
                 on="backbone_id",
             )
-        if not macro_region_jump.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                macro_region_jump[
-                    [
-                        column
-                        for column in [
+            if not macro_region_jump.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    macro_region_jump[
+                        [
+                            column
+                            for column in [
                             "backbone_id",
                             "n_new_macro_regions",
                             "macro_region_jump_label",
@@ -6324,280 +6173,280 @@ def main() -> int:
                 ],
                 on="backbone_id",
             )
-        if not primary_operational_risk.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                primary_operational_risk,
-                on="backbone_id",
+            if not primary_operational_risk.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    primary_operational_risk,
+                    on="backbone_id",
+                )
+
+            primary_oof = candidate_stability.get(
+                "primary_model_oof_prediction",
+                pd.Series(np.nan, index=candidate_stability.index, dtype=float),
+            ).astype(float)
+            primary_full = candidate_stability.get(
+                "primary_model_full_fit_prediction",
+                pd.Series(np.nan, index=candidate_stability.index, dtype=float),
+            ).astype(float)
+            conservative_oof = candidate_stability.get(
+                "conservative_model_oof_prediction",
+                pd.Series(np.nan, index=candidate_stability.index, dtype=float),
+            ).astype(float)
+            conservative_full = candidate_stability.get(
+                "conservative_model_full_fit_prediction",
+                pd.Series(np.nan, index=candidate_stability.index, dtype=float),
+            ).astype(float)
+            candidate_stability["primary_model_candidate_score"] = primary_oof.fillna(primary_full)
+            candidate_stability["conservative_model_candidate_score"] = conservative_oof.fillna(
+                conservative_full
             )
 
-        primary_oof = candidate_stability.get(
-            "primary_model_oof_prediction",
-            pd.Series(np.nan, index=candidate_stability.index, dtype=float),
-        ).astype(float)
-        primary_full = candidate_stability.get(
-            "primary_model_full_fit_prediction",
-            pd.Series(np.nan, index=candidate_stability.index, dtype=float),
-        ).astype(float)
-        conservative_oof = candidate_stability.get(
-            "conservative_model_oof_prediction",
-            pd.Series(np.nan, index=candidate_stability.index, dtype=float),
-        ).astype(float)
-        conservative_full = candidate_stability.get(
-            "conservative_model_full_fit_prediction",
-            pd.Series(np.nan, index=candidate_stability.index, dtype=float),
-        ).astype(float)
-        candidate_stability["primary_model_candidate_score"] = primary_oof.fillna(primary_full)
-        candidate_stability["conservative_model_candidate_score"] = conservative_oof.fillna(
-            conservative_full
-        )
-
-        candidate_stability["high_confidence_candidate"] = (
-            candidate_stability["priority_index"].notna()
-            & candidate_stability["coherence_score"].fillna(0.0).ge(0.5)
-            & candidate_stability["bootstrap_top_k_frequency"].fillna(0.0).ge(0.7)
+            candidate_stability["high_confidence_candidate"] = (
+                candidate_stability["priority_index"].notna()
+                & candidate_stability["coherence_score"].fillna(0.0).ge(0.5)
+                & candidate_stability["bootstrap_top_k_frequency"].fillna(0.0).ge(0.7)
             & candidate_stability["variant_top_k_frequency"].fillna(0.0).ge(0.6)
-        )
-        consensus_candidates = build_consensus_candidate_ranking(
-            candidate_stability,
-            primary_score_column="primary_model_candidate_score",
-            conservative_score_column="conservative_model_candidate_score",
-            top_k=50,
-        )
+            )
+            consensus_candidates = build_consensus_candidate_ranking(
+                candidate_stability,
+                primary_score_column="primary_model_candidate_score",
+                conservative_score_column="conservative_model_candidate_score",
+                top_k=50,
+            )
 
-        scored_for_h = scored.copy()
-        if primary_model_name in set(predictions["model_name"].astype(str)):
-            scored_for_h = scored_for_h.merge(
-                predictions.loc[
-                    predictions["model_name"] == primary_model_name,
-                    ["backbone_id", "oof_prediction"],
-                ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
-                on="backbone_id",
+            scored_for_h = scored.copy()
+            if primary_model_name in set(predictions["model_name"].astype(str)):
+                scored_for_h = scored_for_h.merge(
+                    predictions.loc[
+                        predictions["model_name"] == primary_model_name,
+                        ["backbone_id", "oof_prediction"],
+                    ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
+                    on="backbone_id",
                 how="left",
             )
-        h_feature_diagnostics = build_h_feature_diagnostics(
-            scored_for_h,
-            model_metrics=model_metrics,
-            coefficient_table=coefficient_table,
-            dropout_table=dropout_table,
-            mobsuite_detail=mobsuite_detail,
-            score_column="primary_model_oof_prediction",
-        )
-        h_feature_diagnostics.to_csv(
-            final_tables_dir / "h_feature_diagnostics.tsv", sep="\t", index=False
-        )
+            h_feature_diagnostics = build_h_feature_diagnostics(
+                scored_for_h,
+                model_metrics=model_metrics,
+                coefficient_table=coefficient_table,
+                dropout_table=dropout_table,
+                mobsuite_detail=mobsuite_detail,
+                score_column="primary_model_oof_prediction",
+            )
+            h_feature_diagnostics.to_csv(
+                final_tables_dir / "h_feature_diagnostics.tsv", sep="\t", index=False
+            )
 
-        score_axis_summary = build_score_axis_summary(
-            scored,
-            predictions,
-            primary_model_name=primary_model_name,
-            baseline_model_name="baseline_both",
-        )
-        score_axis_summary.to_csv(
-            final_tables_dir / "score_axis_summary.tsv", sep="\t", index=False
-        )
-
-        score_distribution_diagnostics = build_score_distribution_diagnostics(scored)
-        score_distribution_diagnostics.to_csv(
-            final_tables_dir / "score_distribution_diagnostics.tsv", sep="\t", index=False
-        )
-
-        component_floor_diagnostics = build_component_floor_diagnostics(scored)
-        component_floor_diagnostics.to_csv(
-            final_tables_dir / "component_floor_diagnostics.tsv", sep="\t", index=False
-        )
-
-        temporal_drift_summary = build_temporal_drift_summary(backbones)
-        temporal_drift_summary.to_csv(
-            final_tables_dir / "temporal_drift_summary.tsv", sep="\t", index=False
-        )
-
-        if simplicity_summary.empty:
-            simplicity_summary = build_model_simplicity_summary(
-                model_metrics,
+            score_axis_summary = build_score_axis_summary(
+                scored,
                 predictions,
                 primary_model_name=primary_model_name,
-                conservative_model_name=conservative_model_name,
+                baseline_model_name="baseline_both",
             )
+            score_axis_summary.to_csv(
+                final_tables_dir / "score_axis_summary.tsv", sep="\t", index=False
+            )
+
+            score_distribution_diagnostics = build_score_distribution_diagnostics(scored)
+            score_distribution_diagnostics.to_csv(
+                final_tables_dir / "score_distribution_diagnostics.tsv", sep="\t", index=False
+            )
+
+            component_floor_diagnostics = build_component_floor_diagnostics(scored)
+            component_floor_diagnostics.to_csv(
+                final_tables_dir / "component_floor_diagnostics.tsv", sep="\t", index=False
+            )
+
+            temporal_drift_summary = build_temporal_drift_summary(backbones)
+            temporal_drift_summary.to_csv(
+                final_tables_dir / "temporal_drift_summary.tsv", sep="\t", index=False
+            )
+
+            if simplicity_summary.empty:
+                simplicity_summary = build_model_simplicity_summary(
+                    model_metrics,
+                    predictions,
+                    primary_model_name=primary_model_name,
+                    conservative_model_name=conservative_model_name,
+                )
             simplicity_summary.to_csv(
                 final_tables_dir / "model_simplicity_summary.tsv", sep="\t", index=False
             )
 
-        outcome_robustness = _build_outcome_robustness_grid(
-            sensitivity,
-            rolling_temporal,
-            default_threshold=pipeline.min_new_countries_for_spread,
-        )
-        outcome_robustness.to_csv(
-            final_tables_dir / "outcome_robustness_grid.tsv", sep="\t", index=False
-        )
+            outcome_robustness = _build_outcome_robustness_grid(
+                sensitivity,
+                rolling_temporal,
+                default_threshold=pipeline.min_new_countries_for_spread,
+            )
+            outcome_robustness.to_csv(
+                final_tables_dir / "outcome_robustness_grid.tsv", sep="\t", index=False
+            )
 
-        dossier_base = (
-            consensus_candidates.head(25).copy()
-            if not consensus_candidates.empty
-            else (
-                prospective_freeze.head(25).copy()
-                if not prospective_freeze.empty
-                else candidate_stability.head(25).copy()
+            dossier_base = (
+                consensus_candidates.head(25).copy()
+                if not consensus_candidates.empty
+                else (
+                    prospective_freeze.head(25).copy()
+                    if not prospective_freeze.empty
+                    else candidate_stability.head(25).copy()
+                )
             )
-        )
-        candidate_dossiers = build_candidate_dossier_table(
-            dossier_base,
-            candidate_stability=candidate_stability,
-            predictions=predictions,
-            primary_model_name=primary_model_name,
-            conservative_model_name=conservative_model_name,
-            who_detail=who_detail,
-            card_detail=card_detail,
-            mobsuite_detail=mobsuite_detail,
-            pathogen_support=module_c,
-            amrfinder_detail=amrfinder_detail,
-        )
-        candidate_risk = build_candidate_risk_table(candidate_dossiers)
-        if not candidate_risk.empty:
-            candidate_dossiers = coalescing_left_merge(
-                candidate_dossiers,
-                candidate_risk[
-                    ["backbone_id", "false_positive_risk_tier", "risk_flag_count", "risk_flags"]
-                ],
-                on="backbone_id",
+            candidate_dossiers = build_candidate_dossier_table(
+                dossier_base,
+                candidate_stability=candidate_stability,
+                predictions=predictions,
+                primary_model_name=primary_model_name,
+                conservative_model_name=conservative_model_name,
+                who_detail=who_detail,
+                card_detail=card_detail,
+                mobsuite_detail=mobsuite_detail,
+                pathogen_support=module_c,
+                amrfinder_detail=amrfinder_detail,
             )
-        candidate_dossiers.to_csv(
-            final_tables_dir / "candidate_dossiers.tsv", sep="\t", index=False
-        )
-        candidate_risk.to_csv(final_tables_dir / "candidate_risk_flags.tsv", sep="\t", index=False)
-        novelty_watchlist = scored.copy()
-        if primary_model_name in set(predictions["model_name"].astype(str)):
-            novelty_watchlist = novelty_watchlist.merge(
-                predictions.loc[
-                    predictions["model_name"] == primary_model_name,
-                    ["backbone_id", "oof_prediction"],
-                ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
+            candidate_risk = build_candidate_risk_table(candidate_dossiers)
+            if not candidate_risk.empty:
+                candidate_dossiers = coalescing_left_merge(
+                    candidate_dossiers,
+                    candidate_risk[
+                        ["backbone_id", "false_positive_risk_tier", "risk_flag_count", "risk_flags"]
+                    ],
+                    on="backbone_id",
+                )
+            candidate_dossiers.to_csv(
+                final_tables_dir / "candidate_dossiers.tsv", sep="\t", index=False
+            )
+            candidate_risk.to_csv(final_tables_dir / "candidate_risk_flags.tsv", sep="\t", index=False)
+            novelty_watchlist = scored.copy()
+            if primary_model_name in set(predictions["model_name"].astype(str)):
+                novelty_watchlist = novelty_watchlist.merge(
+                    predictions.loc[
+                        predictions["model_name"] == primary_model_name,
+                        ["backbone_id", "oof_prediction"],
+                    ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
+                    on="backbone_id",
+                how="left",
+            )
+            if "baseline_both" in set(predictions["model_name"].astype(str)):
+                novelty_watchlist = novelty_watchlist.merge(
+                    predictions.loc[
+                        predictions["model_name"] == "baseline_both",
+                        ["backbone_id", "oof_prediction"],
+                    ].rename(columns={"oof_prediction": "baseline_both_oof_prediction"}),
+                    on="backbone_id",
+                    how="left",
+            )
+            if not knownness_meta_eligible.empty:
+                novelty_watchlist = novelty_watchlist.merge(
+                    knownness_meta_eligible[
+                        ["backbone_id", "knownness_score", "knownness_half"]
+                    ].drop_duplicates("backbone_id"),
+                    on="backbone_id",
+                    how="left",
+            )
+            if not novelty_specialist_predictions.empty:
+                novelty_watchlist = novelty_watchlist.merge(
+                    novelty_specialist_predictions[
+                        [
+                            column
+                            for column in [
+                                "backbone_id",
+                                "novelty_specialist_prediction",
+                                "knownness_quartile",
+                                "training_cohort",
+                            ]
+                            if column in novelty_specialist_predictions.columns
+                        ]
+                    ].drop_duplicates("backbone_id"),
                 on="backbone_id",
                 how="left",
             )
-        if "baseline_both" in set(predictions["model_name"].astype(str)):
-            novelty_watchlist = novelty_watchlist.merge(
-                predictions.loc[
-                    predictions["model_name"] == "baseline_both",
-                    ["backbone_id", "oof_prediction"],
-                ].rename(columns={"oof_prediction": "baseline_both_oof_prediction"}),
+            if not primary_operational_risk.empty:
+                novelty_watchlist = coalescing_left_merge(
+                    novelty_watchlist,
+                    primary_operational_risk,
+                    on="backbone_id",
+            )
+            if not who_detail.empty:
+                novelty_watchlist = novelty_watchlist.merge(
+                    who_detail[["backbone_id", "who_mia_any_support"]],
+                    on="backbone_id",
+                    how="left",
+            )
+            if not card_detail.empty:
+                novelty_watchlist = novelty_watchlist.merge(
+                    card_detail[["backbone_id", "card_any_support"]],
                 on="backbone_id",
                 how="left",
             )
-        if not knownness_meta_eligible.empty:
-            novelty_watchlist = novelty_watchlist.merge(
-                knownness_meta_eligible[
-                    ["backbone_id", "knownness_score", "knownness_half"]
-                ].drop_duplicates("backbone_id"),
-                on="backbone_id",
-                how="left",
+            if not mobsuite_detail.empty:
+                novelty_watchlist = novelty_watchlist.merge(
+                    mobsuite_detail[["backbone_id", "mobsuite_any_literature_support"]],
+                    on="backbone_id",
+                    how="left",
             )
-        if not novelty_specialist_predictions.empty:
-            novelty_watchlist = novelty_watchlist.merge(
-                novelty_specialist_predictions[
+            if not module_c.empty:
+                novelty_watchlist = novelty_watchlist.merge(
+                    module_c.loc[
+                        module_c["pathogen_dataset"] == "combined", ["backbone_id", "pd_any_support"]
+                    ],
+                    on="backbone_id",
+                    how="left",
+            )
+            for column in (
+                "who_mia_any_support",
+                "card_any_support",
+                "mobsuite_any_literature_support",
+                "pd_any_support",
+            ):
+                if column in novelty_watchlist.columns:
+                    novelty_watchlist[column] = novelty_watchlist[column].fillna(False).astype(bool)
+            novelty_watchlist["external_support_modalities_count"] = (
+                novelty_watchlist[
                     [
                         column
-                        for column in [
-                            "backbone_id",
-                            "novelty_specialist_prediction",
-                            "knownness_quartile",
-                            "training_cohort",
-                        ]
-                        if column in novelty_specialist_predictions.columns
+                        for column in (
+                            "who_mia_any_support",
+                            "card_any_support",
+                            "mobsuite_any_literature_support",
+                            "pd_any_support",
+                        )
+                        if column in novelty_watchlist.columns
                     ]
-                ].drop_duplicates("backbone_id"),
-                on="backbone_id",
-                how="left",
-            )
-        if not primary_operational_risk.empty:
-            novelty_watchlist = coalescing_left_merge(
-                novelty_watchlist,
-                primary_operational_risk,
-                on="backbone_id",
-            )
-        if not who_detail.empty:
-            novelty_watchlist = novelty_watchlist.merge(
-                who_detail[["backbone_id", "who_mia_any_support"]],
-                on="backbone_id",
-                how="left",
-            )
-        if not card_detail.empty:
-            novelty_watchlist = novelty_watchlist.merge(
-                card_detail[["backbone_id", "card_any_support"]],
-                on="backbone_id",
-                how="left",
-            )
-        if not mobsuite_detail.empty:
-            novelty_watchlist = novelty_watchlist.merge(
-                mobsuite_detail[["backbone_id", "mobsuite_any_literature_support"]],
-                on="backbone_id",
-                how="left",
-            )
-        if not module_c.empty:
-            novelty_watchlist = novelty_watchlist.merge(
-                module_c.loc[
-                    module_c["pathogen_dataset"] == "combined", ["backbone_id", "pd_any_support"]
-                ],
-                on="backbone_id",
-                how="left",
-            )
-        for column in (
-            "who_mia_any_support",
-            "card_any_support",
-            "mobsuite_any_literature_support",
-            "pd_any_support",
-        ):
-            if column in novelty_watchlist.columns:
-                novelty_watchlist[column] = novelty_watchlist[column].fillna(False).astype(bool)
-        novelty_watchlist["external_support_modalities_count"] = (
-            novelty_watchlist[
-                [
-                    column
-                    for column in (
-                        "who_mia_any_support",
-                        "card_any_support",
-                        "mobsuite_any_literature_support",
-                        "pd_any_support",
-                    )
-                    if column in novelty_watchlist.columns
                 ]
-            ]
-            .sum(axis=1)
-            .astype(int)
-        )
-        novelty_watchlist["primary_model_candidate_score"] = novelty_watchlist[
-            "primary_model_oof_prediction"
-        ].astype(float)
-        novelty_watchlist["baseline_both_candidate_score"] = novelty_watchlist[
-            "baseline_both_oof_prediction"
-        ].astype(float)
-        novelty_watchlist["candidate_prediction_source"] = "oof"
-        novelty_watchlist["eligible_for_oof"] = True
-        novelty_watchlist["novelty_margin_vs_baseline"] = np.nan
-        novelty_watchlist_margin_mask = (
-            novelty_watchlist["primary_model_oof_prediction"].notna()
-            & novelty_watchlist["baseline_both_oof_prediction"].notna()
-        )
-        novelty_watchlist.loc[novelty_watchlist_margin_mask, "novelty_margin_vs_baseline"] = (
-            novelty_watchlist.loc[
-                novelty_watchlist_margin_mask, "primary_model_oof_prediction"
+                .sum(axis=1)
+                .astype(int)
+            )
+            novelty_watchlist["primary_model_candidate_score"] = novelty_watchlist[
+                "primary_model_oof_prediction"
             ].astype(float)
-            - novelty_watchlist.loc[
-                novelty_watchlist_margin_mask, "baseline_both_oof_prediction"
+            novelty_watchlist["baseline_both_candidate_score"] = novelty_watchlist[
+                "baseline_both_oof_prediction"
             ].astype(float)
-        )
-        if "novelty_specialist_prediction" not in novelty_watchlist.columns:
-            novelty_watchlist["novelty_specialist_prediction"] = 0.0
-        for prediction_frame in contextual_prediction_frames.values():
-            if prediction_frame.empty:
-                continue
+            novelty_watchlist["candidate_prediction_source"] = "oof"
+            novelty_watchlist["eligible_for_oof"] = True
+            novelty_watchlist["novelty_margin_vs_baseline"] = np.nan
+            novelty_watchlist_margin_mask = (
+                novelty_watchlist["primary_model_oof_prediction"].notna()
+                & novelty_watchlist["baseline_both_oof_prediction"].notna()
+            )
+            novelty_watchlist.loc[novelty_watchlist_margin_mask, "novelty_margin_vs_baseline"] = (
+                novelty_watchlist.loc[
+                    novelty_watchlist_margin_mask, "primary_model_oof_prediction"
+                ].astype(float)
+                - novelty_watchlist.loc[
+                    novelty_watchlist_margin_mask, "baseline_both_oof_prediction"
+                ].astype(float)
+            )
+            if "novelty_specialist_prediction" not in novelty_watchlist.columns:
+                novelty_watchlist["novelty_specialist_prediction"] = 0.0
+            for prediction_frame in contextual_prediction_frames.values():
+                if prediction_frame.empty:
+                    continue
             novelty_watchlist = novelty_watchlist.merge(
                 prediction_frame, on="backbone_id", how="left"
             )
-        conservative_oof_column = None
-        if conservative_model_name in set(predictions["model_name"].astype(str)):
-            conservative_oof_column = "conservative_model_oof_prediction"
+            conservative_oof_column = None
+            if conservative_model_name in set(predictions["model_name"].astype(str)):
+                conservative_oof_column = "conservative_model_oof_prediction"
             novelty_watchlist = novelty_watchlist.merge(
                 predictions.loc[
                     predictions["model_name"] == conservative_model_name,
@@ -6606,142 +6455,180 @@ def main() -> int:
                 on="backbone_id",
                 how="left",
             )
-        novelty_watchlist = novelty_watchlist.loc[
-            novelty_watchlist["spread_label"].notna()
-            & novelty_watchlist["member_count_train"].fillna(0).astype(int).gt(0)
-            & novelty_watchlist["knownness_half"].fillna("").eq("lower_half")
-        ].copy()
-        novelty_watchlist = novelty_watchlist.loc[
-            novelty_watchlist["novelty_margin_vs_baseline"].fillna(0.0).gt(0)
-            & (
-                novelty_watchlist["member_count_train"].fillna(0).astype(int).ge(2)
-                | novelty_watchlist["external_support_modalities_count"].fillna(0).astype(int).gt(0)
-            )
-        ].copy()
-        novelty_watchlist = novelty_watchlist.sort_values(
-            [
-                "novelty_specialist_prediction",
-                "novelty_margin_vs_baseline",
-                "primary_model_oof_prediction",
-                "priority_index",
-            ],
-            ascending=[False, False, False, False],
-        ).head(25)
-        if (
-            conservative_oof_column is not None
-            or "conservative_model_full_fit_prediction" in novelty_watchlist.columns
-        ):
-            conservative_oof = novelty_watchlist.get(
-                conservative_oof_column,
-                pd.Series(np.nan, index=novelty_watchlist.index, dtype=float),
-            ).astype(float)
-            conservative_full = novelty_watchlist.get(
-                "conservative_model_full_fit_prediction",
-                pd.Series(np.nan, index=novelty_watchlist.index, dtype=float),
-            ).astype(float)
-            novelty_watchlist["conservative_model_candidate_score"] = conservative_oof.fillna(
-                conservative_full
-            )
-        novelty_watchlist = _add_visibility_alias(novelty_watchlist)
-        novelty_watchlist.to_csv(final_tables_dir / "novelty_watchlist.tsv", sep="\t", index=False)
+            if "knownness_half" not in novelty_watchlist.columns:
+                for candidate in ("knownness_half_x", "knownness_half_y"):
+                    if candidate in novelty_watchlist.columns:
+                        novelty_watchlist["knownness_half"] = novelty_watchlist[candidate]
+                        break
+            if "knownness_half" not in novelty_watchlist.columns and "knownness_score" in novelty_watchlist.columns:
+                knownness_values = pd.to_numeric(novelty_watchlist["knownness_score"], errors="coerce")
+                valid_knownness = knownness_values.notna()
+                if valid_knownness.any():
+                    median_knownness = float(knownness_values.loc[valid_knownness].median())
+                    novelty_watchlist["knownness_half"] = np.where(
+                        knownness_values.le(median_knownness),
+                        "lower_half",
+                        "upper_half",
+                    )
+                else:
+                    novelty_watchlist["knownness_half"] = "lower_half"
+            if "knownness_half" not in novelty_watchlist.columns:
+                novelty_watchlist["knownness_half"] = "lower_half"
+            novelty_watchlist = novelty_watchlist.loc[
+                novelty_watchlist["spread_label"].notna()
+                & novelty_watchlist["member_count_train"].fillna(0).astype(int).gt(0)
+                & novelty_watchlist["knownness_half"].fillna("").eq("lower_half")
+            ].copy()
+            novelty_watchlist = novelty_watchlist.loc[
+                novelty_watchlist["novelty_margin_vs_baseline"].fillna(0.0).gt(0)
+                & (
+                    novelty_watchlist["member_count_train"].fillna(0).astype(int).ge(2)
+                    | novelty_watchlist["external_support_modalities_count"].fillna(0).astype(int).gt(0)
+                )
+            ].copy()
+            novelty_watchlist = novelty_watchlist.sort_values(
+                [
+                    "novelty_specialist_prediction",
+                    "novelty_margin_vs_baseline",
+                    "primary_model_oof_prediction",
+                    "priority_index",
+                ],
+                ascending=[False, False, False, False],
+            ).head(25)
+            if (
+                conservative_oof_column is not None
+                or "conservative_model_full_fit_prediction" in novelty_watchlist.columns
+            ):
+                conservative_oof = novelty_watchlist.get(
+                    conservative_oof_column,
+                    pd.Series(np.nan, index=novelty_watchlist.index, dtype=float),
+                ).astype(float)
+                conservative_full = novelty_watchlist.get(
+                    "conservative_model_full_fit_prediction",
+                    pd.Series(np.nan, index=novelty_watchlist.index, dtype=float),
+                ).astype(float)
+                novelty_watchlist["conservative_model_candidate_score"] = conservative_oof.fillna(
+                    conservative_full
+                )
+                novelty_watchlist = _add_visibility_alias(novelty_watchlist)
+                if "knownness_half" not in novelty_watchlist.columns:
+                    for candidate in ("knownness_half_x", "knownness_half_y"):
+                        if candidate in novelty_watchlist.columns:
+                            novelty_watchlist["knownness_half"] = novelty_watchlist[candidate]
+                            break
+            if "knownness_half" not in novelty_watchlist.columns and "knownness_score" in novelty_watchlist.columns:
+                knownness_values = pd.to_numeric(novelty_watchlist["knownness_score"], errors="coerce")
+                valid_knownness = knownness_values.notna()
+                if valid_knownness.any():
+                    median_knownness = float(knownness_values.loc[valid_knownness].median())
+                    novelty_watchlist["knownness_half"] = np.where(
+                        knownness_values.le(median_knownness),
+                        "lower_half",
+                        "upper_half",
+                    )
+                else:
+                    novelty_watchlist["knownness_half"] = "lower_half"
+            if "knownness_half" not in novelty_watchlist.columns:
+                novelty_watchlist["knownness_half"] = "lower_half"
+            novelty_watchlist.to_csv(final_tables_dir / "novelty_watchlist.tsv", sep="\t", index=False)
 
-        novelty_frontier = scored.loc[scored["spread_label"].notna()].copy()
-        if primary_model_name in set(predictions["model_name"].astype(str)):
-            novelty_frontier = novelty_frontier.merge(
-                predictions.loc[
-                    predictions["model_name"] == primary_model_name,
-                    ["backbone_id", "oof_prediction"],
-                ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
-                on="backbone_id",
+            novelty_frontier = scored.loc[scored["spread_label"].notna()].copy()
+            if primary_model_name in set(predictions["model_name"].astype(str)):
+                novelty_frontier = novelty_frontier.merge(
+                    predictions.loc[
+                        predictions["model_name"] == primary_model_name,
+                        ["backbone_id", "oof_prediction"],
+                    ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
+                    on="backbone_id",
                 how="left",
             )
-        if "baseline_both" in set(predictions["model_name"].astype(str)):
-            novelty_frontier = novelty_frontier.merge(
-                predictions.loc[
-                    predictions["model_name"] == "baseline_both",
-                    ["backbone_id", "oof_prediction"],
-                ].rename(columns={"oof_prediction": "baseline_both_oof_prediction"}),
-                on="backbone_id",
-                how="left",
+            if "baseline_both" in set(predictions["model_name"].astype(str)):
+                novelty_frontier = novelty_frontier.merge(
+                    predictions.loc[
+                        predictions["model_name"] == "baseline_both",
+                        ["backbone_id", "oof_prediction"],
+                    ].rename(columns={"oof_prediction": "baseline_both_oof_prediction"}),
+                    on="backbone_id",
+                    how="left",
             )
-        if not knownness_meta_eligible.empty:
-            novelty_frontier = novelty_frontier.merge(
-                knownness_meta_eligible[
-                    ["backbone_id", "knownness_score", "knownness_half"]
-                ].drop_duplicates("backbone_id"),
-                on="backbone_id",
-                how="left",
+            if not knownness_meta_eligible.empty:
+                novelty_frontier = novelty_frontier.merge(
+                    knownness_meta_eligible[
+                        ["backbone_id", "knownness_score", "knownness_half"]
+                    ].drop_duplicates("backbone_id"),
+                    on="backbone_id",
+                    how="left",
             )
-        if not novelty_specialist_predictions.empty:
-            novelty_frontier = novelty_frontier.merge(
-                novelty_specialist_predictions[
-                    [
-                        column
-                        for column in [
-                            "backbone_id",
-                            "novelty_specialist_prediction",
-                            "knownness_quartile",
-                        ]
-                        if column in novelty_specialist_predictions.columns
-                    ]
-                ].drop_duplicates("backbone_id"),
-                on="backbone_id",
-                how="left",
-            )
-        novelty_frontier["novelty_margin_vs_baseline"] = np.nan
-        novelty_frontier_margin_mask = (
-            novelty_frontier["primary_model_oof_prediction"].notna()
-            & novelty_frontier["baseline_both_oof_prediction"].notna()
-        )
-        novelty_frontier.loc[novelty_frontier_margin_mask, "novelty_margin_vs_baseline"] = (
-            novelty_frontier.loc[
-                novelty_frontier_margin_mask, "primary_model_oof_prediction"
-            ].astype(float)
-            - novelty_frontier.loc[
-                novelty_frontier_margin_mask, "baseline_both_oof_prediction"
-            ].astype(float)
-        )
-        if "novelty_specialist_prediction" not in novelty_frontier.columns:
-            novelty_frontier["novelty_specialist_prediction"] = 0.0
-        novelty_frontier = _add_visibility_alias(novelty_frontier)
-
-        novelty_margin_summary = build_novelty_margin_summary(
-            predictions,
-            scored,
-            primary_model_name=primary_model_name,
-            baseline_model_name="baseline_both",
-        )
-        novelty_margin_summary.to_csv(
-            final_tables_dir / "novelty_margin_summary.tsv", sep="\t", index=False
-        )
-
-        candidate_portfolio = build_candidate_portfolio_table(
-            candidate_dossiers,
-            novelty_watchlist,
-            established_n=10,
-            novel_n=10,
-        )
-        if not candidate_portfolio.empty:
-            if not consensus_candidates.empty:
-                candidate_portfolio = coalescing_left_merge(
-                    candidate_portfolio,
-                    consensus_candidates[
+            if not novelty_specialist_predictions.empty:
+                novelty_frontier = novelty_frontier.merge(
+                    novelty_specialist_predictions[
                         [
                             column
                             for column in [
                                 "backbone_id",
-                                "consensus_rank",
-                                "consensus_candidate_score",
-                                "consensus_support_count",
-                                "primary_rank",
-                                "conservative_rank",
-                                "rank_disagreement_primary_vs_conservative",
+                                "novelty_specialist_prediction",
+                                "knownness_quartile",
                             ]
-                            if column in consensus_candidates.columns
+                            if column in novelty_specialist_predictions.columns
                         ]
-                    ],
+                    ].drop_duplicates("backbone_id"),
                     on="backbone_id",
-                )
+                    how="left",
+            )
+            novelty_frontier["novelty_margin_vs_baseline"] = np.nan
+            novelty_frontier_margin_mask = (
+                novelty_frontier["primary_model_oof_prediction"].notna()
+                & novelty_frontier["baseline_both_oof_prediction"].notna()
+            )
+            novelty_frontier.loc[novelty_frontier_margin_mask, "novelty_margin_vs_baseline"] = (
+                novelty_frontier.loc[
+                    novelty_frontier_margin_mask, "primary_model_oof_prediction"
+                ].astype(float)
+                - novelty_frontier.loc[
+                    novelty_frontier_margin_mask, "baseline_both_oof_prediction"
+                ].astype(float)
+            )
+            if "novelty_specialist_prediction" not in novelty_frontier.columns:
+                novelty_frontier["novelty_specialist_prediction"] = 0.0
+            novelty_frontier = _add_visibility_alias(novelty_frontier)
+
+            novelty_margin_summary = build_novelty_margin_summary(
+                predictions,
+                scored,
+                primary_model_name=primary_model_name,
+                baseline_model_name="baseline_both",
+            )
+            novelty_margin_summary.to_csv(
+                final_tables_dir / "novelty_margin_summary.tsv", sep="\t", index=False
+            )
+
+            candidate_portfolio = build_candidate_portfolio_table(
+                candidate_dossiers,
+                novelty_watchlist,
+                established_n=10,
+                novel_n=10,
+            )
+            if not candidate_portfolio.empty:
+                if not consensus_candidates.empty:
+                    candidate_portfolio = coalescing_left_merge(
+                        candidate_portfolio,
+                        consensus_candidates[
+                            [
+                                column
+                                for column in [
+                                    "backbone_id",
+                                    "consensus_rank",
+                                    "consensus_candidate_score",
+                                    "consensus_support_count",
+                                    "primary_rank",
+                                    "conservative_rank",
+                                    "rank_disagreement_primary_vs_conservative",
+                                ]
+                                if column in consensus_candidates.columns
+                            ]
+                        ],
+                        on="backbone_id",
+                    )
             if not candidate_stability.empty:
                 candidate_portfolio = coalescing_left_merge(
                     candidate_portfolio,
@@ -6815,82 +6702,82 @@ def main() -> int:
                 pd.Series("unknown", index=candidate_portfolio.index),
             ).fillna("unknown")
             candidate_portfolio["action_tier"] = candidate_portfolio["recommended_monitoring_tier"]
-        candidate_signature_context = build_candidate_signature_context(
-            candidate_portfolio,
-            module_f_identity,
-            module_f_enrichment,
-            q_threshold=0.05,
-            max_signatures_per_candidate=5,
-        )
-        if not candidate_signature_context.empty:
-            candidate_portfolio = coalescing_left_merge(
-                candidate_portfolio, candidate_signature_context, on="backbone_id"
+            candidate_signature_context = build_candidate_signature_context(
+                candidate_portfolio,
+                module_f_identity,
+                module_f_enrichment,
+                q_threshold=0.05,
+                max_signatures_per_candidate=5,
             )
-            candidate_dossiers = coalescing_left_merge(
-                candidate_dossiers, candidate_signature_context, on="backbone_id"
-            )
-        candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
-        candidate_portfolio = _add_visibility_alias(candidate_portfolio)
-        high_confidence_export = candidate_stability.loc[
-            candidate_stability["high_confidence_candidate"].fillna(False)
-        ].copy()
-        if "spread_label" in high_confidence_export.columns:
-            high_confidence_export = high_confidence_export.loc[
-                high_confidence_export["spread_label"].fillna(0).astype(float) >= 1.0
+            if not candidate_signature_context.empty:
+                candidate_portfolio = coalescing_left_merge(
+                    candidate_portfolio, candidate_signature_context, on="backbone_id"
+                )
+                candidate_dossiers = coalescing_left_merge(
+                    candidate_dossiers, candidate_signature_context, on="backbone_id"
+                )
+            candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
+            candidate_portfolio = _add_visibility_alias(candidate_portfolio)
+            high_confidence_export = candidate_stability.loc[
+                candidate_stability["high_confidence_candidate"].fillna(False)
             ].copy()
-        if not candidate_risk.empty:
-            high_confidence_export = coalescing_left_merge(
-                high_confidence_export,
-                candidate_risk[
-                    ["backbone_id", "false_positive_risk_tier", "risk_flag_count", "risk_flags"]
-                ],
-                on="backbone_id",
-            )
+            if "spread_label" in high_confidence_export.columns:
+                high_confidence_export = high_confidence_export.loc[
+                    high_confidence_export["spread_label"].fillna(0).astype(float) >= 1.0
+                ].copy()
+            if not candidate_risk.empty:
+                high_confidence_export = coalescing_left_merge(
+                    high_confidence_export,
+                    candidate_risk[
+                        ["backbone_id", "false_positive_risk_tier", "risk_flag_count", "risk_flags"]
+                    ],
+                    on="backbone_id",
+                )
             high_confidence_export = high_confidence_export.loc[
                 high_confidence_export["false_positive_risk_tier"].fillna("high").ne("high")
             ].copy()
-        high_confidence_export = _add_visibility_alias(high_confidence_export)
+            high_confidence_export = _add_visibility_alias(high_confidence_export)
 
-        candidate_universe = build_candidate_universe_table(
-            scored=scored,
-            consensus_candidates=consensus_candidates,
-            candidate_dossiers=candidate_dossiers,
-            candidate_portfolio=candidate_portfolio,
-            novelty_watchlist=novelty_watchlist,
-            prospective_freeze=prospective_freeze_export,
-            high_confidence_candidates=high_confidence_export,
-            candidate_risk=candidate_risk,
-        )
-        candidate_universe = _add_visibility_alias(candidate_universe)
+            candidate_universe = build_candidate_universe_table(
+                scored=scored,
+                consensus_candidates=consensus_candidates,
+                candidate_dossiers=candidate_dossiers,
+                candidate_portfolio=candidate_portfolio,
+                novelty_watchlist=novelty_watchlist,
+                prospective_freeze=prospective_freeze_export,
+                high_confidence_candidates=high_confidence_export,
+                candidate_risk=candidate_risk,
+            )
+            candidate_universe = _add_visibility_alias(candidate_universe)
 
-        candidate_threshold_flip = build_threshold_flip_table(
-            scored,
-            candidate_ids=candidate_universe["backbone_id"].astype(str).tolist()
-            if not candidate_universe.empty
-            else None,
-            default_threshold=pipeline.min_new_countries_for_spread,
-        )
-        candidate_threshold_flip.to_csv(
-            final_tables_dir / "candidate_threshold_flip.tsv", sep="\t", index=False
-        )
-        candidate_multiverse_stability = _build_candidate_multiverse_stability(
-            candidate_stability,
-            candidate_threshold_flip,
-        )
-        candidate_multiverse_stability.to_csv(
-            final_tables_dir / "candidate_multiverse_stability.tsv", sep="\t", index=False
-        )
-        if not candidate_multiverse_stability.empty:
-            merge_columns = [
-                column
-                for column in [
-                    "backbone_id",
-                    "multiverse_stability_score",
-                    "multiverse_stability_tier",
-                    "threshold_robustness_score",
+            candidate_threshold_flip = build_threshold_flip_table(
+                scored,
+                candidate_ids=candidate_universe["backbone_id"].astype(str).tolist()
+                if not candidate_universe.empty
+                else None,
+                default_threshold=pipeline.min_new_countries_for_spread,
+            )
+            candidate_threshold_flip.to_csv(
+                final_tables_dir / "candidate_threshold_flip.tsv", sep="\t", index=False
+            )
+            candidate_multiverse_stability = _build_candidate_multiverse_stability(
+                candidate_stability,
+                candidate_threshold_flip,
+            )
+            candidate_multiverse_stability.to_csv(
+                final_tables_dir / "candidate_multiverse_stability.tsv", sep="\t", index=False
+            )
+            if not candidate_multiverse_stability.empty:
+                merge_columns = [
+                    column
+                    for column in [
+                        "backbone_id",
+                        "multiverse_stability_score",
+                        "multiverse_stability_tier",
+                        "threshold_robustness_score",
+                    ]
+                    if column in candidate_multiverse_stability.columns
                 ]
-                if column in candidate_multiverse_stability.columns
-            ]
             if not candidate_portfolio.empty:
                 candidate_portfolio = coalescing_left_merge(
                     candidate_portfolio,
@@ -6903,122 +6790,122 @@ def main() -> int:
                     candidate_multiverse_stability[merge_columns],
                     on="backbone_id",
                 )
-        exposure_merge_columns = [
-            column
-            for column in [
-                "backbone_id",
-                "new_country_rate_per_year",
-                "weighted_new_country_rate_per_year",
-                "rarity_weighted_new_country_rate_per_year",
-                "first_event_speed_score",
-                "third_event_speed_score",
-                "fast_or_broad_expansion_label",
+            exposure_merge_columns = [
+                column
+                for column in [
+                    "backbone_id",
+                    "new_country_rate_per_year",
+                    "weighted_new_country_rate_per_year",
+                    "rarity_weighted_new_country_rate_per_year",
+                    "first_event_speed_score",
+                    "third_event_speed_score",
+                    "fast_or_broad_expansion_label",
+                ]
+                if column in exposure_adjusted_event.columns
             ]
-            if column in exposure_adjusted_event.columns
-        ]
-        if len(exposure_merge_columns) > 1:
-            exposure_payload = exposure_adjusted_event[exposure_merge_columns].drop_duplicates(
-                "backbone_id"
+            if len(exposure_merge_columns) > 1:
+                exposure_payload = exposure_adjusted_event[exposure_merge_columns].drop_duplicates(
+                    "backbone_id"
+                )
+                if not candidate_portfolio.empty:
+                    candidate_portfolio = coalescing_left_merge(
+                        candidate_portfolio, exposure_payload, on="backbone_id"
+                    )
+                if not candidate_dossiers.empty:
+                    candidate_dossiers = coalescing_left_merge(
+                        candidate_dossiers, exposure_payload, on="backbone_id"
+                    )
+            if not primary_operational_risk.empty:
+                if not candidate_portfolio.empty:
+                    candidate_portfolio = coalescing_left_merge(
+                        candidate_portfolio, primary_operational_risk, on="backbone_id"
+                    )
+                if not candidate_dossiers.empty:
+                    candidate_dossiers = coalescing_left_merge(
+                        candidate_dossiers, primary_operational_risk, on="backbone_id"
+                    )
+            candidate_dossiers = annotate_candidate_explanation_fields(candidate_dossiers)
+            candidate_portfolio = annotate_candidate_explanation_fields(candidate_portfolio)
+            candidate_dossiers = _deduplicate_backbone_rows(candidate_dossiers)
+            candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
+            operational_risk_watchlist = _build_operational_risk_watchlist(
+                operational_risk_dictionary,
+                primary_model_name=primary_model_name,
+                candidate_portfolio=candidate_portfolio,
+                top_k=50,
             )
-            if not candidate_portfolio.empty:
-                candidate_portfolio = coalescing_left_merge(
-                    candidate_portfolio, exposure_payload, on="backbone_id"
-                )
-            if not candidate_dossiers.empty:
-                candidate_dossiers = coalescing_left_merge(
-                    candidate_dossiers, exposure_payload, on="backbone_id"
-                )
-        if not primary_operational_risk.empty:
-            if not candidate_portfolio.empty:
-                candidate_portfolio = coalescing_left_merge(
-                    candidate_portfolio, primary_operational_risk, on="backbone_id"
-                )
-            if not candidate_dossiers.empty:
-                candidate_dossiers = coalescing_left_merge(
-                    candidate_dossiers, primary_operational_risk, on="backbone_id"
-                )
-        candidate_dossiers = annotate_candidate_explanation_fields(candidate_dossiers)
-        candidate_portfolio = annotate_candidate_explanation_fields(candidate_portfolio)
-        candidate_dossiers = _deduplicate_backbone_rows(candidate_dossiers)
-        candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
-        operational_risk_watchlist = _build_operational_risk_watchlist(
-            operational_risk_dictionary,
-            primary_model_name=primary_model_name,
-            candidate_portfolio=candidate_portfolio,
-            top_k=50,
-        )
-        consensus_shortlist = build_consensus_shortlist(
-            consensus_candidates,
-            candidate_portfolio,
-            candidate_multiverse_stability,
-            top_k=25,
-        )
-        consensus_shortlist = _add_visibility_alias(consensus_shortlist)
-        consensus_shortlist.to_csv(
-            final_tables_dir / "consensus_shortlist.tsv", sep="\t", index=False
-        )
+            consensus_shortlist = build_consensus_shortlist(
+                consensus_candidates,
+                candidate_portfolio,
+                candidate_multiverse_stability,
+                top_k=25,
+            )
+            consensus_shortlist = _add_visibility_alias(consensus_shortlist)
+            consensus_shortlist.to_csv(
+                final_tables_dir / "consensus_shortlist.tsv", sep="\t", index=False
+            )
 
-        decision_yield = build_decision_yield_table(
-            predictions,
-            model_names=list(
-                dict.fromkeys(
-                    [
-                        primary_model_name,
-                        conservative_model_name,
-                        governance_model_name,
-                        "knownness_robust_priority",
-                        "host_transfer_synergy_priority",
-                        "threat_architecture_priority",
-                        "natural_auc_priority",
-                        "baseline_both",
-                        "evidence_aware_priority",
-                    ]
-                )
-            ),
-        )
-        decision_yield.to_csv(
-            final_tables_dir / "decision_yield_summary.tsv", sep="\t", index=False
-        )
-        threshold_utility_summary = build_threshold_utility_table(
-            predictions,
-            model_names=list(
-                dict.fromkeys(
-                    [
-                        primary_model_name,
-                        conservative_model_name,
-                        governance_model_name,
-                        "knownness_robust_priority",
-                        "host_transfer_synergy_priority",
-                        "threat_architecture_priority",
-                        "natural_auc_priority",
-                        "baseline_both",
-                        "evidence_aware_priority",
-                    ]
-                )
-            ),
-        )
-        threshold_utility_summary.to_csv(
-            final_tables_dir / "threshold_utility_summary.tsv", sep="\t", index=False
-        )
-        stable_adaptive_model_names = (
-            gate_consistency_audit.loc[
-                gate_consistency_audit.get("gate_consistency_tier", pd.Series(dtype=str))
-                .astype(str)
-                .eq("stable"),
-                "model_name",
-            ].drop_duplicates()
-            if not gate_consistency_audit.empty
-            and "gate_consistency_tier" in gate_consistency_audit.columns
-            else pd.Series(dtype=str)
-        )
-        adaptive_has_model_name = (
-            not adaptive_gated_metrics.empty and "model_name" in adaptive_gated_metrics.columns
-        )
-        adaptive_has_roc_auc = "roc_auc" in adaptive_gated_metrics.columns
-        if adaptive_has_model_name:
-            preferred_adaptive_metrics = adaptive_gated_metrics.loc[
-                adaptive_gated_metrics["model_name"].isin(stable_adaptive_model_names)
-            ].copy()
+            decision_yield = build_decision_yield_table(
+                predictions,
+                model_names=list(
+                    dict.fromkeys(
+                        [
+                            primary_model_name,
+                            conservative_model_name,
+                            governance_model_name,
+                            "knownness_robust_priority",
+                            "host_transfer_synergy_priority",
+                            "threat_architecture_priority",
+                            "natural_auc_priority",
+                            "baseline_both",
+                            "evidence_aware_priority",
+                        ]
+                    )
+                ),
+            )
+            decision_yield.to_csv(
+                final_tables_dir / "decision_yield_summary.tsv", sep="\t", index=False
+            )
+            threshold_utility_summary = build_threshold_utility_table(
+                predictions,
+                model_names=list(
+                    dict.fromkeys(
+                        [
+                            primary_model_name,
+                            conservative_model_name,
+                            governance_model_name,
+                            "knownness_robust_priority",
+                            "host_transfer_synergy_priority",
+                            "threat_architecture_priority",
+                            "natural_auc_priority",
+                            "baseline_both",
+                            "evidence_aware_priority",
+                        ]
+                    )
+                ),
+            )
+            threshold_utility_summary.to_csv(
+                final_tables_dir / "threshold_utility_summary.tsv", sep="\t", index=False
+            )
+            stable_adaptive_model_names = (
+                gate_consistency_audit.loc[
+                    gate_consistency_audit.get("gate_consistency_tier", pd.Series(dtype=str))
+                    .astype(str)
+                    .eq("stable"),
+                    "model_name",
+                ].drop_duplicates()
+                if not gate_consistency_audit.empty
+                and "gate_consistency_tier" in gate_consistency_audit.columns
+                else pd.Series(dtype=str)
+            )
+            adaptive_has_model_name = (
+                not adaptive_gated_metrics.empty and "model_name" in adaptive_gated_metrics.columns
+            )
+            adaptive_has_roc_auc = "roc_auc" in adaptive_gated_metrics.columns
+            if adaptive_has_model_name:
+                preferred_adaptive_metrics = adaptive_gated_metrics.loc[
+                    adaptive_gated_metrics["model_name"].isin(stable_adaptive_model_names)
+                ].copy()
             if adaptive_has_roc_auc and not preferred_adaptive_metrics.empty:
                 preferred_adaptive_metrics = preferred_adaptive_metrics.sort_values(
                     "roc_auc", ascending=False
@@ -7031,458 +6918,458 @@ def main() -> int:
                         "model_name"
                     ]
                 )
-            else:
+            elif not adaptive_gated_metrics.empty:
                 best_adaptive_model_name = str(adaptive_gated_metrics.iloc[0]["model_name"])
-        else:
-            best_adaptive_model_name = "adaptive_natural_priority"
-        decision_budget_curve = build_decision_yield_table(
-            predictions,
-            model_names=list(
-                dict.fromkeys(
-                    [
-                        primary_model_name,
-                        conservative_model_name,
-                        governance_model_name,
-                        "baseline_both",
-                        "natural_auc_priority",
-                        "threat_architecture_priority",
-                        "contextual_bio_priority",
-                        best_adaptive_model_name,
-                    ]
-                )
-            ),
-            top_ks=tuple(range(5, 105, 5)),
-        )
-        decision_budget_curve.to_csv(
-            final_tables_dir / "decision_budget_curve.tsv", sep="\t", index=False
-        )
-        false_negative_audit = build_false_negative_audit(
-            scored,
-            predictions,
-            primary_model_name=primary_model_name,
-            metadata_quality=metadata_quality_summary,
-            candidate_threshold_flip=candidate_threshold_flip,
-            shortlist_cutoffs=(25, 50),
-            top_n=50,
-        )
-        false_negative_audit.to_csv(
-            final_tables_dir / "false_negative_audit.tsv", sep="\t", index=False
-        )
-        confirmatory_cohort_summary = build_confirmatory_cohort_summary(
-            scored,
-            predictions,
-            model_names=list(
-                dict.fromkeys(
-                    [
-                        primary_model_name,
-                        governance_model_name,
-                        "baseline_both",
-                    ]
-                )
-            ),
-            metadata_quality=metadata_quality_summary,
-        )
-        confirmatory_cohort_summary.to_csv(
-            final_tables_dir / "confirmatory_cohort_summary.tsv",
-            sep="\t",
-            index=False,
-        )
-        spatial_holdout_summary.to_csv(
-            core_dir / "spatial_holdout_summary.tsv", sep="\t", index=False
-        )
-        report_model_metrics = _build_report_model_metrics(
-            model_metrics,
-            calibration_metrics=calibration_metrics,
-            permutation_summary=permutation_summary,
-            selection_adjusted_permutation_summary=selection_adjusted_permutation_summary,
-            comparison_table=comparison_table,
-            confirmatory_cohort_summary=confirmatory_cohort_summary,
-            spatial_holdout_summary=spatial_holdout_summary,
-            primary_model_name=primary_model_name,
-            governance_model_name=governance_model_name,
-        )
+            else:
+                best_adaptive_model_name = "adaptive_natural_priority"
+            decision_budget_curve = build_decision_yield_table(
+                predictions,
+                model_names=list(
+                    dict.fromkeys(
+                        [
+                            primary_model_name,
+                            conservative_model_name,
+                            governance_model_name,
+                            "baseline_both",
+                            "natural_auc_priority",
+                            "threat_architecture_priority",
+                            "contextual_bio_priority",
+                            best_adaptive_model_name,
+                        ]
+                    )
+                ),
+                top_ks=tuple(range(5, 105, 5)),
+            )
+            decision_budget_curve.to_csv(
+                final_tables_dir / "decision_budget_curve.tsv", sep="\t", index=False
+            )
+            false_negative_audit = build_false_negative_audit(
+                scored,
+                predictions,
+                primary_model_name=primary_model_name,
+                metadata_quality=metadata_quality_summary,
+                candidate_threshold_flip=candidate_threshold_flip,
+                shortlist_cutoffs=(25, 50),
+                top_n=50,
+            )
+            false_negative_audit.to_csv(
+                final_tables_dir / "false_negative_audit.tsv", sep="\t", index=False
+            )
+            confirmatory_cohort_summary = build_confirmatory_cohort_summary(
+                scored,
+                predictions,
+                model_names=list(
+                    dict.fromkeys(
+                        [
+                            primary_model_name,
+                            governance_model_name,
+                            "baseline_both",
+                        ]
+                    )
+                ),
+                metadata_quality=metadata_quality_summary,
+            )
+            confirmatory_cohort_summary.to_csv(
+                final_tables_dir / "confirmatory_cohort_summary.tsv",
+                sep="\t",
+                index=False,
+            )
+            spatial_holdout_summary.to_csv(
+                core_dir / "spatial_holdout_summary.tsv", sep="\t", index=False
+            )
+            report_model_metrics = _build_report_model_metrics(
+                model_metrics,
+                calibration_metrics=calibration_metrics,
+                permutation_summary=permutation_summary,
+                selection_adjusted_permutation_summary=selection_adjusted_permutation_summary,
+                comparison_table=comparison_table,
+                confirmatory_cohort_summary=confirmatory_cohort_summary,
+                spatial_holdout_summary=spatial_holdout_summary,
+                primary_model_name=primary_model_name,
+                governance_model_name=governance_model_name,
+            )
 
-        model_selection_scorecard = build_model_selection_scorecard(
-            report_model_metrics,
-            predictions,
-            scored,
-            knownness_matched_validation=knownness_matched_validation,
-            group_holdout=group_holdout,
-            model_names=active_model_names,
-        )
-        acceptance_columns = [
-            column
-            for column in [
-                "model_name",
-                "scientific_acceptance_scored",
-                "scientific_acceptance_flag",
-                "scientific_acceptance_status",
-                "scientific_acceptance_failed_criteria",
-                "matched_knownness_gate_pass",
-                "source_holdout_gate_pass",
-                "spatial_holdout_gate_pass",
-                "calibration_gate_pass",
-                "selection_adjusted_gate_pass",
-                "leakage_review_gate_pass",
-                "spatial_holdout_gap",
+            model_selection_scorecard = build_model_selection_scorecard(
+                report_model_metrics,
+                predictions,
+                scored,
+                knownness_matched_validation=knownness_matched_validation,
+                group_holdout=group_holdout,
+                model_names=active_model_names,
+            )
+            acceptance_columns = [
+                column
+                for column in [
+                    "model_name",
+                    "scientific_acceptance_scored",
+                    "scientific_acceptance_flag",
+                    "scientific_acceptance_status",
+                    "scientific_acceptance_failed_criteria",
+                    "matched_knownness_gate_pass",
+                    "source_holdout_gate_pass",
+                    "spatial_holdout_gate_pass",
+                    "calibration_gate_pass",
+                    "selection_adjusted_gate_pass",
+                    "leakage_review_gate_pass",
+                    "spatial_holdout_gap",
+                ]
+                if column in model_selection_scorecard.columns
             ]
-            if column in model_selection_scorecard.columns
-        ]
-        if acceptance_columns:
-            report_model_metrics = report_model_metrics.merge(
-                model_selection_scorecard[acceptance_columns].drop_duplicates("model_name"),
-                on="model_name",
-                how="left",
-            )
-        report_model_metrics.to_csv(final_tables_dir / "model_metrics.tsv", sep="\t", index=False)
-        headline_validation_summary = _build_headline_validation_summary(
-            report_model_metrics,
-            primary_model_name=primary_model_name,
-            governance_model_name=governance_model_name,
-            single_model_official_decision=single_model_official_decision,
-            single_model_pareto_finalists=single_model_pareto_finalists,
-        )
-        headline_validation_summary.to_csv(
-            core_dir / "headline_validation_summary.tsv", sep="\t", index=False
-        )
-        single_model_pareto_screen.to_csv(
-            final_tables_dir / "single_model_pareto_screen.tsv", sep="\t", index=False
-        )
-        single_model_pareto_finalists.to_csv(
-            final_tables_dir / "single_model_pareto_finalists.tsv", sep="\t", index=False
-        )
-        single_model_official_decision.to_csv(
-            final_tables_dir / "single_model_official_decision.tsv", sep="\t", index=False
-        )
-
-        core_model_coefficients = pd.DataFrame()
-        core_heatmap_models = [
-            "bio_clean_priority",
-            "parsimonious_priority",
-            "structured_signal_priority",
-            "support_synergy_priority",
-            "phylo_support_fusion_priority",
-        ]
-        coefficient_frames: list[pd.DataFrame] = []
-        for model_name in core_heatmap_models:
-            if model_name not in MODULE_A_FEATURE_SETS or model_name not in set(
-                model_metrics["model_name"].astype(str)
-            ):
-                continue
-            coefficient_frames.append(
-                build_standardized_coefficient_table(
-                    scored,
-                    model_name=model_name,
-                    columns=MODULE_A_FEATURE_SETS[model_name],
+            if acceptance_columns:
+                report_model_metrics = report_model_metrics.merge(
+                    model_selection_scorecard[acceptance_columns].drop_duplicates("model_name"),
+                    on="model_name",
+                    how="left",
                 )
+            report_model_metrics.to_csv(final_tables_dir / "model_metrics.tsv", sep="\t", index=False)
+            headline_validation_summary = _build_headline_validation_summary(
+                report_model_metrics,
+                primary_model_name=primary_model_name,
+                governance_model_name=governance_model_name,
+                single_model_official_decision=single_model_official_decision,
+                single_model_pareto_finalists=single_model_pareto_finalists,
             )
-        if coefficient_frames:
-            core_model_coefficients = pd.concat(coefficient_frames, ignore_index=True)
-        core_model_coefficients.to_csv(
-            core_dir / "core_model_coefficients.tsv", sep="\t", index=False
-        )
-
-        model_selection_scorecard.to_csv(
-            final_tables_dir / "model_selection_scorecard.tsv", sep="\t", index=False
-        )
-        frozen_scientific_acceptance_audit = build_frozen_scientific_acceptance_audit(
-            model_selection_scorecard
-        )
-        frozen_scientific_acceptance_audit.to_csv(
-            core_dir / "frozen_scientific_acceptance_audit.tsv", sep="\t", index=False
-        )
-
-        model_selection_summary = build_primary_model_selection_summary(
-            model_metrics,
-            primary_model_name=primary_model_name,
-            conservative_model_name=conservative_model_name,
-            governance_model_name=governance_model_name,
-            predictions=predictions,
-            decision_yield=decision_yield,
-            blocked_holdout_calibration_summary=blocked_holdout_calibration_summary,
-            family_summary=family_summary,
-            simplicity_summary=simplicity_summary,
-            model_selection_scorecard=model_selection_scorecard,
-        )
-        model_selection_summary = _attach_single_model_decision_summary(
-            model_selection_summary,
-            single_model_official_decision,
-            published_primary_model=primary_model_name,
-        )
-        model_selection_summary.to_csv(
-            final_tables_dir / "model_selection_summary.tsv", sep="\t", index=False
-        )
-        benchmark_protocol = build_benchmark_protocol_table(
-            model_metrics,
-            model_selection_summary,
-            adaptive_gated_metrics=adaptive_gated_metrics,
-            gate_consistency_audit=gate_consistency_audit,
-            model_selection_scorecard=model_selection_scorecard,
-        )
-        benchmark_protocol.to_csv(
-            final_tables_dir / "benchmark_protocol.tsv", sep="\t", index=False
-        )
-        official_benchmark_panel = build_official_benchmark_panel(benchmark_protocol)
-        official_benchmark_panel.to_csv(
-            final_tables_dir / "official_benchmark_panel.tsv", sep="\t", index=False
-        )
-        official_benchmark_context = _build_official_benchmark_context(
-            model_selection_summary,
-            decision_yield,
-            benchmark_protocol=benchmark_protocol,
-        )
-        candidate_universe = _attach_official_benchmark_context(
-            candidate_universe, official_benchmark_context
-        )
-        candidate_dossiers = _attach_official_benchmark_context(
-            candidate_dossiers, official_benchmark_context
-        )
-        candidate_portfolio = _attach_official_benchmark_context(
-            candidate_portfolio, official_benchmark_context
-        )
-        candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
-        candidate_universe.to_csv(
-            final_tables_dir / "candidate_universe.tsv", sep="\t", index=False
-        )
-
-        candidate_dossiers.to_csv(
-            final_tables_dir / "candidate_dossiers.tsv", sep="\t", index=False
-        )
-        candidate_portfolio.to_csv(
-            final_tables_dir / "candidate_portfolio.tsv", sep="\t", index=False
-        )
-        operational_risk_watchlist.to_csv(
-            final_tables_dir / "operational_risk_watchlist.tsv", sep="\t", index=False
-        )
-        candidate_briefs = _build_candidate_brief_table(
-            candidate_portfolio,
-            backbones,
-            amr_consensus,
-            model_selection_summary=model_selection_summary,
-            decision_yield=decision_yield,
-            split_year=pipeline.split_year,
-        )
-        candidate_case_studies = _build_candidate_case_studies(candidate_briefs, per_track=3)
-        candidate_case_studies.to_csv(
-            final_tables_dir / "candidate_case_studies.tsv", sep="\t", index=False
-        )
-        report_overview = build_report_overview_table(
-            model_selection_summary=model_selection_summary,
-            decision_yield=decision_yield,
-            threshold_utility_summary=threshold_utility_summary,
-            candidate_portfolio=candidate_portfolio,
-            candidate_case_studies=candidate_case_studies,
-            false_negative_audit=false_negative_audit,
-        )
-        report_overview.to_csv(final_tables_dir / "report_overview.tsv", sep="\t", index=False)
-        candidate_evidence_matrix = _build_candidate_evidence_matrix(
-            candidate_portfolio,
-            candidate_briefs,
-            candidate_threshold_flip,
-        )
-        candidate_evidence_matrix.to_csv(
-            final_tables_dir / "candidate_evidence_matrix.tsv", sep="\t", index=False
-        )
-        if not candidate_briefs.empty:
-            candidate_stability = coalescing_left_merge(
-                candidate_stability,
-                candidate_briefs[["backbone_id", "dominant_genus", "dominant_species"]],
-                on="backbone_id",
+            headline_validation_summary.to_csv(
+                core_dir / "headline_validation_summary.tsv", sep="\t", index=False
             )
-        validate_report_artifact(
-            model_selection_scorecard,
-            artifact_name="model_selection_scorecard",
-            required_columns=(
-                "model_name",
-                "selection_rank",
-                "selection_composite_score",
-                "decision_utility_score",
-            ),
-            unique_key="model_name",
-        )
-        validate_report_artifact(
-            candidate_portfolio,
-            artifact_name="candidate_portfolio",
-            required_columns=(
-                "backbone_id",
-                "portfolio_track",
-                "candidate_confidence_score",
-                "multiverse_stability_score",
-            ),
-            unique_key="backbone_id",
-            probability_columns=(
-                "candidate_confidence_score",
-                "multiverse_stability_score",
-                "bootstrap_top_10_frequency",
-                "variant_top_10_frequency",
-            ),
-        )
-        validate_report_artifact(
-            candidate_case_studies,
-            artifact_name="candidate_case_studies",
-            required_columns=(
-                "backbone_id",
-                "candidate_summary_en",
-                "candidate_summary_tr",
-            ),
-            unique_key="backbone_id",
-            probability_columns=("candidate_confidence_score", "multiverse_stability_score"),
-        )
-        validate_report_artifact(
-            threshold_utility_summary,
-            artifact_name="threshold_utility_summary",
-            required_columns=("model_name", "optimal_threshold", "optimal_threshold_utility_per_sample"),
-            unique_key="model_name",
-            probability_columns=("optimal_threshold",),
-        )
-        _prune_duplicate_table_artifacts(core_dir, diag_dir, final_tables_dir.core_files)
-        _prune_shadowed_report_tables(
-            core_dir,
-            diag_dir,
-            analysis_dir,
-            preserve_file_names={
-                "single_model_pareto_screen.tsv",
-                "single_model_pareto_finalists.tsv",
-                "single_model_official_decision.tsv",
-            },
-        )
-        _write_turkish_summary(
-            turkish_summary_path,
-            primary_model_name=primary_model_name,
-            conservative_model_name=conservative_model_name,
-            model_metrics=report_model_metrics,
-            candidate_briefs=candidate_briefs,
-            candidate_portfolio=candidate_portfolio,
-            decision_yield=decision_yield,
-            model_selection_scorecard=model_selection_scorecard,
-            model_selection_summary=model_selection_summary,
-            knownness_summary=knownness_summary,
-            knownness_matched_validation=knownness_matched_validation,
-            source_balance_resampling=source_balance_resampling,
-            novelty_specialist_metrics=novelty_specialist_metrics,
-            adaptive_gated_metrics=adaptive_gated_metrics,
-            gate_consistency_audit=gate_consistency_audit,
-            secondary_outcome_performance=secondary_outcome_performance,
-            weighted_country_outcome=weighted_country_outcome,
-            count_outcome_audit=count_outcome_audit,
-            metadata_quality_summary=metadata_quality_summary,
-            operational_risk_watchlist=operational_risk_watchlist,
-            confirmatory_cohort_summary=confirmatory_cohort_summary,
-            false_negative_audit=false_negative_audit,
-            country_missingness_bounds=country_missingness_bounds,
-            country_missingness_sensitivity=country_missingness_sensitivity,
-            rank_stability=rank_stability,
-            variant_consistency=variant_consistency,
-            outcome_threshold=pipeline.min_new_countries_for_spread,
-        )
-        _write_executive_summary(
-            executive_summary_path,
-            primary_model_name=primary_model_name,
-            governance_model_name=governance_model_name,
-            baseline_model_name="baseline_both",
-            model_metrics=report_model_metrics,
-            confirmatory_cohort_summary=confirmatory_cohort_summary,
-            false_negative_audit=false_negative_audit,
-            candidate_case_studies=candidate_case_studies,
-            rolling_temporal=rolling_temporal,
-            country_missingness_bounds=country_missingness_bounds,
-            country_missingness_sensitivity=country_missingness_sensitivity,
-            rank_stability=rank_stability,
-            variant_consistency=variant_consistency,
-        )
-        _write_pitch_notes(
-            pitch_notes_path,
-            primary_model_name=primary_model_name,
-            governance_model_name=governance_model_name,
-            model_metrics=report_model_metrics,
-            knownness_matched_validation=knownness_matched_validation,
-            coefficient_stability_cv=coefficient_stability_cv,
-            confirmatory_cohort_summary=confirmatory_cohort_summary,
-            false_negative_audit=false_negative_audit,
-        )
-        _write_headline_validation_summary(
-            headline_summary_path,
-            headline_validation_summary,
-            primary_model_name=primary_model_name,
-            governance_model_name=governance_model_name,
-            rolling_temporal=rolling_temporal,
-            blocked_holdout_summary=blocked_holdout_summary,
-            country_missingness_bounds=country_missingness_bounds,
-            country_missingness_sensitivity=country_missingness_sensitivity,
-            rank_stability=rank_stability,
-            variant_consistency=variant_consistency,
-        )
-        legacy_detailed_summary = context.reports_dir / "tubitak_detayli_proje_ozeti_tr.txt"
-        if legacy_detailed_summary.exists():
-            legacy_detailed_summary.unlink()
+            single_model_pareto_screen.to_csv(
+                final_tables_dir / "single_model_pareto_screen.tsv", sep="\t", index=False
+            )
+            single_model_pareto_finalists.to_csv(
+                final_tables_dir / "single_model_pareto_finalists.tsv", sep="\t", index=False
+            )
+            single_model_official_decision.to_csv(
+                final_tables_dir / "single_model_official_decision.tsv", sep="\t", index=False
+            )
 
-        figure_paths = generate_all_figures(
-            scored=scored,
-            predictions=predictions,
-            calibration=calibration,
-            threshold_sensitivity=threshold_sensitivity,
-            model_metrics=report_model_metrics,
-            coefficient_table=coefficient_table,
-            coefficient_stability=coefficient_stability,
-            dropout_table=dropout_table,
-            candidate_stability=candidate_stability,
-            candidate_portfolio=candidate_portfolio,
-            false_negative_audit=false_negative_audit,
-            core_model_coefficients=core_model_coefficients,
-            governance_model_name=governance_model_name,
-            figures_dir=figures_dir,
-            primary_model_name=primary_model_name,
-        )
-        for figure_path in figure_paths:
-            run.record_output(Path(figure_path))
-        if not amrfinder_reportable:
-            stale_figure = figures_dir / "amrfinder_concordance.png"
-            if stale_figure.exists():
-                stale_figure.unlink()
+            core_model_coefficients = pd.DataFrame()
+            core_heatmap_models = [
+                "bio_clean_priority",
+                "parsimonious_priority",
+                "structured_signal_priority",
+                "support_synergy_priority",
+                "phylo_support_fusion_priority",
+            ]
+            coefficient_frames: list[pd.DataFrame] = []
+            for model_name in core_heatmap_models:
+                if model_name not in MODULE_A_FEATURE_SETS or model_name not in set(
+                    model_metrics["model_name"].astype(str)
+                ):
+                    continue
+                coefficient_frames.append(
+                    build_standardized_coefficient_table(
+                        scored,
+                        model_name=model_name,
+                        columns=MODULE_A_FEATURE_SETS[model_name],
+                    )
+                )
+            if coefficient_frames:
+                core_model_coefficients = pd.concat(coefficient_frames, ignore_index=True)
+                core_model_coefficients.to_csv(
+                    core_dir / "core_model_coefficients.tsv", sep="\t", index=False
+                )
 
-        _write_jury_brief(
-            jury_brief_path,
-            primary_model_name=primary_model_name,
-            conservative_model_name=conservative_model_name,
-            model_metrics=report_model_metrics,
-            family_summary=family_summary,
-            dropout_table=dropout_table,
-            scored=scored,
-            candidate_portfolio=candidate_portfolio,
-            decision_yield=decision_yield,
-            model_selection_scorecard=model_selection_scorecard,
-            model_selection_summary=model_selection_summary,
-            knownness_summary=knownness_summary,
-            knownness_matched_validation=knownness_matched_validation,
-            source_balance_resampling=source_balance_resampling,
-            novelty_specialist_metrics=novelty_specialist_metrics,
-            adaptive_gated_metrics=adaptive_gated_metrics,
-            gate_consistency_audit=gate_consistency_audit,
-            secondary_outcome_performance=secondary_outcome_performance,
-            weighted_country_outcome=weighted_country_outcome,
-            count_outcome_audit=count_outcome_audit,
-            metadata_quality_summary=metadata_quality_summary,
-            operational_risk_watchlist=operational_risk_watchlist,
-            confirmatory_cohort_summary=confirmatory_cohort_summary,
-            false_negative_audit=false_negative_audit,
-            blocked_holdout_summary=blocked_holdout_summary,
-            country_missingness_bounds=country_missingness_bounds,
-            country_missingness_sensitivity=country_missingness_sensitivity,
-            rank_stability=rank_stability,
-            variant_consistency=variant_consistency,
-            outcome_threshold=pipeline.min_new_countries_for_spread,
-        )
-        run.set_rows_out("top_backbones_rows", int(len(top)))
-        run.set_metric("figure_count", len(figure_paths))
-        write_signature_manifest(
-            manifest_path,
-            input_paths=[path for path in input_paths if path.exists()],
-            output_paths=materialize_recorded_paths(context.root, run.output_files_written),
-            source_paths=source_paths,
-            metadata=cache_metadata,
-        )
-        run.set_metric("cache_hit", False)
-    return 0
+            model_selection_scorecard.to_csv(
+                final_tables_dir / "model_selection_scorecard.tsv", sep="\t", index=False
+            )
+            frozen_scientific_acceptance_audit = build_frozen_scientific_acceptance_audit(
+                model_selection_scorecard
+            )
+            frozen_scientific_acceptance_audit.to_csv(
+                core_dir / "frozen_scientific_acceptance_audit.tsv", sep="\t", index=False
+            )
+
+            model_selection_summary = build_primary_model_selection_summary(
+                model_metrics,
+                primary_model_name=primary_model_name,
+                conservative_model_name=conservative_model_name,
+                governance_model_name=governance_model_name,
+                predictions=predictions,
+                decision_yield=decision_yield,
+                blocked_holdout_calibration_summary=blocked_holdout_calibration_summary,
+                family_summary=family_summary,
+                simplicity_summary=simplicity_summary,
+                model_selection_scorecard=model_selection_scorecard,
+            )
+            model_selection_summary = _attach_single_model_decision_summary(
+                model_selection_summary,
+                single_model_official_decision,
+                published_primary_model=primary_model_name,
+            )
+            model_selection_summary.to_csv(
+                final_tables_dir / "model_selection_summary.tsv", sep="\t", index=False
+            )
+            benchmark_protocol = build_benchmark_protocol_table(
+                model_metrics,
+                model_selection_summary,
+                adaptive_gated_metrics=adaptive_gated_metrics,
+                gate_consistency_audit=gate_consistency_audit,
+                model_selection_scorecard=model_selection_scorecard,
+            )
+            benchmark_protocol.to_csv(
+                final_tables_dir / "benchmark_protocol.tsv", sep="\t", index=False
+            )
+            official_benchmark_panel = build_official_benchmark_panel(benchmark_protocol)
+            official_benchmark_panel.to_csv(
+                final_tables_dir / "official_benchmark_panel.tsv", sep="\t", index=False
+            )
+            official_benchmark_context = _build_official_benchmark_context(
+                model_selection_summary,
+                decision_yield,
+                benchmark_protocol=benchmark_protocol,
+            )
+            candidate_universe = _attach_official_benchmark_context(
+                candidate_universe, official_benchmark_context
+            )
+            candidate_dossiers = _attach_official_benchmark_context(
+                candidate_dossiers, official_benchmark_context
+            )
+            candidate_portfolio = _attach_official_benchmark_context(
+                candidate_portfolio, official_benchmark_context
+            )
+            candidate_portfolio = _deduplicate_backbone_rows(candidate_portfolio)
+            candidate_universe.to_csv(
+                final_tables_dir / "candidate_universe.tsv", sep="\t", index=False
+            )
+
+            candidate_dossiers.to_csv(
+                final_tables_dir / "candidate_dossiers.tsv", sep="\t", index=False
+            )
+            candidate_portfolio.to_csv(
+                final_tables_dir / "candidate_portfolio.tsv", sep="\t", index=False
+            )
+            operational_risk_watchlist.to_csv(
+                final_tables_dir / "operational_risk_watchlist.tsv", sep="\t", index=False
+            )
+            candidate_briefs = _build_candidate_brief_table(
+                candidate_portfolio,
+                backbones,
+                amr_consensus,
+                model_selection_summary=model_selection_summary,
+                decision_yield=decision_yield,
+                split_year=pipeline.split_year,
+            )
+            candidate_case_studies = _build_candidate_case_studies(candidate_briefs, per_track=3)
+            candidate_case_studies.to_csv(
+                final_tables_dir / "candidate_case_studies.tsv", sep="\t", index=False
+            )
+            report_overview = build_report_overview_table(
+                model_selection_summary=model_selection_summary,
+                decision_yield=decision_yield,
+                threshold_utility_summary=threshold_utility_summary,
+                candidate_portfolio=candidate_portfolio,
+                candidate_case_studies=candidate_case_studies,
+                false_negative_audit=false_negative_audit,
+            )
+            report_overview.to_csv(final_tables_dir / "report_overview.tsv", sep="\t", index=False)
+            candidate_evidence_matrix = _build_candidate_evidence_matrix(
+                candidate_portfolio,
+                candidate_briefs,
+                candidate_threshold_flip,
+            )
+            candidate_evidence_matrix.to_csv(
+                final_tables_dir / "candidate_evidence_matrix.tsv", sep="\t", index=False
+            )
+            if not candidate_briefs.empty:
+                candidate_stability = coalescing_left_merge(
+                    candidate_stability,
+                    candidate_briefs[["backbone_id", "dominant_genus", "dominant_species"]],
+                    on="backbone_id",
+                )
+            validate_report_artifact(
+                model_selection_scorecard,
+                artifact_name="model_selection_scorecard",
+                required_columns=(
+                    "model_name",
+                    "selection_rank",
+                    "selection_composite_score",
+                    "decision_utility_score",
+                ),
+                unique_key="model_name",
+            )
+            validate_report_artifact(
+                candidate_portfolio,
+                artifact_name="candidate_portfolio",
+                required_columns=(
+                    "backbone_id",
+                    "portfolio_track",
+                    "candidate_confidence_score",
+                    "multiverse_stability_score",
+                ),
+                unique_key="backbone_id",
+                probability_columns=(
+                    "candidate_confidence_score",
+                    "multiverse_stability_score",
+                    "bootstrap_top_10_frequency",
+                    "variant_top_10_frequency",
+                ),
+            )
+            validate_report_artifact(
+                candidate_case_studies,
+                artifact_name="candidate_case_studies",
+                required_columns=(
+                    "backbone_id",
+                    "candidate_summary_en",
+                    "candidate_summary_tr",
+                ),
+                unique_key="backbone_id",
+                probability_columns=("candidate_confidence_score", "multiverse_stability_score"),
+            )
+            validate_report_artifact(
+                threshold_utility_summary,
+                artifact_name="threshold_utility_summary",
+                required_columns=("model_name", "optimal_threshold", "optimal_threshold_utility_per_sample"),
+                unique_key="model_name",
+                probability_columns=("optimal_threshold",),
+            )
+            _prune_duplicate_table_artifacts(core_dir, diag_dir, final_tables_dir.core_files)
+            _prune_shadowed_report_tables(
+                core_dir,
+                diag_dir,
+                analysis_dir,
+                preserve_file_names={
+                    "single_model_pareto_screen.tsv",
+                    "single_model_pareto_finalists.tsv",
+                    "single_model_official_decision.tsv",
+                },
+            )
+            _write_turkish_summary(
+                turkish_summary_path,
+                primary_model_name=primary_model_name,
+                conservative_model_name=conservative_model_name,
+                model_metrics=report_model_metrics,
+                candidate_briefs=candidate_briefs,
+                candidate_portfolio=candidate_portfolio,
+                decision_yield=decision_yield,
+                model_selection_scorecard=model_selection_scorecard,
+                model_selection_summary=model_selection_summary,
+                knownness_summary=knownness_summary,
+                knownness_matched_validation=knownness_matched_validation,
+                source_balance_resampling=source_balance_resampling,
+                novelty_specialist_metrics=novelty_specialist_metrics,
+                adaptive_gated_metrics=adaptive_gated_metrics,
+                gate_consistency_audit=gate_consistency_audit,
+                secondary_outcome_performance=secondary_outcome_performance,
+                weighted_country_outcome=weighted_country_outcome,
+                count_outcome_audit=count_outcome_audit,
+                metadata_quality_summary=metadata_quality_summary,
+                operational_risk_watchlist=operational_risk_watchlist,
+                confirmatory_cohort_summary=confirmatory_cohort_summary,
+                false_negative_audit=false_negative_audit,
+                country_missingness_bounds=country_missingness_bounds,
+                country_missingness_sensitivity=country_missingness_sensitivity,
+                rank_stability=rank_stability,
+                variant_consistency=variant_consistency,
+                outcome_threshold=pipeline.min_new_countries_for_spread,
+            )
+            _write_executive_summary(
+                executive_summary_path,
+                primary_model_name=primary_model_name,
+                governance_model_name=governance_model_name,
+                baseline_model_name="baseline_both",
+                model_metrics=report_model_metrics,
+                confirmatory_cohort_summary=confirmatory_cohort_summary,
+                false_negative_audit=false_negative_audit,
+                candidate_case_studies=candidate_case_studies,
+                rolling_temporal=rolling_temporal,
+                country_missingness_bounds=country_missingness_bounds,
+                country_missingness_sensitivity=country_missingness_sensitivity,
+                rank_stability=rank_stability,
+                variant_consistency=variant_consistency,
+            )
+            _write_pitch_notes(
+                pitch_notes_path,
+                primary_model_name=primary_model_name,
+                governance_model_name=governance_model_name,
+                model_metrics=report_model_metrics,
+                knownness_matched_validation=knownness_matched_validation,
+                coefficient_stability_cv=coefficient_stability_cv,
+                confirmatory_cohort_summary=confirmatory_cohort_summary,
+                false_negative_audit=false_negative_audit,
+            )
+            _write_headline_validation_summary(
+                headline_summary_path,
+                headline_validation_summary,
+                primary_model_name=primary_model_name,
+                governance_model_name=governance_model_name,
+                rolling_temporal=rolling_temporal,
+                blocked_holdout_summary=blocked_holdout_summary,
+                country_missingness_bounds=country_missingness_bounds,
+                country_missingness_sensitivity=country_missingness_sensitivity,
+                rank_stability=rank_stability,
+                variant_consistency=variant_consistency,
+            )
+            legacy_detailed_summary = context.reports_dir / "tubitak_detayli_proje_ozeti_tr.txt"
+            if legacy_detailed_summary.exists():
+                legacy_detailed_summary.unlink()
+
+            figure_paths = generate_all_figures(
+                scored=scored,
+                predictions=predictions,
+                calibration=calibration,
+                threshold_sensitivity=threshold_sensitivity,
+                model_metrics=report_model_metrics,
+                coefficient_table=coefficient_table,
+                coefficient_stability=coefficient_stability,
+                dropout_table=dropout_table,
+                candidate_stability=candidate_stability,
+                candidate_portfolio=candidate_portfolio,
+                false_negative_audit=false_negative_audit,
+                core_model_coefficients=core_model_coefficients,
+                governance_model_name=governance_model_name,
+                figures_dir=figures_dir,
+                primary_model_name=primary_model_name,
+            )
+            for figure_path in figure_paths:
+                run.record_output(Path(figure_path))
+            if not amrfinder_reportable:
+                stale_figure = figures_dir / "amrfinder_concordance.png"
+                if stale_figure.exists():
+                    stale_figure.unlink()
+
+            _write_jury_brief(
+                jury_brief_path,
+                primary_model_name=primary_model_name,
+                conservative_model_name=conservative_model_name,
+                model_metrics=report_model_metrics,
+                family_summary=family_summary,
+                dropout_table=dropout_table,
+                scored=scored,
+                candidate_portfolio=candidate_portfolio,
+                decision_yield=decision_yield,
+                model_selection_scorecard=model_selection_scorecard,
+                model_selection_summary=model_selection_summary,
+                knownness_summary=knownness_summary,
+                knownness_matched_validation=knownness_matched_validation,
+                source_balance_resampling=source_balance_resampling,
+                novelty_specialist_metrics=novelty_specialist_metrics,
+                adaptive_gated_metrics=adaptive_gated_metrics,
+                gate_consistency_audit=gate_consistency_audit,
+                secondary_outcome_performance=secondary_outcome_performance,
+                weighted_country_outcome=weighted_country_outcome,
+                count_outcome_audit=count_outcome_audit,
+                metadata_quality_summary=metadata_quality_summary,
+                operational_risk_watchlist=operational_risk_watchlist,
+                confirmatory_cohort_summary=confirmatory_cohort_summary,
+                false_negative_audit=false_negative_audit,
+                blocked_holdout_summary=blocked_holdout_summary,
+                country_missingness_bounds=country_missingness_bounds,
+                country_missingness_sensitivity=country_missingness_sensitivity,
+                rank_stability=rank_stability,
+                variant_consistency=variant_consistency,
+                outcome_threshold=pipeline.min_new_countries_for_spread,
+            )
+            run.set_rows_out("top_backbones_rows", int(len(top)))
+            run.set_metric("figure_count", len(figure_paths))
+            write_signature_manifest(
+                manifest_path,
+                input_paths=[path for path in input_paths if path.exists()],
+                output_paths=materialize_recorded_paths(context.root, run.output_files_written),
+                source_paths=source_paths,
+                metadata=cache_metadata,
+            )
+            run.set_metric("cache_hit", False)
+            return 0
 
 
 if __name__ == "__main__":

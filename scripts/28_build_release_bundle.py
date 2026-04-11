@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 import shutil
+import sys
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +15,7 @@ import pandas as pd
 from pandas.errors import EmptyDataError
 
 from plasmid_priority.config import build_context
+from plasmid_priority.protocol import ScientificProtocol, build_protocol_hash
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.files import atomic_write_json, ensure_directory, relative_path_str
 
@@ -56,6 +59,115 @@ def _project_version(project_root: Path) -> str:
     with pyproject_path.open("rb") as handle:
         payload = tomllib.load(handle)
     return str(payload.get("project", {}).get("version", "unknown"))
+
+
+def _git_commit(project_root: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def _official_model_names(project_root: Path) -> list[str]:
+    protocol_path = project_root / "reports/core_tables/benchmark_protocol.tsv"
+    if not protocol_path.exists():
+        return []
+    try:
+        protocol = pd.read_csv(protocol_path, sep="\t")
+    except EmptyDataError:
+        return []
+    if protocol.empty or "benchmark_role" not in protocol.columns or "model_name" not in protocol.columns:
+        return []
+    official_roles = {
+        "primary_benchmark",
+        "governance_benchmark",
+        "conservative_benchmark",
+        "counts_baseline",
+        "source_control",
+    }
+    return (
+        protocol.loc[protocol["benchmark_role"].astype(str).isin(official_roles), "model_name"]
+        .astype(str)
+        .dropna()
+        .drop_duplicates()
+        .tolist()
+    )
+
+
+def _release_protocol(context) -> ScientificProtocol:
+    config = context.config if isinstance(context.config, dict) else {}
+    models = dict(config.get("models", {})) if isinstance(config.get("models", {}), dict) else {}
+    pipeline = (
+        dict(config.get("pipeline", {}))
+        if isinstance(config.get("pipeline", {}), dict)
+        else {}
+    )
+    models.setdefault("primary_model_name", "discovery_12f_source")
+    models.setdefault("primary_model_fallback", "parsimonious_priority")
+    models.setdefault("conservative_model_name", "parsimonious_priority")
+    models.setdefault("governance_model_name", "phylo_support_fusion_priority")
+    models.setdefault("governance_model_fallback", "support_synergy_priority")
+    core_model_names = [
+        str(name)
+        for name in models.get("core_model_names", [])
+        if str(name).strip()
+    ]
+    required_core_names = [
+        str(models["primary_model_name"]),
+        str(models["governance_model_name"]),
+        str(models["conservative_model_name"]),
+        "baseline_both",
+    ]
+    models["core_model_names"] = list(dict.fromkeys([*core_model_names, *required_core_names]))
+    models.setdefault("research_model_names", [])
+    models.setdefault("ablation_model_names", [])
+    payload = {"pipeline": pipeline, "models": models}
+    return ScientificProtocol.from_config(payload)
+
+
+def _build_release_manifest(context) -> dict[str, object]:
+    protocol = _release_protocol(context)
+    release_info_path = context.release_dir / "bundle" / "RELEASE_INFO.txt"
+    decision_path = context.root / "reports/core_tables/single_model_official_decision.tsv"
+    decision_status = "not_scored"
+    if decision_path.exists():
+        try:
+            decision_frame = pd.read_csv(decision_path, sep="\t")
+        except EmptyDataError:
+            decision_frame = pd.DataFrame()
+        if not decision_frame.empty:
+            decision_status = str(
+                decision_frame.iloc[0].get("scientific_acceptance_status", "not_scored") or "not_scored"
+            ).strip()
+    return {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "project_root": str(context.root),
+        "bundle_root": relative_path_str(context.release_dir / "bundle", context.root),
+        "n_files": 0,
+        "files": [],
+        "missing_files": [],
+        "provenance": {
+            "git_commit": _git_commit(context.root),
+            "python_version": sys.version.split()[0],
+            "project_version": _project_version(context.root),
+            "lockfile_sha256": _sha256(context.root / "uv.lock")
+            if (context.root / "uv.lock").exists()
+            else "missing",
+            "benchmark_contract_version": protocol.benchmark_contract_version,
+            "benchmark_contract_hash": build_protocol_hash(protocol),
+            "benchmark_scope": protocol.benchmark_scope,
+            "scientific_acceptance_status": decision_status,
+            "official_model_names": _official_model_names(context.root),
+            "release_info_path": relative_path_str(release_info_path, context.root),
+        },
+    }
 
 
 def _build_release_info(context_root: Path) -> str:
@@ -159,6 +271,7 @@ def main() -> int:
 
     with ManagedScriptRun(context, "28_build_release_bundle") as run:
         missing: list[str] = []
+        manifest = _build_release_manifest(context)
         for relpath in RELEASE_FILES:
             source = context.root / relpath
             if not source.exists():
@@ -178,14 +291,12 @@ def main() -> int:
             run.record_input(source)
             run.record_output(destination)
 
-        manifest = {
-            "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "project_root": str(context.root),
-            "bundle_root": relative_path_str(bundle_dir, context.root),
-            "n_files": len(manifest_rows),
-            "files": manifest_rows,
-            "missing_files": missing,
-        }
+        manifest["generated_at_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        manifest["project_root"] = str(context.root)
+        manifest["bundle_root"] = relative_path_str(bundle_dir, context.root)
+        manifest["n_files"] = len(manifest_rows)
+        manifest["files"] = manifest_rows
+        manifest["missing_files"] = missing
         manifest_path = release_dir / "plasmid_priority_release_manifest.json"
         atomic_write_json(manifest_path, manifest)
         run.record_output(manifest_path)

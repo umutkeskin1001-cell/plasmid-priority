@@ -44,48 +44,127 @@ BRONZE_INVENTORY_COLUMNS = [
     "metadata_status",
 ]
 
+_TEXT_NULLS = {"", "nan", "none", "null"}
+
+
+def _normalize_text_series(series: pd.Series, *, lower: bool = False) -> pd.Series:
+    """Normalize text fields to stripped strings with sentinel nulls removed."""
+    cleaned = series.astype("string").fillna("").str.strip()
+    cleaned = cleaned.mask(cleaned.str.lower().isin(_TEXT_NULLS), "")
+    if lower:
+        cleaned = cleaned.str.lower()
+    return cleaned
+
+
+def _sql_literal(path: Path) -> str:
+    return "'" + str(path).replace("'", "''") + "'"
+
+
+def _build_plsdb_canonical_metadata_duckdb(
+    plsdb_metadata_path: Path,
+    taxonomy_path: Path,
+) -> pd.DataFrame | None:
+    try:
+        import duckdb
+    except ImportError:
+        return None
+
+    query = f"""
+        WITH metadata AS (
+            SELECT
+                NUCCORE_ACC,
+                NUCCORE_UID,
+                ASSEMBLY_UID,
+                BIOSAMPLE_UID,
+                NUCCORE_Source,
+                NUCCORE_CreateDate,
+                NUCCORE_Description,
+                NUCCORE_Length,
+                CAST(TAXONOMY_UID AS BIGINT) AS TAXONOMY_UID,
+                NUCCORE_Topology,
+                STATUS
+            FROM read_csv_auto({_sql_literal(plsdb_metadata_path)}, delim='\\t', header=True)
+        ),
+        taxonomy AS (
+            SELECT DISTINCT
+                CAST(TAXONOMY_UID AS BIGINT) AS TAXONOMY_UID,
+                TAXONOMY_phylum,
+                TAXONOMY_class,
+                TAXONOMY_order,
+                TAXONOMY_family,
+                TAXONOMY_genus,
+                TAXONOMY_species
+            FROM read_csv_auto({_sql_literal(taxonomy_path)}, delim='\\t', header=True)
+        )
+        SELECT
+            'plsdb' AS source_dataset,
+            metadata.NUCCORE_ACC,
+            metadata.NUCCORE_UID,
+            metadata.ASSEMBLY_UID,
+            metadata.BIOSAMPLE_UID,
+            metadata.NUCCORE_Source,
+            metadata.NUCCORE_CreateDate,
+            metadata.NUCCORE_Description,
+            metadata.NUCCORE_Length,
+            metadata.TAXONOMY_UID,
+            taxonomy.TAXONOMY_phylum,
+            taxonomy.TAXONOMY_class,
+            taxonomy.TAXONOMY_order,
+            taxonomy.TAXONOMY_family,
+            taxonomy.TAXONOMY_genus,
+            taxonomy.TAXONOMY_species,
+            metadata.NUCCORE_Topology,
+            metadata.STATUS
+        FROM metadata
+        LEFT JOIN taxonomy USING (TAXONOMY_UID)
+    """
+    with duckdb.connect(database=":memory:") as connection:
+        return connection.execute(query).fetchdf()
+
 
 def build_plsdb_canonical_metadata(
     plsdb_metadata_path: Path,
     taxonomy_path: Path,
+    *,
+    use_duckdb: bool = False,
 ) -> pd.DataFrame:
     """Build a normalized PLSDB metadata table with joined taxonomy."""
-    metadata = pd.read_csv(plsdb_metadata_path, sep="\t")
-    taxonomy = pd.read_csv(taxonomy_path, usecols=TAXONOMY_COLUMNS)
-    taxonomy = taxonomy.drop_duplicates(subset=["TAXONOMY_UID"])
-
-    joined = metadata.merge(taxonomy, on="TAXONOMY_UID", how="left", validate="m:1")
+    joined = pd.DataFrame()
+    if use_duckdb:
+        duckdb_joined = _build_plsdb_canonical_metadata_duckdb(plsdb_metadata_path, taxonomy_path)
+        if duckdb_joined is not None and not duckdb_joined.empty:
+            joined = duckdb_joined
+    if joined.empty:
+        metadata = pd.read_csv(plsdb_metadata_path, sep="\t")
+        taxonomy = pd.read_csv(taxonomy_path, sep="\t", usecols=TAXONOMY_COLUMNS)
+        taxonomy = taxonomy.drop_duplicates(subset=["TAXONOMY_UID"])
+        joined = metadata.merge(taxonomy, on="TAXONOMY_UID", how="left", validate="m:1")
 
     resolved_date = pd.to_datetime(joined["NUCCORE_CreateDate"], errors="coerce")
     canonical = pd.DataFrame(
         {
             "source_dataset": "plsdb",
-            "sequence_accession": joined["NUCCORE_ACC"].astype(str).str.strip(),
+            "sequence_accession": _normalize_text_series(joined["NUCCORE_ACC"]),
             "nuccore_uid": joined["NUCCORE_UID"].astype("Int64"),
             "assembly_uid": joined["ASSEMBLY_UID"].astype("Int64"),
             "biosample_uid": joined["BIOSAMPLE_UID"].astype("Int64"),
-            "record_origin": joined["NUCCORE_Source"]
-            .fillna("unknown")
-            .astype(str)
-            .str.strip()
-            .str.lower(),
+            "record_origin": _normalize_text_series(joined["NUCCORE_Source"], lower=True),
             "resolved_year": resolved_date.dt.year.astype("Int64"),
-            "fasta_description": joined["NUCCORE_Description"].fillna("").astype(str).str.strip(),
+            "fasta_description": _normalize_text_series(joined["NUCCORE_Description"]),
             "sequence_length": joined["NUCCORE_Length"].astype("Int64"),
             "taxonomy_uid": joined["TAXONOMY_UID"].astype("Int64"),
-            "TAXONOMY_phylum": joined["TAXONOMY_phylum"].fillna("").astype(str).str.strip(),
-            "TAXONOMY_class": joined["TAXONOMY_class"].fillna("").astype(str).str.strip(),
-            "TAXONOMY_order": joined["TAXONOMY_order"].fillna("").astype(str).str.strip(),
-            "TAXONOMY_family": joined["TAXONOMY_family"].fillna("").astype(str).str.strip(),
-            "genus": joined["TAXONOMY_genus"].fillna("").astype(str).str.strip(),
-            "species": joined["TAXONOMY_species"].fillna("").astype(str).str.strip(),
-            "topology": joined["NUCCORE_Topology"].fillna("").astype(str).str.strip().str.lower(),
-            "status": joined["STATUS"].fillna("").astype(str).str.strip(),
+            "TAXONOMY_phylum": _normalize_text_series(joined["TAXONOMY_phylum"]),
+            "TAXONOMY_class": _normalize_text_series(joined["TAXONOMY_class"]),
+            "TAXONOMY_order": _normalize_text_series(joined["TAXONOMY_order"]),
+            "TAXONOMY_family": _normalize_text_series(joined["TAXONOMY_family"]),
+            "genus": _normalize_text_series(joined["TAXONOMY_genus"]),
+            "species": _normalize_text_series(joined["TAXONOMY_species"]),
+            "topology": _normalize_text_series(joined["NUCCORE_Topology"], lower=True),
+            "status": _normalize_text_series(joined["STATUS"]),
             "metadata_status": "canonical_plsdb",
         }
     )
 
-    canonical["sequence_accession"] = canonical["sequence_accession"].replace({"nan": ""})
     return canonical
 
 
@@ -137,23 +216,19 @@ def write_bronze_inventory(
     output_path: Path,
 ) -> int:
     """Write the heterogeneous bronze inventory table as TSV."""
+    aligned_plsdb = plsdb_frame.loc[:, BRONZE_INVENTORY_COLUMNS]
     ensure_directory(output_path.parent)
     row_count = 0
     with output_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=BRONZE_INVENTORY_COLUMNS,
-            delimiter="\t",
-            lineterminator="\n",
-        )
-        writer.writeheader()
+        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+        writer.writerow(BRONZE_INVENTORY_COLUMNS)
 
-        for row in plsdb_frame.to_dict(orient="records"):
+        for row in aligned_plsdb.itertuples(index=False, name=None):
             writer.writerow(row)
             row_count += 1
 
         for row in refseq_rows:
-            writer.writerow(row)
+            writer.writerow([row[column] for column in BRONZE_INVENTORY_COLUMNS])
             row_count += 1
 
     return row_count

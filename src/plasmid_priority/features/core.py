@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from functools import lru_cache
 from pathlib import Path
 
@@ -12,11 +13,10 @@ import pandas as pd
 
 from plasmid_priority.config import PipelineSettings, build_context, find_project_root
 from plasmid_priority.utils.dataframe import clean_text_series as _clean_text_series
-from plasmid_priority.utils.dataframe import dominant_share as _dominant_share_impl
 from plasmid_priority.utils.geography import country_to_macro_region
 
-# Module-level storage for injected settings (for testing)
-_injected_settings: PipelineSettings | None = None
+# Thread-local storage for injected settings (for testing) - thread-safe
+_injected_settings_local = threading.local()
 
 
 def _pipeline_settings(settings: PipelineSettings | None = None) -> PipelineSettings:
@@ -33,12 +33,11 @@ def _pipeline_settings(settings: PipelineSettings | None = None) -> PipelineSett
     Returns:
         PipelineSettings instance
     """
-    global _injected_settings
     if settings is not None:
-        _injected_settings = settings
+        _injected_settings_local.value = settings
         return settings
-    if _injected_settings is not None:
-        return _injected_settings
+    if hasattr(_injected_settings_local, 'value') and _injected_settings_local.value is not None:
+        return cast(PipelineSettings, _injected_settings_local.value)
     # Lazy load from disk only on first uncached call
     return build_context(find_project_root(Path(__file__).resolve())).pipeline_settings
 
@@ -54,9 +53,6 @@ def _support_factor(n: int, pseudocount: float = 3.0) -> float:
     return float(n / (n + pseudocount)) if n > 0 else 0.0
 
 
-def _dominant_share(values: pd.Series) -> float:
-    """Backward-compatible alias for dominant-share utility."""
-    return _dominant_share_impl(values)
 
 
 def _split_values(cell: object) -> set[str]:
@@ -394,6 +390,10 @@ def _grouped_dominant_share(backbone_ids: pd.Series, values: pd.Series) -> pd.Se
     totals = counts.groupby(level=0, sort=False).sum()
     maxima = counts.groupby(level=0, sort=False).max()
     return (maxima / totals).astype(float)
+
+
+# Alias for backward compatibility with existing tests and consumers
+_dominant_share = _grouped_dominant_share
 
 
 def _lowered_series_contains_any(lowered: pd.Series, terms: tuple[str, ...]) -> pd.Series:
@@ -1193,6 +1193,7 @@ def build_backbone_table(
     split_year: int | None = None,
     test_year_end: int = 2023,
     new_country_threshold: int | None = None,
+    backbone_assignment_mode: str = "training_only",
 ) -> pd.DataFrame:
     """Build the backbone-level table used for scoring and retrospective outcome evaluation."""
     if records.empty:
@@ -1203,6 +1204,12 @@ def build_backbone_table(
         split_year = pipeline_settings.split_year
     if new_country_threshold is None:
         new_country_threshold = pipeline_settings.min_new_countries_for_spread
+    assignment_mode = str(backbone_assignment_mode or "training_only").strip() or "training_only"
+    if assignment_mode not in {"training_only", "all_records"}:
+        raise ValueError(
+            "build_backbone_table requires backbone_assignment_mode to be either "
+            "`training_only` or `all_records`."
+        )
 
     working = records.copy()
     working["backbone_id"] = working["backbone_id"].astype(str)
@@ -1659,25 +1666,25 @@ def build_backbone_table(
     )
     backbone_table["split_year"] = int(split_year)
     backbone_table["test_year_end"] = int(test_year_end)
-    backbone_table["backbone_assignment_mode"] = "all_records"
+    backbone_table["backbone_assignment_mode"] = assignment_mode
     if "backbone_assignment_mode" in working.columns:
         assignment_mode_by_backbone = (
             _clean_text_series(_series_or_default(working, "backbone_assignment_mode"))
             .groupby(working["backbone_id"].astype(str), sort=False)
-            .agg(lambda values: next((value for value in values if value), "all_records"))
+            .agg(lambda values: next((value for value in values if value), assignment_mode))
         )
         backbone_table["backbone_assignment_mode"] = (
-            backbone_table["backbone_id"].map(assignment_mode_by_backbone).fillna("all_records")
+            backbone_table["backbone_id"].map(assignment_mode_by_backbone).fillna(assignment_mode)
         )
     backbone_table["max_resolved_year_train"] = (
         backbone_table["backbone_id"]
         .map(training.groupby("backbone_id", sort=False)["resolved_year"].max())
-        .fillna(pd.NA)
+        .fillna(np.nan)
     )
     backbone_table["min_resolved_year_test"] = (
         backbone_table["backbone_id"]
         .map(testing.groupby("backbone_id", sort=False)["resolved_year"].min())
-        .fillna(pd.NA)
+        .fillna(np.nan)
     )
 
     spread_label = pd.Series(np.nan, index=backbone_table.index, dtype=float)

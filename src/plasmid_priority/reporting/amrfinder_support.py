@@ -51,7 +51,7 @@ def _build_fasta_record_index(input_path: Path, index_path: Path) -> dict[str, t
             for accession, start, end in rows:
                 handle.write(f"{accession}\t{start}\t{end}\n")
         temp_path.replace(index_path)
-    except Exception:
+    except (OSError, IOError):
         temp_path.unlink(missing_ok=True)
         raise
     return {accession: (start, end) for accession, start, end in rows}

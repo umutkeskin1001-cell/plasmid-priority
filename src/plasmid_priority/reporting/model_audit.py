@@ -1679,10 +1679,29 @@ def _calibration_metrics_from_arrays(
 ) -> dict[str, object]:
     y = np.asarray(y, dtype=int)
     preds = _clip_probability_array(preds)
+    
+    # Compute calibration slope and intercept via linear regression
+    calibration_slope = float("nan")
+    calibration_intercept = float("nan")
+    if len(y) > 1 and np.unique(y).size > 1:
+        try:
+            from sklearn.linear_model import LinearRegression
+            reg = LinearRegression()
+            reg.fit(preds.reshape(-1, 1), y)
+            calibration_slope = float(reg.coef_[0])
+            calibration_intercept = float(reg.intercept_)
+        except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
+            import warnings
+            warnings.warn(f"Calibration slope/intercept calculation failed: {e}")
+            calibration_slope = float("nan")
+            calibration_intercept = float("nan")
+    
     return {
         "calibration_method": method,
+        "calibration_metric_family": "fixed_bin_probability_calibration",
+        "calibration_metric_semantics": "fixed_bin_diagnostics",
         "n_backbones": int(len(y)),
-        "mean_prediction": float(preds.mean()) if len(preds) else float("nan"),
+        "mean_prediction": float(preds.mean()) if len(y) else float("nan"),
         "observed_rate": float(y.mean()) if len(y) else float("nan"),
         "brier_score": brier_score(y, preds) if len(y) else float("nan"),
         "ece": expected_calibration_error(y, preds) if len(y) else float("nan"),
@@ -1690,6 +1709,8 @@ def _calibration_metrics_from_arrays(
         if len(y)
         else float("nan"),
         "max_calibration_error": max_calibration_error(y, preds) if len(y) else float("nan"),
+        "calibration_slope": calibration_slope,
+        "calibration_intercept": calibration_intercept,
     }
 
 
@@ -3025,7 +3046,13 @@ def build_blocked_holdout_summary(
         "dominant_region_train",
     ),
 ) -> pd.DataFrame:
-    """Summarize strict source and spatial blocked holdout performance by model."""
+    """Summarize strict source and spatial blocked holdout performance by model.
+
+    Note: This reports separate pooled summaries for each blocked axis (source, region).
+    The counts are not disjoint across axes - a backbone may be held out on both source
+    and region. This is explicitly marked via the pooled_overlap_summary flag to prevent
+    misinterpretation as a single disjoint cohort.
+    """
     if group_holdout.empty:
         return pd.DataFrame()
     working = group_holdout.loc[
@@ -3038,7 +3065,9 @@ def build_blocked_holdout_summary(
         return pd.DataFrame()
 
     rows: list[dict[str, object]] = []
-    for model_name, frame in working.groupby("model_name", sort=False):
+    for (model_name, group_column), frame in working.groupby(
+        ["model_name", "group_column"], sort=False
+    ):
         weights = pd.to_numeric(
             frame.get("n_test_backbones", pd.Series(0.0, index=frame.index)), errors="coerce"
         ).fillna(0.0)
@@ -3059,15 +3088,11 @@ def build_blocked_holdout_summary(
         rows.append(
             {
                 "model_name": str(model_name),
-                "blocked_holdout_group_columns": ",".join(
-                    sorted({str(value) for value in frame["group_column"].astype(str).tolist()})
-                ),
+                "blocked_holdout_group_columns": str(group_column),
                 "blocked_holdout_roc_auc": weighted_auc,
                 "blocked_holdout_macro_roc_auc": float(aucs.mean()),
                 "blocked_holdout_n_backbones": int(weights.sum()),
-                "blocked_holdout_group_count": int(
-                    frame[["group_column", "group_value"]].drop_duplicates().shape[0]
-                ),
+                "blocked_holdout_group_count": int(frame["group_value"].nunique(dropna=True)),
                 "best_blocked_holdout_group": (
                     f"{frame.loc[best_idx, 'group_column']}:{frame.loc[best_idx, 'group_value']}"
                 ),
@@ -3076,6 +3101,7 @@ def build_blocked_holdout_summary(
                     f"{frame.loc[worst_idx, 'group_column']}:{frame.loc[worst_idx, 'group_value']}"
                 ),
                 "worst_blocked_holdout_group_roc_auc": float(aucs.loc[worst_idx]),
+                "pooled_overlap_summary": True,
             }
         )
     return pd.DataFrame(rows)
@@ -5019,7 +5045,7 @@ def build_model_selection_scorecard(
         ascending=[False, False, False, False],
         kind="mergesort",
     ).reset_index(drop=True)
-    scorecard["selection_rank"] = pd.Series(pd.NA, index=scorecard.index, dtype="Int64")
+    scorecard["selection_rank"] = pd.Series(np.nan, index=scorecard.index, dtype="Int64")
     rankable = scorecard["selection_metrics_complete"].fillna(False).astype(bool)
     if rankable.any():
         scorecard.loc[rankable, "selection_rank"] = pd.Series(
@@ -5035,7 +5061,7 @@ def build_model_selection_scorecard(
         sort_columns: list[str],
         ascending: list[bool],
     ) -> None:
-        scorecard[column_name] = pd.Series(pd.NA, index=scorecard.index, dtype="Int64")
+        scorecard[column_name] = pd.Series(np.nan, index=scorecard.index, dtype="Int64")
         if not mask.any():
             return
         ranked_index = (

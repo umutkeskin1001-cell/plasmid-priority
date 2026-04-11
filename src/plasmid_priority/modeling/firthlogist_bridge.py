@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         "beta": [float(clf.intercept_)]
         + [float(value) for value in np.asarray(clf.coef_, dtype=float)],
         "iterations_run": int(getattr(clf, "n_iter_", max_iter)),
-        "converged": True,
+        "converged": bool(getattr(clf, "converged_", True)),
         "solver": "firthlogist_sidecar",
     }
     output_path.write_text(json.dumps(result), encoding="utf-8")

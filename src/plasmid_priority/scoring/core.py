@@ -633,11 +633,11 @@ def build_scored_backbone_table(
         scored = scored.drop(columns=["member_count_train_feature_t"])
     scored = scored.copy()
     if "backbone_assignment_mode" not in scored.columns:
-        scored["backbone_assignment_mode"] = "all_records"
+        scored["backbone_assignment_mode"] = "training_only"
     if "max_resolved_year_train" not in scored.columns:
-        scored["max_resolved_year_train"] = pd.NA
+        scored["max_resolved_year_train"] = np.nan
     if "min_resolved_year_test" not in scored.columns:
-        scored["min_resolved_year_test"] = pd.NA
+        scored["min_resolved_year_test"] = np.nan
     if "training_only_future_unseen_backbone_flag" not in scored.columns:
         scored["training_only_future_unseen_backbone_flag"] = False
 

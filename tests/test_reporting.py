@@ -133,7 +133,12 @@ class ReportingTests(unittest.TestCase):
 
         model_metrics = pd.DataFrame(
             [
-                {"model_name": "primary_model", "roc_auc": 0.83, "average_precision": 0.77},
+                {
+                    "model_name": "primary_model",
+                    "roc_auc": 0.83,
+                    "average_precision": 0.77,
+                    "scientific_acceptance_status": "fail",
+                },
                 {"model_name": "governance_model", "roc_auc": 0.79, "average_precision": 0.71},
                 {"model_name": "baseline_both", "roc_auc": 0.72, "average_precision": 0.65},
                 {
@@ -226,7 +231,10 @@ class ReportingTests(unittest.TestCase):
             )
             content = output_path.read_text(encoding="utf-8")
         self.assertIn("Blocked Holdout Audit", content)
-        self.assertIn("dominant_source + dominant_region_train", content)
+        self.assertIn("Benchmark scope note", content)
+        self.assertIn("benchmark-limited", content)
+        self.assertIn("dominant_source", content)
+        self.assertIn("dominant_region_train", content)
         self.assertIn("dominant_region_train:Asia", content)
         self.assertIn("Country Missingness", content)
         self.assertIn("country_missingness_bounds.tsv", content)
@@ -1340,7 +1348,12 @@ class ReportingTests(unittest.TestCase):
 
         model_metrics = pd.DataFrame(
             [
-                {"model_name": "seer_model", "roc_auc": 0.82, "average_precision": 0.74},
+                {
+                    "model_name": "seer_model",
+                    "roc_auc": 0.82,
+                    "average_precision": 0.74,
+                    "scientific_acceptance_status": "fail",
+                },
                 {"model_name": "guard_model", "roc_auc": 0.79, "average_precision": 0.70},
                 {"model_name": "baseline_both", "roc_auc": 0.72, "average_precision": 0.65},
             ]
@@ -1444,6 +1457,9 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("The Seer", content)
         self.assertIn("The Guard", content)
         self.assertIn("No external validation claim is made", content)
+        self.assertIn("Benchmark scope:", content)
+        self.assertIn("conditional benchmark candidate", content)
+        self.assertIn("fixed-bin ECE", content)
         self.assertIn("Internal high-integrity subset audit", content)
         self.assertIn("## Ranking Stability", content)
         self.assertIn("candidate_rank_stability.tsv", content)
@@ -1769,6 +1785,39 @@ class ReportingTests(unittest.TestCase):
 
         self.assertGreater(float(fully_supported["multiverse_stability_score"]), 0.8)
         self.assertEqual(str(fully_supported["multiverse_stability_tier"]), "stable")
+
+    def test_claim_discipline_failed_model_not_presented_as_accepted(self) -> None:
+        """Test that a failed strict acceptance model cannot be presented as accepted in narrative."""
+        from plasmid_priority.reporting.narrative_utils import benchmark_scope_note, strict_acceptance_status
+        import pandas as pd
+
+        # Test that failed status produces conditional language
+        failed_row = pd.Series({"scientific_acceptance_status": "fail"})
+        failed_status = strict_acceptance_status(failed_row)
+        failed_note = benchmark_scope_note(failed_status)
+        
+        # Failed models should produce conditional language
+        self.assertIn("conditional", failed_note.lower())
+        self.assertIn("benchmark-limited", failed_note.lower())
+        self.assertNotIn("accepted", failed_note.lower())
+
+        # Test that passed status allows accepted language
+        passed_row = pd.Series({"scientific_acceptance_status": "pass"})
+        passed_status = strict_acceptance_status(passed_row)
+        passed_note = benchmark_scope_note(passed_status)
+        
+        # Passed models should reference the benchmark contract
+        self.assertIn("accepted language is allowed", passed_note.lower())
+        self.assertIn("benchmark contract", passed_note.lower())
+
+        # Test that not_scored status produces conditional language
+        not_scored_row = pd.Series({"scientific_acceptance_status": "not_scored"})
+        not_scored_status = strict_acceptance_status(not_scored_row)
+        not_scored_note = benchmark_scope_note(not_scored_status)
+        
+        # Not-scored models should produce conditional language
+        self.assertIn("conditional", not_scored_note.lower())
+        self.assertIn("benchmark-limited", not_scored_note.lower())
 
 
 if __name__ == "__main__":

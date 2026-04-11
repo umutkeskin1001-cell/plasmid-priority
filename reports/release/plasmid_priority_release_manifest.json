@@ -3,28 +3,28 @@
   "files": [
     {
       "relative_path": "reports/executive_summary.md",
-      "sha256": "c291b978dfd77e9e41f1a85bc139d499ae9335d183a47a503c4dc9b91013a38e",
-      "size_bytes": 4171
+      "sha256": "1df3d30de806d327bf9beb1ccf381ce344ed642fde2e68d842e1fee401200721",
+      "size_bytes": 4459
     },
     {
       "relative_path": "reports/headline_validation_summary.md",
-      "sha256": "8173832e4d4db3ffa5f8df68ac431523c7895d0169f6f28e2617512548598068",
-      "size_bytes": 4409
+      "sha256": "71e95c66783d2beb9bae0e4e279e165d2a3f91460777c5d19e531066dd904b53",
+      "size_bytes": 4950
     },
     {
       "relative_path": "reports/jury_brief.md",
-      "sha256": "821113a369890771347261554b2a62fbd84f333c579a334555da022aa00d0a53",
-      "size_bytes": 8316
+      "sha256": "673c88e8e73e1891cd50537f5d3f5005693ee5f6c112fdc6f5d83f4b8c8d5124",
+      "size_bytes": 8250
     },
     {
       "relative_path": "reports/ozet_tr.md",
-      "sha256": "d762a02f888a582ba09ea690824809d4be5eea9eba6c306a374ed8dfe4523696",
-      "size_bytes": 7317
+      "sha256": "3d8c681762f53d655ca206c38eb67ab26a0bfd14a27a8427d2cf917f0a88f751",
+      "size_bytes": 7182
     },
     {
       "relative_path": "reports/pitch_notes.md",
-      "sha256": "d1efab176fe7eba66457d412819e0f92a0b4567974aa88e76a3665929582567a",
-      "size_bytes": 1613
+      "sha256": "d225ef1c34974ae44922f057faa58b92cbb8ff677e7b6705a34bb1d55a3b0256",
+      "size_bytes": 1570
     },
     {
       "relative_path": "reports/tubitak_final_metrics.txt",
@@ -33,53 +33,53 @@
     },
     {
       "relative_path": "reports/core_tables/headline_validation_summary.tsv",
-      "sha256": "15e47ac06b862c6b933aa3eb57644e4891646a22bd1e34681a4dc2c073848dfe",
-      "size_bytes": 1748
+      "sha256": "dc1e33b55436a6f0777935963db5a6e315cf62e96672d80dda4195273fce1bff",
+      "size_bytes": 1661
     },
     {
       "relative_path": "reports/core_tables/model_metrics.tsv",
-      "sha256": "e5f4864e38f506fc2dcf2dbb5fe8e1fafe0c0a69ee9c09435f6305afe22932d4",
-      "size_bytes": 22686
+      "sha256": "1a5affae03cc6b483bd36e5a90285ed70fb792d48ad8fc164c31f222eefd903a",
+      "size_bytes": 43805
     },
     {
       "relative_path": "reports/core_tables/model_selection_summary.tsv",
-      "sha256": "f370b67cb283ed40ef575a7fd66d3b83ba84d45d9d18462572443061837a3801",
-      "size_bytes": 9653
+      "sha256": "7923327f5923dc25d47da43a2d4e76a1a9cc389f2cf3d8b3aa22b07d6b042468",
+      "size_bytes": 8592
     },
     {
       "relative_path": "reports/core_tables/model_selection_scorecard.tsv",
-      "sha256": "d79fcab93ea0ee0310ba51c9e561db59098e314618be3b3cb42833aaceebf1c5",
-      "size_bytes": 17076
+      "sha256": "707f328c72d9750f74ba7b13ce02e225672d7b57fb73cf48c840fa36befd2d25",
+      "size_bytes": 31784
     },
     {
       "relative_path": "reports/core_tables/single_model_official_decision.tsv",
-      "sha256": "1601c7c47ccc698e8c867b9e84f7c5f4fa8e757726a524b670ba18709267b355",
-      "size_bytes": 418
+      "sha256": "fe04155fb38f63201a5e106b5c20c20c5343f4f2097659dc736a78f4c31bd00b",
+      "size_bytes": 450
     },
     {
       "relative_path": "reports/diagnostic_tables/single_model_pareto_screen.tsv",
-      "sha256": "8e0c7527e5fba9539aaa602fbdba42e2b3c53e47405b38958b238efc98ba2355",
-      "size_bytes": 9671
+      "sha256": "114182fd67259a5b1f1d3e709c67dbb5831f82d206e053bc592f03b268d97254",
+      "size_bytes": 9702
     },
     {
       "relative_path": "reports/diagnostic_tables/single_model_pareto_finalists.tsv",
-      "sha256": "e853067994814b1986ff25554a1a58e9fb187ba65e2891813640e041188746d9",
-      "size_bytes": 3825
+      "sha256": "b85bb90f5b2b8603558dae9564f0fffd646ca9e81d27c61b4f8260d1653523bc",
+      "size_bytes": 3911
     },
     {
       "relative_path": "reports/core_tables/candidate_portfolio.tsv",
-      "sha256": "f52ca9a896c0e8a0eceafa5232358eb7c41d5508461747faa850d89429011256",
-      "size_bytes": 39474
+      "sha256": "e42b778ed52b278d0691fac8bc93e59a22068c74548aae7cd4cdf93b571708e9",
+      "size_bytes": 31054
     },
     {
       "relative_path": "reports/core_tables/candidate_evidence_matrix.tsv",
-      "sha256": "371876b0336ea1498eac994dc49983693cbdb29bc044d9c2daf4c6bc5c490578",
-      "size_bytes": 19049
+      "sha256": "c1a5591e9a85969c8b5331c659e6a3c49ae854488784115b9615b1c167802d92",
+      "size_bytes": 15921
     },
     {
       "relative_path": "reports/core_tables/consensus_shortlist.tsv",
-      "sha256": "5afd9f0e307262c7441232009be44ab022171c1499cb76fdbf2a9d3e3743753e",
-      "size_bytes": 6190
+      "sha256": "e88f01f2b67e45e5e23a3cf62014089ce98553317e31f01aeb5dba51cd25cb7a",
+      "size_bytes": 4626
     },
     {
       "relative_path": "reports/core_figures/roc_curve.png",
@@ -107,8 +107,55 @@
       "size_bytes": 264515
     }
   ],
-  "generated_at_utc": "2026-04-09T20:08:57+00:00",
+  "generated_at_utc": "2026-04-11T08:36:32+00:00",
   "missing_files": [],
   "n_files": 21,
-  "project_root": "/Users/umut/Projeler/plasmid-priority"
+  "project_root": "/Users/umut/Projeler/plasmid-priority",
+  "provenance": {
+    "benchmark_contract_hash": "8e20fc93cc05dace274784d0102c61bc70f5e7b138cfb544cd9e804b713bd243",
+    "benchmark_contract_version": "2026-04-10",
+    "benchmark_scope": {
+      "accepted_audit_gates": [
+        "matched_knownness_gap_min",
+        "source_holdout_gap_min",
+        "spatial_holdout_gap_min",
+        "ece_max",
+        "selection_adjusted_p_max"
+      ],
+      "calibration_metric_definitions": {
+        "ece_max": "Expected calibration error upper bound.",
+        "selection_adjusted_p_max": "Selection-adjusted empirical p-value upper bound."
+      },
+      "eligible_cohort": {
+        "min_new_countries_for_spread": 3,
+        "requires_temporal_metadata": true,
+        "temporal_split_year": 2015
+      },
+      "official_model_names": [
+        "discovery_12f_source",
+        "phylo_support_fusion_priority",
+        "baseline_both"
+      ],
+      "outcome_definition": {
+        "min_new_countries_for_spread": 3,
+        "outcome_label": "spread_label",
+        "split_year": 2015
+      },
+      "required_assignment_mode": "training_only",
+      "split_year": 2015
+    },
+    "git_commit": "6f85989e3d4a025209a47e0093cbb66fe6376fa2",
+    "lockfile_sha256": "cf1d2f4e44c39bf28858d9adac4fa2328c1dad9b5764b27afea70f81636a4bb9",
+    "official_model_names": [
+      "discovery_12f_source",
+      "parsimonious_priority",
+      "baseline_both",
+      "source_only",
+      "phylo_support_fusion_priority"
+    ],
+    "project_version": "0.3.0",
+    "python_version": "3.13.12",
+    "release_info_path": "reports/release/bundle/RELEASE_INFO.txt",
+    "scientific_acceptance_status": "fail"
+  }
 }

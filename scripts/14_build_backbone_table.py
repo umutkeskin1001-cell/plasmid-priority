@@ -42,11 +42,24 @@ def main() -> int:
         pipeline = context.pipeline_settings
         records = read_tsv(backbones_path)
         coherence = read_tsv(coherence_path) if coherence_path.exists() else pd.DataFrame()
+        backbone_assignment_mode = (
+            records.get("backbone_assignment_mode", pd.Series(dtype=str))
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+            .dropna()
+        )
+        explicit_mode = (
+            str(backbone_assignment_mode.iloc[0]).strip()
+            if not backbone_assignment_mode.empty
+            else "training_only"
+        )
         backbone_table = build_backbone_table(
             records,
             coherence,
             split_year=pipeline.split_year,
             new_country_threshold=pipeline.min_new_countries_for_spread,
+            backbone_assignment_mode=explicit_mode,
         )
         backbone_table.to_csv(output_path, sep="\t", index=False)
         run.set_rows_out("backbone_table_rows", int(len(backbone_table)))

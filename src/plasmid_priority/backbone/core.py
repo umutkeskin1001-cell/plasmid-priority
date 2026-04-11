@@ -7,12 +7,6 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
-from plasmid_priority.utils.dataframe import dominant_share as _dominant_share_impl
-
-
-def _dominant_share(values: pd.Series) -> float:
-    """Backward-compatible alias for dominant-share utility."""
-    return _dominant_share_impl(values)
 
 
 def _length_bin(length_val: float) -> str:
@@ -175,8 +169,24 @@ def assign_backbone_ids_training_only(
     return assigned
 
 
-def assign_backbone_ids(records: pd.DataFrame) -> pd.DataFrame:
-    """Assign an operational backbone identifier using plan-defined precedence."""
+def assign_backbone_ids(records: pd.DataFrame, *, backbone_assignment_mode: str = "all_records") -> pd.DataFrame:
+    """Assign an operational backbone identifier using plan-defined precedence.
+    
+    Args:
+        records: Input records to assign backbone IDs to
+        backbone_assignment_mode: Explicit backbone assignment mode (required for discovery safety)
+            - "training_only": Only training-period backbones are assigned (discovery-safe)
+            - "all_records": All records are assigned (not discovery-safe)
+    
+    Returns:
+        DataFrame with backbone_id, backbone_assignment_rule, and backbone_assignment_mode columns
+    """
+    if backbone_assignment_mode not in ["training_only", "all_records"]:
+        raise ValueError(
+            f"backbone_assignment_mode must be 'training_only' or 'all_records', got '{backbone_assignment_mode}'. "
+            "For discovery safety, use 'training_only' mode explicitly."
+        )
+    
     assigned = records.copy()
     primary = assigned["primary_cluster_id"].fillna("").astype(str).str.strip()
     fallback = _fallback_key_series(assigned)
@@ -185,8 +195,8 @@ def assign_backbone_ids(records: pd.DataFrame) -> pd.DataFrame:
     assigned["backbone_assignment_rule"] = primary.where(primary.ne(""), "fallback").map(
         lambda value: "primary_cluster_id" if value != "fallback" else "mobility_mpf_replicon"
     )
-    assigned["backbone_assignment_mode"] = "all_records"
-    assigned["backbone_assignment_split_year"] = pd.NA
+    assigned["backbone_assignment_mode"] = backbone_assignment_mode
+    assigned["backbone_assignment_split_year"] = np.nan
     return assigned
 
 
@@ -201,6 +211,10 @@ def _dominant_share_by_backbone(
     frequencies = values.groupby("backbone_id", sort=False)[column].value_counts(normalize=True)
     dominant = frequencies.groupby(level=0).max()
     return dominant.reindex(backbone_order, fill_value=0.0).astype(float)
+
+
+# Alias for backward compatibility with existing tests and consumers
+_dominant_share = _dominant_share_by_backbone
 
 
 def compute_backbone_coherence(records: pd.DataFrame, *, split_year: int = 2015) -> pd.DataFrame:

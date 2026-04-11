@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
         run.record_output(output_path)
         records = read_tsv(dedup_path)
         if args.all_records:
-            backbones = assign_backbone_ids(records)
+            backbones = assign_backbone_ids(records, backbone_assignment_mode="all_records")
             assignment_mode = "all_records"
         else:
             backbones = assign_backbone_ids_training_only(

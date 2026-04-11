@@ -97,7 +97,7 @@ def build_pathogen_targets(
             .fillna("")
             .astype(str)
             .str.strip()
-            .replace({"": pd.NA})
+            .replace({"": np.nan})
             .dropna()
             .value_counts()
         )
@@ -107,7 +107,7 @@ def build_pathogen_targets(
             .fillna("")
             .astype(str)
             .str.strip()
-            .replace({"": pd.NA})
+            .replace({"": np.nan})
             .dropna()
             .value_counts()
             .index[0]
@@ -115,7 +115,7 @@ def build_pathogen_targets(
             .fillna("")
             .astype(str)
             .str.strip()
-            .replace({"": pd.NA})
+            .replace({"": np.nan})
             .dropna()
             .shape[0]
             > 0

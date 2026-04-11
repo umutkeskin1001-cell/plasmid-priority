@@ -76,7 +76,13 @@ class BackboneTests(unittest.TestCase):
             }
         )
         coherence = pd.DataFrame({"backbone_id": ["bb1"], "coherence_score": [0.8]})
-        table = build_backbone_table(records, coherence, split_year=2015, test_year_end=2017)
+        table = build_backbone_table(
+            records,
+            coherence,
+            split_year=2015,
+            test_year_end=2017,
+            backbone_assignment_mode="training_only",
+        )
         row = table.iloc[0]
         self.assertEqual(int(row["n_countries_test"]), 1)
         self.assertEqual(int(row["test_year_end"]), 2017)
@@ -92,7 +98,13 @@ class BackboneTests(unittest.TestCase):
             }
         )
         coherence = pd.DataFrame({"backbone_id": ["bb1"], "coherence_score": [0.8]})
-        table = build_backbone_table(records, coherence, split_year=2015, test_year_end=2023)
+        table = build_backbone_table(
+            records,
+            coherence,
+            split_year=2015,
+            test_year_end=2023,
+            backbone_assignment_mode="training_only",
+        )
         row = table.iloc[0]
         expected_label = int(2 >= DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD)
         self.assertEqual(int(row["spread_label"]), expected_label)
@@ -136,7 +148,13 @@ class BackboneTests(unittest.TestCase):
             }
         )
         coherence = pd.DataFrame({"backbone_id": ["bb1"], "coherence_score": [0.8]})
-        table = build_backbone_table(records, coherence, split_year=2015, test_year_end=2023)
+        table = build_backbone_table(
+            records,
+            coherence,
+            split_year=2015,
+            test_year_end=2023,
+            backbone_assignment_mode="training_only",
+        )
         row = table.iloc[0]
         self.assertIn("backbone_purity_score", table.columns)
         self.assertIn("backbone_assignment_mode", table.columns)
@@ -173,7 +191,13 @@ class BackboneTests(unittest.TestCase):
             }
         )
         coherence = pd.DataFrame({"backbone_id": ["bb1", "UNSEEN::bb2"], "coherence_score": [0.8, 0.1]})
-        table = build_backbone_table(records, coherence, split_year=2015, test_year_end=2023)
+        table = build_backbone_table(
+            records,
+            coherence,
+            split_year=2015,
+            test_year_end=2023,
+            backbone_assignment_mode="training_only",
+        )
         bb1 = table.set_index("backbone_id").loc["bb1"]
         bb2 = table.set_index("backbone_id").loc["UNSEEN::bb2"]
         self.assertEqual(str(bb1["backbone_assignment_mode"]), "training_only")
@@ -195,7 +219,13 @@ class BackboneTests(unittest.TestCase):
         )
         coherence = pd.DataFrame({"backbone_id": ["bb1"], "coherence_score": [0.8]})
 
-        table = build_backbone_table(records, coherence, split_year=2015, test_year_end=2023)
+        table = build_backbone_table(
+            records,
+            coherence,
+            split_year=2015,
+            test_year_end=2023,
+            backbone_assignment_mode="training_only",
+        )
         row = table.iloc[0]
 
         self.assertIn("time_to_first_new_country_years", table.columns)
@@ -213,6 +243,26 @@ class BackboneTests(unittest.TestCase):
         self.assertEqual(int(row["spread_severity_bin"]), 2)
         self.assertEqual(int(row["n_new_macro_regions"]), 3)
         self.assertEqual(int(row["macro_region_jump_label"]), 1)
+
+    def test_build_backbone_table_rejects_invalid_assignment_mode(self) -> None:
+        records = pd.DataFrame(
+            {
+                "backbone_id": ["bb1"],
+                "canonical_id": ["c1"],
+                "resolved_year": [2014],
+                "country": ["TR"],
+                "record_origin": ["insd"],
+            }
+        )
+        coherence = pd.DataFrame({"backbone_id": ["bb1"], "coherence_score": [0.8]})
+        with self.assertRaisesRegex(ValueError, "backbone_assignment_mode"):
+            build_backbone_table(
+                records,
+                coherence,
+                split_year=2015,
+                test_year_end=2023,
+                backbone_assignment_mode="something_else",
+            )
 
 
 if __name__ == "__main__":

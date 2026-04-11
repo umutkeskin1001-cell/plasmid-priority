@@ -53,7 +53,10 @@ def _dominant_non_empty(series: pd.Series) -> str:
     values = values.loc[(values != "") & (values != "-")]
     if values.empty:
         return ""
-    return str(values.value_counts().index[0])
+    value_counts = values.value_counts()
+    if value_counts.empty:
+        return ""
+    return str(value_counts.index[0])
 
 
 def _gene_family(token: str) -> str:

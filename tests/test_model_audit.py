@@ -1381,8 +1381,14 @@ class ModelAuditTests(unittest.TestCase):
             n_repeats=1,
         )
         self.assertIn("expected_calibration_error", calibration.columns)
+        self.assertIn("calibration_metric_family", calibration.columns)
+        self.assertIn("calibration_metric_semantics", calibration.columns)
         self.assertEqual(set(calibration["evaluation_split"]), {"oof"})
         self.assertEqual(set(calibration["calibration_method"]), {"raw", "platt", "isotonic", "beta"})
+        self.assertEqual(
+            set(calibration["calibration_metric_family"]),
+            {"fixed_bin_probability_calibration"},
+        )
         self.assertEqual(calibration.iloc[0]["calibration_method"], "raw")
 
     def test_build_blocked_holdout_calibration_table_returns_method_rows(self) -> None:
@@ -1713,6 +1719,14 @@ class ModelAuditTests(unittest.TestCase):
                     "n_test_backbones": 18,
                 },
                 {
+                    "group_column": "dominant_source",
+                    "group_value": "refseq_leaning",
+                    "model_name": "enhanced_priority",
+                    "status": "ok",
+                    "roc_auc": 0.82,
+                    "n_test_backbones": 19,
+                },
+                {
                     "group_column": "dominant_region_train",
                     "group_value": "Europe",
                     "model_name": "enhanced_priority",
@@ -1740,10 +1754,81 @@ class ModelAuditTests(unittest.TestCase):
         )
         summary = build_blocked_holdout_summary(group_holdout)
         self.assertIn("blocked_holdout_roc_auc", summary.columns)
+        self.assertIn("pooled_overlap_summary", summary.columns)
+        self.assertTrue(summary["pooled_overlap_summary"].all())
         self.assertEqual(set(summary["model_name"]), {"enhanced_priority", "baseline_both"})
-        enhanced = summary.loc[summary["model_name"] == "enhanced_priority"].iloc[0]
-        self.assertEqual(int(enhanced["blocked_holdout_group_count"]), 3)
-        self.assertNotIn("dominant_region_train:Asia", str(enhanced["worst_blocked_holdout_group"]))
+        self.assertEqual(
+            set(summary.loc[summary["model_name"] == "enhanced_priority", "blocked_holdout_group_columns"]),
+            {"dominant_source", "dominant_region_train"},
+        )
+        source = summary.loc[
+            (summary["model_name"] == "enhanced_priority")
+            & (summary["blocked_holdout_group_columns"] == "dominant_source")
+        ].iloc[0]
+        region = summary.loc[
+            (summary["model_name"] == "enhanced_priority")
+            & (summary["blocked_holdout_group_columns"] == "dominant_region_train")
+        ].iloc[0]
+        self.assertEqual(int(source["blocked_holdout_group_count"]), 2)
+        self.assertEqual(int(region["blocked_holdout_group_count"]), 1)
+        self.assertNotIn("dominant_region_train:Asia", str(region["worst_blocked_holdout_group"]))
+
+    def test_blocked_holdout_count_coherence_with_pooled_overlap_flag(self) -> None:
+        """Test that blocked-holdout summary marks pooled-overlap to prevent count misinterpretation."""
+        group_holdout = pd.DataFrame(
+            [
+                {
+                    "group_column": "dominant_source",
+                    "group_value": "refseq_leaning",
+                    "model_name": "test_model",
+                    "status": "ok",
+                    "roc_auc": 0.80,
+                    "n_test_backbones": 50,
+                },
+                {
+                    "group_column": "dominant_source",
+                    "group_value": "insd_leaning",
+                    "model_name": "test_model",
+                    "status": "ok",
+                    "roc_auc": 0.75,
+                    "n_test_backbones": 40,
+                },
+                {
+                    "group_column": "dominant_region_train",
+                    "group_value": "Europe",
+                    "model_name": "test_model",
+                    "status": "ok",
+                    "roc_auc": 0.78,
+                    "n_test_backbones": 45,
+                },
+                {
+                    "group_column": "dominant_region_train",
+                    "group_value": "Asia",
+                    "model_name": "test_model",
+                    "status": "ok",
+                    "roc_auc": 0.72,
+                    "n_test_backbones": 35,
+                },
+            ]
+        )
+        summary = build_blocked_holdout_summary(group_holdout)
+        
+        # Verify pooled_overlap_summary flag is present and True
+        self.assertIn("pooled_overlap_summary", summary.columns)
+        self.assertTrue(summary["pooled_overlap_summary"].all())
+        
+        # Verify that separate axes (source and region) are reported
+        self.assertEqual(len(summary), 2)  # One for source, one for region
+        
+        # The pooled n_backbones may exceed a single disjoint cohort
+        # This is expected and allowed when pooled_overlap_summary is True
+        source_n = summary.loc[summary["blocked_holdout_group_columns"] == "dominant_source", "blocked_holdout_n_backbones"].iloc[0]
+        region_n = summary.loc[summary["blocked_holdout_group_columns"] == "dominant_region_train", "blocked_holdout_n_backbones"].iloc[0]
+        
+        # These counts are from different axes and may overlap
+        # The pooled_overlap_summary flag signals this to prevent misinterpretation
+        self.assertGreater(source_n, 0)
+        self.assertGreater(region_n, 0)
 
     def test_build_negative_control_audit_returns_noise_rows(self) -> None:
         scored = pd.DataFrame(

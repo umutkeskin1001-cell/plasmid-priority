@@ -7,6 +7,7 @@ import math
 import numpy as np
 import pandas as pd
 
+from plasmid_priority.protocol import _coerce_int
 from plasmid_priority.utils.dataframe import coalescing_left_merge
 from plasmid_priority.validation import decision_utility_summary
 
@@ -277,6 +278,56 @@ def _candidate_stability_phrase(frame: pd.DataFrame, *, idx: object) -> str:
     ) >= 0.60:
         return "multiverse moderate"
     return "multiverse mixed"
+
+
+def build_multiverse_stability_table(
+    rank_stability: pd.DataFrame,
+    variant_consistency: pd.DataFrame,
+) -> pd.DataFrame:
+    """Merge bootstrap rank stability and variant consistency into a unified multiverse stability table."""
+    if rank_stability.empty and variant_consistency.empty:
+        return pd.DataFrame()
+    if rank_stability.empty:
+        return variant_consistency.copy()
+    if variant_consistency.empty:
+        return rank_stability.copy()
+    merged = rank_stability.merge(
+        variant_consistency,
+        on="backbone_id",
+        how="outer",
+        suffixes=("_bootstrap", "_variant"),
+    )
+    bootstrap_top25 = pd.to_numeric(
+        merged.get("bootstrap_top_25_frequency", pd.Series(np.nan, index=merged.index)),
+        errors="coerce",
+    )
+    variant_top25 = pd.to_numeric(
+        merged.get("variant_top_25_frequency", pd.Series(np.nan, index=merged.index)),
+        errors="coerce",
+    )
+    bootstrap_top10 = pd.to_numeric(
+        merged.get("bootstrap_top_10_frequency", pd.Series(np.nan, index=merged.index)),
+        errors="coerce",
+    )
+    variant_top10 = pd.to_numeric(
+        merged.get("variant_top_10_frequency", pd.Series(np.nan, index=merged.index)),
+        errors="coerce",
+    )
+    components = [col for col in [bootstrap_top25, variant_top25, bootstrap_top10, variant_top10] if col.notna().any()]
+    if components:
+        stability = pd.concat(components, axis=1).mean(axis=1).clip(0.0, 1.0)
+    else:
+        stability = pd.Series(np.nan, index=merged.index)
+    merged["multiverse_stability_score"] = stability
+    merged["multiverse_stability_tier"] = np.select(
+        [
+            stability.fillna(0.0) >= 0.80,
+            stability.fillna(0.0) >= 0.55,
+        ],
+        ["stable", "moderately_stable"],
+        default="fragile",
+    )
+    return merged
 
 
 def _candidate_multiverse_stability_score(frame: pd.DataFrame) -> pd.Series:
@@ -928,7 +979,7 @@ def build_candidate_dossier_table(
     ]
     for column in support_columns:
         if column not in dossier.columns:
-            dossier[column] = pd.Series(pd.NA, index=dossier.index, dtype="boolean")
+            dossier[column] = pd.Series(np.nan, index=dossier.index, dtype="boolean")
         else:
             dossier[column] = dossier[column].astype("boolean")
     support_matrix = pd.DataFrame(
@@ -1120,6 +1171,10 @@ def annotate_candidate_explanation_fields(frame: pd.DataFrame) -> pd.DataFrame:
         .fillna("")
         .astype(str)
     )
+    # Uncertainty type clarification:
+    # - model_prediction_uncertainty: Predictive/posterior uncertainty (std dev of full-fit predictions)
+    # - operational_risk_score: Operational decision uncertainty (combined risk for deployment decisions)
+    # - stability_risk: Rank stability uncertainty (bootstrap/multiverse stability concerns)
     model_prediction_uncertainty = pd.to_numeric(
         working.get("model_prediction_uncertainty", pd.Series(np.nan, index=working.index)),
         errors="coerce",
@@ -1500,10 +1555,6 @@ def build_threshold_flip_table(
     if default_threshold not in thresholds:
         raise ValueError("default_threshold must be one of the audited thresholds")
 
-    def _coerce_int(value: object, *, default: int = 0) -> int:
-        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-        return int(numeric) if pd.notna(numeric) else int(default)
-
     working = scored.copy()
     if candidate_ids is not None:
         candidate_id_set = {str(value) for value in candidate_ids}
@@ -1512,8 +1563,8 @@ def build_threshold_flip_table(
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
     for row in working.to_dict(orient="records"):
-        train_countries = _coerce_int(row.get("n_countries_train", 0))
-        n_new = _coerce_int(row.get("n_new_countries", 0))
+        train_countries = _coerce_int(row.get("n_countries_train", 0), default=0)
+        n_new = _coerce_int(row.get("n_new_countries", 0), default=0)
         status_by_threshold: dict[int, object] = {}
         for threshold in thresholds:
             status_by_threshold[threshold] = (
@@ -1526,7 +1577,7 @@ def build_threshold_flip_table(
         )
         result = {
             "backbone_id": str(row["backbone_id"]),
-            "member_count_train": _coerce_int(row.get("member_count_train", 0)),
+            "member_count_train": _coerce_int(row.get("member_count_train", 0), default=0),
             "n_countries_train": train_countries,
             "n_new_countries": n_new,
             "priority_index": float(row.get("priority_index", np.nan)),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 # Import the canonical country source of truth from shared constants
@@ -302,7 +303,7 @@ def build_country_quality_summary(
     working["country_clean"] = working["country"].fillna("").astype(str).str.strip()
     working["macro_region"] = working["country_clean"].map(country_to_macro_region)
     working["period"] = pd.Series(
-        pd.NA,
+        np.nan,
         index=working.index,
         dtype="object",
     )

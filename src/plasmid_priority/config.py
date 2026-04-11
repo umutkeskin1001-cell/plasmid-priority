@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 
+from plasmid_priority.protocol import _coerce_float, _coerce_int
 from plasmid_priority.schemas import DataAssetSpec, DataContract
 
 DEFAULT_CONTRACT_PATH = Path("data/manifests/data_contract.json")
@@ -32,28 +33,6 @@ class PipelineSettings:
     host_evenness_bias_power: float
     host_phylo_breadth_weight: float
     host_phylo_dispersion_weight: float
-
-
-def _coerce_int(value: object, *, default: int) -> int:
-    if value is None or value == "":
-        return default
-    if isinstance(value, (int, float, str)):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
-    return default
-
-
-def _coerce_float(value: object, *, default: float) -> float:
-    if value is None or value == "":
-        return default
-    if isinstance(value, (int, float, str)):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-    return default
 
 
 def _pipeline_settings_from_config(config: dict | None) -> PipelineSettings:

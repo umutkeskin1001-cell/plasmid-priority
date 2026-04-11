@@ -28,6 +28,7 @@ from plasmid_priority.reporting.candidate_tables import (
     build_candidate_portfolio_table,
     build_candidate_risk_table,
     build_decision_yield_table,
+    build_multiverse_stability_table,
     build_threshold_flip_table,
     build_threshold_utility_table,
 )
@@ -162,6 +163,7 @@ __all__ = [
     "build_model_selection_scorecard",
     "build_model_simplicity_summary",
     "build_model_subgroup_performance",
+    "build_multiverse_stability_table",
     "build_module_f_enrichment_table",
     "build_module_f_top_hits",
     "build_negative_control_audit",
