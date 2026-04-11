@@ -217,9 +217,9 @@ class WorkflowTests(unittest.TestCase):
             (root / "reports/core_tables/model_metrics.tsv").write_text(
                 "\n".join(
                     [
-                        "model_name\troc_auc\troc_auc_ci_lower\troc_auc_ci_upper\taverage_precision\taverage_precision_ci_lower\taverage_precision_ci_upper\tselection_adjusted_empirical_p_roc_auc\tpermutation_p_roc_auc\tn_permutations",
-                        "legacy_model\t0.71\t0.68\t0.74\t0.61\t0.57\t0.65\t0.040\t0.050\t200",
-                        "pareto_model\t0.83\t0.80\t0.86\t0.75\t0.71\t0.79\t0.006\t0.012\t200",
+                        "model_name\troc_auc\troc_auc_ci_lower\troc_auc_ci_upper\taverage_precision\taverage_precision_ci_lower\taverage_precision_ci_upper\tselection_adjusted_empirical_p_roc_auc\tpermutation_p_roc_auc\tn_permutations\tn_permutations_selection_adjusted",
+                        "legacy_model\t0.71\t0.68\t0.74\t0.61\t0.57\t0.65\t0.040\t0.050\t200\t400",
+                        "pareto_model\t0.83\t0.80\t0.86\t0.75\t0.71\t0.79\t0.006\t0.012\t200\t500",
                     ]
                 )
                 + "\n",
@@ -244,6 +244,39 @@ class WorkflowTests(unittest.TestCase):
             "Single-model decision reason: accepted_with_best_reliability_power_tradeoff",
             release_info,
         )
+        self.assertIn("Selection-adjusted permutation p = 0.006 (n=500)", release_info)
+        self.assertIn("Fixed-score permutation p = 0.012 (n=200)", release_info)
+
+    def test_release_info_marks_missing_fixed_score_permutations_as_na(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "reports/core_tables").mkdir(parents=True)
+            (root / "reports/core_tables/model_metrics.tsv").write_text(
+                "\n".join(
+                    [
+                        "model_name\troc_auc\troc_auc_ci_lower\troc_auc_ci_upper\taverage_precision\taverage_precision_ci_lower\taverage_precision_ci_upper\tselection_adjusted_empirical_p_roc_auc\tn_permutations_selection_adjusted",
+                        "phylo_support_fusion_priority\t0.83\t0.80\t0.86\t0.75\t0.71\t0.79\t0.005\t200",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "reports/core_tables/single_model_official_decision.tsv").write_text(
+                "\n".join(
+                    [
+                        "official_model_name\tdecision_reason\tscientific_acceptance_status",
+                        "discovery_12f_source__pruned\tlowest_failure_severity_with_competitive_auc\tfail",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            release_info = build_release_bundle_script._build_release_info(root)
+
+        self.assertIn("Primary model: phylo_support_fusion_priority", release_info)
+        self.assertIn("Selection-adjusted permutation p = 0.005 (n=200)", release_info)
+        self.assertIn("Fixed-score permutation p NA (n=NA)", release_info)
 
 
 if __name__ == "__main__":

@@ -109,10 +109,20 @@ def _build_release_info(context_root: Path) -> str:
             if float(selection_adjusted_p) < 0.001
             else f"= {float(selection_adjusted_p):.3f}"
         )
-    n_permutations = pd.to_numeric(
+    fixed_score_n_permutations = pd.to_numeric(
         pd.Series([row.get("n_permutations", pd.NA)]), errors="coerce"
     ).iloc[0]
-    n_permutations_text = int(n_permutations) if pd.notna(n_permutations) else 0
+    selection_adjusted_n_permutations = pd.to_numeric(
+        pd.Series([row.get("n_permutations_selection_adjusted", pd.NA)]), errors="coerce"
+    ).iloc[0]
+    fixed_score_n_permutations_text = (
+        str(int(fixed_score_n_permutations)) if pd.notna(fixed_score_n_permutations) else "NA"
+    )
+    selection_adjusted_n_permutations_text = (
+        str(int(selection_adjusted_n_permutations))
+        if pd.notna(selection_adjusted_n_permutations)
+        else "NA"
+    )
     decision_reason = str(decision_row.get("decision_reason", "") or "").strip()
     decision_status = str(
         decision_row.get("scientific_acceptance_status", "not_scored") or "not_scored"
@@ -128,8 +138,9 @@ def _build_release_info(context_root: Path) -> str:
                 f"Single-model decision reason: {decision_reason or 'not_reported'}",
                 f"ROC AUC: {float(row.get('roc_auc', float('nan'))):.4f} [{float(row.get('roc_auc_ci_lower', float('nan'))):.4f}–{float(row.get('roc_auc_ci_upper', float('nan'))):.4f}]",
                 f"AP: {float(row.get('average_precision', float('nan'))):.4f} [{float(row.get('average_precision_ci_lower', float('nan'))):.4f}–{float(row.get('average_precision_ci_upper', float('nan'))):.4f}]",
-                f"Selection-adjusted permutation p {selection_adjusted_text} (n={n_permutations_text})",
-                f"Fixed-score permutation p {permutation_text} (n={n_permutations_text})",
+                "Selection-adjusted permutation p "
+                f"{selection_adjusted_text} (n={selection_adjusted_n_permutations_text})",
+                f"Fixed-score permutation p {permutation_text} (n={fixed_score_n_permutations_text})",
             ]
         )
         + "\n"

@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -244,7 +245,7 @@ def _summarize_prediction_frame(
     return pd.DataFrame([row])
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Build validation tables and official decision artifacts."
     )
@@ -289,7 +290,7 @@ def main() -> int:
         default=200,
         help="Selection-adjusted null permutations for finalist audit.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(list(argv) if argv is not None else [])
 
     context = build_context(PROJECT_ROOT)
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
@@ -1394,4 +1395,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
