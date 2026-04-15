@@ -77,7 +77,8 @@ class MetaSovereignEnsemble:
             else:
                 cal = raw
             calibrated_columns.append(cal)
-        return np.column_stack(calibrated_columns)
+        result: np.ndarray = np.column_stack(calibrated_columns)
+        return result
 
     def _combine_base_features(self, predictions: dict[str, np.ndarray]) -> np.ndarray:
         """Build meta-features from base predictions and their calibrated variants."""
@@ -103,7 +104,8 @@ class MetaSovereignEnsemble:
                                 * calibrated_matrix[:, j]
                                 * calibrated_matrix[:, k]
                             )
-        return np.column_stack(features)
+        result: np.ndarray = np.column_stack(features)
+        return result
 
     def _estimate_uncertainty_from_predictions(
         self, predictions: dict[str, np.ndarray]
@@ -112,8 +114,9 @@ class MetaSovereignEnsemble:
         calibrated_matrix = self._calibrated_prediction_matrix(predictions)
         if calibrated_matrix.size == 0:
             return np.array([], dtype=float)
-        uncertainty = np.std(calibrated_matrix, axis=1)
-        return np.clip(uncertainty.astype(float), 0.0, 1.0)
+        uncertainty: np.ndarray = np.std(calibrated_matrix, axis=1)
+        clipped: np.ndarray = np.clip(uncertainty.astype(float), 0.0, 1.0)
+        return clipped
 
     def fit_base_models(
         self,
@@ -181,7 +184,8 @@ class MetaSovereignEnsemble:
             self.base_predictions
         )
 
-        return self.meta_learner.predict_proba(meta_features)[:, 1]
+        proba: np.ndarray = self.meta_learner.predict_proba(meta_features)[:, 1]
+        return proba
 
     def _build_meta_features(
         self,
@@ -210,11 +214,11 @@ class MetaSovereignEnsemble:
             try:
                 auc = roc_auc_score(y, preds)
                 aucs.append(max(0.5, auc))  # Floor at 0.5
-            except Exception:
+            except (ValueError, TypeError):
                 aucs.append(0.5)
 
         # Softmax weighting
-        weights = np.exp(np.array(aucs) - np.max(aucs))
+        weights: np.ndarray = np.exp(np.array(aucs) - np.max(aucs))
         weights = weights / np.sum(weights)
 
         return weights
@@ -332,7 +336,7 @@ def create_meta_sovereign_model(
             try:
                 auc = roc_auc_score(y_true, preds)
                 aucs.append(max(0.5, auc - 0.5))  # Center at 0
-            except Exception:
+            except (ValueError, TypeError):
                 aucs.append(0.0)
 
         weights = np.array(aucs) / sum(aucs) if sum(aucs) > 0 else np.ones(len(aucs)) / len(aucs)

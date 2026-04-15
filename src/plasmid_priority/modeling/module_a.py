@@ -2012,8 +2012,8 @@ def build_single_model_pareto_screen(
     def _screen_candidate(candidate: dict[str, object]) -> dict[str, object]:
         model_name = str(candidate["model_name"])
         parent_model_name = str(candidate["parent_model_name"])
-        feature_set = [str(column) for column in candidate["feature_set"]]
-        feature_count = int(candidate["feature_count"])
+        feature_set = [str(column) for column in candidate["feature_set"]]  # type: ignore[attr-defined]
+        feature_count = int(candidate["feature_count"])  # type: ignore[call-overload]
         candidate_kind = str(candidate["candidate_kind"])
         fit_config = _model_fit_kwargs(parent_model_name)
 

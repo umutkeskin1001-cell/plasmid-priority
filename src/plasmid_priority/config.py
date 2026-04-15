@@ -112,7 +112,7 @@ class ProjectContext:
 
     @cached_property
     def config(self) -> dict:
-        import yaml  # type: ignore[import-untyped]
+        import yaml
 
         config_path = self.root / "config.yaml"
         if not config_path.exists():

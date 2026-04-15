@@ -29,10 +29,26 @@ analysis = [
 ]
 dev = [
   "pytest>=8",
+  "pytest-cov>=5",
   "mypy>=1.10",
   "ruff>=0.4",
+  "pip-audit>=0.3",
+  "pre-commit>=3.7",
+  "commitizen>=3.0",
+  "mkdocs>=1.6",
+  "mkdocs-material>=9.5",
+  "mkdocstrings[python]>=0.25",
   "types-PyYAML>=6.0.12",
+  "pandas-stubs>=2.2",
   "hypothesis>=6.100",
+]
+api = [
+  "fastapi>=0.111",
+  "uvicorn[standard]>=0.30",
+]
+tree-models = [
+  "lightgbm>=4.0",
+  "xgboost>=2.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -43,6 +59,17 @@ python_version = "3.12"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+addopts = "-x -q --tb=short"
+testpaths = ["tests"]
+markers = [
+  "slow: marks tests as slow (deselect with '-m not slow')",
+  "integration: marks integration tests requiring data",
+]
 
 [tool.ruff]
 line-length = 100
@@ -55,3 +82,10 @@ select = ["E", "F", "W", "I"]
 "tests/*.py" = ["E402", "E501"]
 "src/plasmid_priority/reporting/enrichment.py" = ["E402", "E501"]
 "src/plasmid_priority/reporting/model_audit.py" = ["E501"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "semver"
+version_provider = "pep621"
+update_changelog_on_bump = true

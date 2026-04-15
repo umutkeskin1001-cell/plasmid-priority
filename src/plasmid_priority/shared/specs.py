@@ -1,5 +1,9 @@
-"""Generic branch configuration models and loaders."""
+"""Shared branch specification types and configuration loaders.
 
+Provides ``BranchConfig``, ``BranchBenchmarkSpec``, ``BranchFitConfig``,
+and the ``load_branch_config`` / ``resolve_branch_model_names`` helpers
+used by every branch (geo_spread, bio_transfer, clinical_hazard, consensus).
+"""
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -226,7 +230,9 @@ class BranchConfig(BaseModel):
         )
 
 
-def _load_raw_branch_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+def _load_raw_branch_config(config: Mapping[str, Any] | BranchConfig | None) -> dict[str, Any]:
+    if isinstance(config, BranchConfig):
+        return config.model_dump(mode="python")
     if isinstance(config, dict):
         return config
     return build_context().config
@@ -234,7 +240,7 @@ def _load_raw_branch_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def load_branch_config(
     branch_key: str,
-    config: Mapping[str, Any] | None = None,
+    config: Mapping[str, Any] | BranchConfig | None = None,
     *,
     benchmark_defaults: BranchBenchmarkSpec | Mapping[str, Any] | None = None,
     primary_model_name: str,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
@@ -64,7 +65,7 @@ def _build_label_frame(
 def prepare_bio_transfer_scored_table(
     scored: pd.DataFrame,
     *,
-    config: BioTransferConfig | dict[str, Any] | None = None,
+    config: BioTransferConfig | Mapping[str, Any] | None = None,
     contract: BioTransferInputContract | None = None,
     records: pd.DataFrame | None = None,
     label: str = "bio transfer scored table",
@@ -92,7 +93,7 @@ def prepare_bio_transfer_dataset(
     scored: pd.DataFrame,
     *,
     model_name: str,
-    config: BioTransferConfig | dict[str, Any] | None = None,
+    config: BioTransferConfig | Mapping[str, Any] | None = None,
     contract: BioTransferInputContract | None = None,
     records: pd.DataFrame | None = None,
     label: str = "bio transfer scored table",
@@ -121,7 +122,7 @@ def build_bio_transfer_dataset_from_prepared(
     prepared: pd.DataFrame,
     *,
     model_name: str,
-    config: BioTransferConfig | dict[str, Any] | None = None,
+    config: BioTransferConfig | Mapping[str, Any] | None = None,
     contract: BioTransferInputContract | None = None,
 ) -> BioTransferDataset:
     bio_config = (
@@ -138,7 +139,7 @@ def build_bio_transfer_dataset_from_prepared(
 
 
 def resolve_bio_transfer_dataset_model_names(
-    config: dict[str, Any] | BioTransferConfig | None = None,
+    config: Mapping[str, Any] | BioTransferConfig | None = None,
     *,
     include_research: bool = False,
     include_ablation: bool = False,

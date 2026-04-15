@@ -17,6 +17,7 @@ from plasmid_priority.geo_spread.select import (
     build_geo_spread_blended_result,
     build_geo_spread_meta_result,
 )
+from plasmid_priority.geo_spread.specs import GeoSpreadConfig
 from plasmid_priority.geo_spread.train import fit_geo_spread_branch
 from plasmid_priority.modeling.module_a import ModelResult
 from plasmid_priority.validation.metrics import average_precision, roc_auc_score
@@ -149,7 +150,7 @@ def build_geo_spread_model_summary(results: Mapping[str, ModelResult]) -> pd.Dat
     """Summarize geo spread model metrics in a compact table."""
     rows: list[dict[str, Any]] = []
     for model_name, result in results.items():
-        row = {
+        row: dict[str, Any] = {
             "model_name": str(model_name),
             "status": result.status,
             "error_message": result.error_message,
@@ -183,7 +184,7 @@ def evaluate_geo_spread_branch(
     n_repeats: int = 5,
     seed: int = 42,
     n_jobs: int | None = 1,
-    config: Mapping[str, Any] | None = None,
+    config: Mapping[str, Any] | GeoSpreadConfig | None = None,
     records: pd.DataFrame | None = None,
     include_ci: bool = True,
     include_blend: bool = True,

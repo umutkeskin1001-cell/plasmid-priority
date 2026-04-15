@@ -207,7 +207,9 @@ CLINICAL_HAZARD_CORE_MODEL_NAMES: tuple[str, ...] = (
 CLINICAL_HAZARD_RESEARCH_MODEL_NAMES: tuple[str, ...] = ("clinical_hazard_research",)
 
 
-def load_clinical_hazard_config(config: Mapping[str, Any] | None = None) -> ClinicalHazardConfig:
+def load_clinical_hazard_config(
+    config: Mapping[str, Any] | ClinicalHazardConfig | None = None,
+) -> ClinicalHazardConfig:
     return load_branch_config(
         "clinical_hazard",
         config,

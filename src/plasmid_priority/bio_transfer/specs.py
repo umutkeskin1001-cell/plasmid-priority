@@ -188,7 +188,9 @@ BIO_TRANSFER_CORE_MODEL_NAMES: tuple[str, ...] = (
 BIO_TRANSFER_RESEARCH_MODEL_NAMES: tuple[str, ...] = ("bio_transfer_research",)
 
 
-def load_bio_transfer_config(config: Mapping[str, Any] | None = None) -> BioTransferConfig:
+def load_bio_transfer_config(
+    config: Mapping[str, Any] | BioTransferConfig | None = None,
+) -> BioTransferConfig:
     return load_branch_config(
         "bio_transfer",
         config,

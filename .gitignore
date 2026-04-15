@@ -76,3 +76,11 @@ reports/diagnostic_tables/
 reports/tubitak_final_metrics.txt
 *.manifest.json
 .omx/
+
+# ==========================================
+# 🗄️ DVC
+# ==========================================
+data/*.dvc
+!data/.gitkeep
+.dvc/cache/
+.dvc/tmp/

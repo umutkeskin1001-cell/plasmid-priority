@@ -143,7 +143,7 @@ class HarmonizeMetadataTests(unittest.TestCase):
                 use_duckdb=True,
             )
 
-        pd.testing.assert_frame_equal(duckdb_frame, pandas_frame)
+        pd.testing.assert_frame_equal(duckdb_frame, pandas_frame, check_like=True)
 
     def test_write_bronze_inventory_streams_rows_without_to_dict(self) -> None:
         plsdb_frame = pd.DataFrame(

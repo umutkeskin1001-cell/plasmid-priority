@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -50,7 +51,7 @@ class GeoSpreadDataset:
 def prepare_geo_spread_scored_table(
     scored: pd.DataFrame,
     *,
-    config: GeoSpreadConfig | dict[str, Any] | None = None,
+    config: GeoSpreadConfig | Mapping[str, Any] | None = None,
     contract: GeoSpreadInputContract | None = None,
     records: pd.DataFrame | None = None,
     label: str = "geo spread scored table",
@@ -74,7 +75,7 @@ def prepare_geo_spread_dataset(
     scored: pd.DataFrame,
     *,
     model_name: str,
-    config: GeoSpreadConfig | dict[str, Any] | None = None,
+    config: GeoSpreadConfig | Mapping[str, Any] | None = None,
     contract: GeoSpreadInputContract | None = None,
     records: pd.DataFrame | None = None,
     label: str = "geo spread scored table",
@@ -103,7 +104,7 @@ def build_geo_spread_dataset_from_prepared(
     prepared: pd.DataFrame,
     *,
     model_name: str,
-    config: GeoSpreadConfig | dict[str, Any] | None = None,
+    config: GeoSpreadConfig | Mapping[str, Any] | None = None,
     contract: GeoSpreadInputContract | None = None,
 ) -> GeoSpreadDataset:
     """Build a geo spread dataset from a table that was already validated and annotated."""
@@ -135,7 +136,7 @@ def build_geo_spread_dataset_from_prepared(
 
 
 def resolve_geo_spread_dataset_model_names(
-    config: dict[str, Any] | None = None,
+    config: Mapping[str, Any] | GeoSpreadConfig | None = None,
     *,
     include_research: bool = False,
     include_ablation: bool = False,

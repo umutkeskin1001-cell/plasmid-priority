@@ -1,0 +1,5 @@
+[core]
+    autostage = true
+
+[remote "origin"]
+    url = /data/dvc-storage

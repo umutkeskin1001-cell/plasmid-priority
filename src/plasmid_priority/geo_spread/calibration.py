@@ -42,7 +42,8 @@ def _normalize_method(value: object | None) -> str:
 
 
 def _safe_probability(values: np.ndarray) -> np.ndarray:
-    return np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
+    result: np.ndarray = np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
+    return result
 
 
 def _identity_calibrator(values: np.ndarray) -> np.ndarray:
@@ -204,8 +205,9 @@ def calibrate_geo_spread_predictions(
     working = working.reset_index(drop=True)
 
     if isinstance(fit_config, GeoSpreadConfig):
-        fit_payload = dict(fit_config.fit_config.get(str(model_name), {}).model_dump(mode="python"))
-    elif hasattr(fit_config, "model_dump"):
+        default_fit = fit_config.fit_config.get(str(model_name))
+        fit_payload = dict(default_fit.model_dump(mode="python")) if default_fit else {}
+    elif fit_config is not None and hasattr(fit_config, "model_dump"):
         fit_payload = dict(fit_config.model_dump(mode="python"))
     else:
         fit_payload = dict(fit_config or {})

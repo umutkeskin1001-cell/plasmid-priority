@@ -5,9 +5,6 @@
 #   1. Install pre-commit: pip install pre-commit
 #   2. Install hooks: pre-commit install
 #   3. (Optional) Run on all files: pre-commit run --all-files
-#
-# Note: mypy is NOT included because the codebase has mixed type health.
-# Type-cleanup work should be done in a dedicated batch before enabling mypy.
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -41,8 +38,13 @@ repos:
       # Run the formatter
       - id: ruff-format
 
-  # Note: mypy is excluded for now. The repo has:
-  #   - partial type coverage
-  #   - complex numpy/pandas typing
-  #   - dynamic imports that confuse mypy
-  # Enable only after a dedicated type-cleanup batch.
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.1
+    hooks:
+      - id: mypy
+        args: [--config-file=pyproject.toml]
+        additional_dependencies:
+          - "pydantic>=2.7"
+          - "types-PyYAML>=6.0.12"
+          - "numpy>=2.0"
+          - "pandas-stubs>=2.2"

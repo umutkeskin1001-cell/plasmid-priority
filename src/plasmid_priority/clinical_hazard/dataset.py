@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
@@ -66,7 +67,7 @@ def _build_label_frame(
 def prepare_clinical_hazard_scored_table(
     scored: pd.DataFrame,
     *,
-    config: ClinicalHazardConfig | dict[str, Any] | None = None,
+    config: ClinicalHazardConfig | Mapping[str, Any] | None = None,
     contract: ClinicalHazardInputContract | None = None,
     records: pd.DataFrame | None = None,
     pd_metadata: pd.DataFrame | None = None,
@@ -102,7 +103,7 @@ def prepare_clinical_hazard_dataset(
     scored: pd.DataFrame,
     *,
     model_name: str,
-    config: ClinicalHazardConfig | dict[str, Any] | None = None,
+    config: ClinicalHazardConfig | Mapping[str, Any] | None = None,
     contract: ClinicalHazardInputContract | None = None,
     records: pd.DataFrame | None = None,
     pd_metadata: pd.DataFrame | None = None,
@@ -133,7 +134,7 @@ def build_clinical_hazard_dataset_from_prepared(
     prepared: pd.DataFrame,
     *,
     model_name: str,
-    config: ClinicalHazardConfig | dict[str, Any] | None = None,
+    config: ClinicalHazardConfig | Mapping[str, Any] | None = None,
     contract: ClinicalHazardInputContract | None = None,
 ) -> ClinicalHazardDataset:
     clinical_config = (
@@ -150,7 +151,7 @@ def build_clinical_hazard_dataset_from_prepared(
 
 
 def resolve_clinical_hazard_dataset_model_names(
-    config: dict[str, Any] | ClinicalHazardConfig | None = None,
+    config: Mapping[str, Any] | ClinicalHazardConfig | None = None,
     *,
     include_research: bool = False,
     include_ablation: bool = False,

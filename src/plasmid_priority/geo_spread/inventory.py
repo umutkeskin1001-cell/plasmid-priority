@@ -66,7 +66,7 @@ def _static_used_code_paths(root: Path) -> set[Path]:
         used.add(rel)
         try:
             tree = ast.parse(current_abs.read_text(encoding="utf-8"))
-        except Exception:
+        except (SyntaxError, ValueError, UnicodeDecodeError, OSError):
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

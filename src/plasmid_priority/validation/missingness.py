@@ -7,9 +7,12 @@ being a hard global failure gate.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pandas as pd
+
+_log = logging.getLogger(__name__)
 
 
 def audit_missingness(
@@ -208,27 +211,33 @@ def audit_backbone_tables(
 
 
 def print_backbone_audit_report(audit_results: dict[str, Any]) -> None:
-    """Print formatted backbone audit report to stdout.
+    """Log formatted backbone audit report.
 
     Args:
         audit_results: Results from audit_backbone_tables()
     """
-    print("\n" + "=" * 70)
-    print("NaN PROPAGATION AUDIT REPORT")
-    print("=" * 70)
-    print(f"Overall Status: {audit_results['overall_status'].upper()}")
-    print(f"Tables Audited: {', '.join(audit_results['tables_audited'])}")
-    print(f"Total High-Missingness Columns: {audit_results['high_missingness_columns_total']}")
-    print()
+    lines = [
+        "",
+        "=" * 70,
+        "NaN PROPAGATION AUDIT REPORT",
+        "=" * 70,
+        f"Overall Status: {audit_results['overall_status'].upper()}",
+        f"Tables Audited: {', '.join(audit_results['tables_audited'])}",
+        f"Total High-Missingness Columns: {audit_results['high_missingness_columns_total']}",
+        "",
+    ]
 
     if "backbone_table" in audit_results:
-        print(format_missingness_report(audit_results["backbone_table"]))
-        print()
+        lines.append(format_missingness_report(audit_results["backbone_table"]))
+        lines.append("")
 
     if "scored_backbone_table" in audit_results:
-        print(format_missingness_report(audit_results["scored_backbone_table"]))
-        print()
+        lines.append(format_missingness_report(audit_results["scored_backbone_table"]))
+        lines.append("")
 
-    print("=" * 70)
-    print("End of NaN Propagation Audit Report")
-    print("=" * 70 + "\n")
+    lines += [
+        "=" * 70,
+        "End of NaN Propagation Audit Report",
+        "=" * 70,
+    ]
+    _log.info("\n".join(lines))

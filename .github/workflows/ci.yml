@@ -2,21 +2,27 @@ name: ci
 
 on:
   push:
+    branches: [main, develop]
   pull_request:
+    branches: [main, develop]
 
 jobs:
   quality:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+      fail-fast: false
     env:
       MPLBACKEND: Agg
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install package and dev tooling
         run: |
@@ -26,5 +32,20 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q src scripts tests
 
-      - name: Run Quality Gate
+      - name: Lint (ruff)
+        run: make lint
+
+      - name: Type check (mypy)
+        run: make typecheck
+
+      - name: Run tests with coverage
+        run: make test-cov
+
+      - name: Security audit (pip-audit)
+        run: make security
+
+      - name: Smoke test
+        run: make smoke
+
+      - name: Quality gate
         run: make quality

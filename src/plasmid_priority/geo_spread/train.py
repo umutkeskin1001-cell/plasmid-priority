@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pandas as pd
 
+from plasmid_priority.exceptions import ModelFitError
 from plasmid_priority.geo_spread.dataset import (
     build_geo_spread_dataset_from_prepared,
     prepare_geo_spread_dataset,
     prepare_geo_spread_scored_table,
     resolve_geo_spread_dataset_model_names,
 )
-from plasmid_priority.geo_spread.specs import load_geo_spread_config
+from plasmid_priority.geo_spread.specs import GeoSpreadConfig, load_geo_spread_config
 from plasmid_priority.modeling import evaluate_feature_columns, fit_feature_columns_predictions
 from plasmid_priority.modeling.module_a import ModelResult
 from plasmid_priority.modeling.module_a_support import build_failed_model_result
@@ -48,7 +50,7 @@ def fit_geo_spread_model(
     n_splits: int = 5,
     n_repeats: int = 5,
     seed: int = 42,
-    config: Mapping[str, Any] | Any | None = None,
+    config: Mapping[str, Any] | GeoSpreadConfig | None = None,
     records: pd.DataFrame | None = None,
     include_ci: bool = True,
 ) -> ModelResult:
@@ -72,7 +74,7 @@ def fit_geo_spread_model_predictions(
     scored: pd.DataFrame,
     *,
     model_name: str,
-    config: Mapping[str, Any] | Any | None = None,
+    config: Mapping[str, Any] | GeoSpreadConfig | None = None,
     records: pd.DataFrame | None = None,
     include_posterior_uncertainty: bool = True,
 ) -> pd.DataFrame:
@@ -108,7 +110,7 @@ def fit_geo_spread_branch(
     n_repeats: int = 5,
     seed: int = 42,
     n_jobs: int | None = 1,
-    config: Mapping[str, Any] | Any | None = None,
+    config: Mapping[str, Any] | GeoSpreadConfig | None = None,
     records: pd.DataFrame | None = None,
     include_ci: bool = True,
     prepared_scored: pd.DataFrame | None = None,
@@ -135,6 +137,8 @@ def fit_geo_spread_branch(
     if missing:
         raise KeyError(f"Unknown geo spread model(s): {', '.join(missing)}")
 
+    _log = logging.getLogger(__name__)
+
     def _fit_one(name: str) -> tuple[str, ModelResult]:
         try:
             dataset = build_geo_spread_dataset_from_prepared(
@@ -150,7 +154,8 @@ def fit_geo_spread_branch(
                 seed=seed,
                 include_ci=include_ci,
             )
-        except Exception as exc:
+        except (ValueError, KeyError, TypeError, RuntimeError, ModelFitError) as exc:
+            _log.warning("geo_spread model %s failed: %s", name, exc)
             result = build_failed_model_result(str(name), str(exc))
         return name, result
 

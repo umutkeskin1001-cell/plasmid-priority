@@ -403,7 +403,7 @@ class GeoSpreadConfig(BaseModel):
 
 
 def resolve_geo_spread_model_names(
-    config: Mapping[str, Any] | None = None,
+    config: Mapping[str, Any] | GeoSpreadConfig | None = None,
     *,
     include_research: bool = False,
     include_ablation: bool = False,

@@ -87,7 +87,9 @@ CONSENSUS_CORE_MODEL_NAMES: tuple[str, ...] = ("operational_consensus",)
 CONSENSUS_RESEARCH_MODEL_NAMES: tuple[str, ...] = ("research_consensus",)
 
 
-def load_consensus_config(config: Mapping[str, Any] | None = None) -> ConsensusConfig:
+def load_consensus_config(
+    config: Mapping[str, Any] | ConsensusConfig | None = None,
+) -> ConsensusConfig:
     return load_branch_config(
         "consensus",
         config,

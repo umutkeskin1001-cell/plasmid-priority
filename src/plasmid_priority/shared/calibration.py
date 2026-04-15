@@ -30,11 +30,13 @@ def _normalize_method(value: object | None) -> str:
 
 
 def _safe_probability(values: np.ndarray) -> np.ndarray:
-    return np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
+    result: np.ndarray = np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
+    return result
 
 
 def _identity_calibrator(values: np.ndarray) -> np.ndarray:
-    return _safe_probability(values)
+    result: np.ndarray = _safe_probability(values)
+    return result
 
 
 def _float_option(payload: Mapping[str, Any], key: str, default: float) -> float:
@@ -161,7 +163,7 @@ def calibrate_branch_predictions(
         )
     elif isinstance(fit_config, BranchFitConfig):
         fit_payload = dict(fit_config.model_dump(mode="python"))
-    elif hasattr(fit_config, "model_dump"):
+    elif fit_config is not None and hasattr(fit_config, "model_dump"):
         fit_payload = dict(fit_config.model_dump(mode="python"))
     else:
         fit_payload = dict(fit_config or {})

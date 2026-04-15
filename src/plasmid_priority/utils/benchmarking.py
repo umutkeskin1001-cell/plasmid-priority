@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import contextmanager
 from typing import Callable
+
+_log = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -27,7 +30,7 @@ def benchmark_runtime(operation_name: str):
     finally:
         end_time = time.perf_counter()
         elapsed_seconds = end_time - start_time
-        print(f"[BENCHMARK] {operation_name}: {elapsed_seconds:.3f}s")
+        _log.info("[BENCHMARK] %s: %.3fs", operation_name, elapsed_seconds)
 
 
 def measure_runtime(func: Callable, *args, **kwargs) -> tuple[object, float]:

@@ -1,6 +1,6 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 
-.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local test smoke code-review-graph-check pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci
+.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local test test-cov smoke code-review-graph-check pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci security
 
 check-inputs:
 	$(PYTHON) scripts/01_check_inputs.py
@@ -32,6 +32,9 @@ full-local:
 test:
 	$(PYTHON) -m pytest tests/ -x -q --tb=short
 
+test-cov:
+	$(PYTHON) -m pytest tests/ -x -q --tb=short --cov=src/plasmid_priority --cov-report=term-missing --cov-fail-under=70
+
 lint:
 	$(PYTHON) -m ruff check src/ scripts/ tests/
 
@@ -55,7 +58,10 @@ smoke:
 code-review-graph-check:
 	$(PYTHON) scripts/check_code_review_graph.py
 
-quality: check typecheck smoke
+security:
+	$(PYTHON) -m pip_audit --desc
+
+quality: check typecheck smoke security
 	@echo "Kalite kapilari gecti."
 
 ci: check typecheck

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -9,6 +10,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from plasmid_priority.exceptions import ModelFitError
 from plasmid_priority.modeling import evaluate_feature_columns, fit_feature_columns_predictions
 from plasmid_priority.modeling.module_a import (
     ModelResult,
@@ -324,6 +326,8 @@ def fit_branch(
         )
     )
 
+    _log = logging.getLogger(__name__)
+
     def _fit_one(name: str) -> tuple[str, ModelResult]:
         try:
             dataset = prepare_branch_dataset(
@@ -345,7 +349,8 @@ def fit_branch(
                 seed=seed,
                 include_ci=include_ci,
             )
-        except Exception as exc:
+        except (ValueError, KeyError, TypeError, RuntimeError, ModelFitError) as exc:
+            _log.warning("branch model %s failed: %s", name, exc)
             result = build_failed_model_result(str(name), str(exc))
         return name, result
 

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pandas as pd
 
 try:
-    import duckdb
+    import duckdb as _duckdb
 except ImportError:  # pragma: no cover - fallback for environments without duckdb
-    duckdb = None
+    _duckdb = None  # type: ignore[assignment]
+
+duckdb: ModuleType | None = _duckdb
 
 
 @lru_cache(maxsize=512)

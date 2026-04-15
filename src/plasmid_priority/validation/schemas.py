@@ -10,6 +10,7 @@ in the data pipeline. Schemas validate:
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 import pandas as pd
@@ -24,6 +25,8 @@ try:
 except ImportError:
     PANDERA_AVAILABLE = False
     pa = None  # type: ignore
+
+_log = logging.getLogger(__name__)
 
 # Sensible bounds for year columns
 MIN_YEAR = 1950
@@ -286,43 +289,60 @@ DEDUPLICATED_PLASMID_SCHEMA = (
 # =============================================================================
 
 
+def _validate_table(
+    df: pd.DataFrame,
+    schema: "DataFrameSchema | None",
+    table_name: str,
+    *,
+    lazy: bool = True,
+) -> dict[str, Any]:
+    """Generic schema validation helper (DRY).
+
+    Validates *df* against *schema* and returns a structured result dict.
+    Handles pandera-not-available, schema errors, and unexpected exceptions.
+    """
+    if not PANDERA_AVAILABLE or schema is None:
+        return {
+            "status": "skipped",
+            "reason": "pandera_not_installed",
+            "table": table_name,
+            "n_rows": int(len(df)),
+            "errors": [],
+        }
+
+    try:
+        validated = schema.validate(df, lazy=lazy)
+        return {
+            "status": "pass",
+            "table": table_name,
+            "n_rows": int(len(validated)),
+            "errors": [],
+        }
+    except pa.errors.SchemaErrors as e:
+        _log.warning("Schema validation failed for %s: %d errors", table_name, len(e.failure_cases))
+        return {
+            "status": "fail",
+            "table": table_name,
+            "n_rows": int(len(df)),
+            "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
+        }
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
+        _log.error("Unexpected error validating %s: %s", table_name, e)
+        return {
+            "status": "error",
+            "table": table_name,
+            "n_rows": int(len(df)),
+            "errors": [{"message": str(e)}],
+        }
+
+
 def validate_harmonized_plasmids(
     df: pd.DataFrame,
     *,
     lazy: bool = True,
 ) -> dict[str, Any]:
     """Validate harmonized plasmid table."""
-    if not PANDERA_AVAILABLE or HARMONIZED_PLASMID_SCHEMA is None:
-        return {
-            "status": "skipped",
-            "reason": "pandera_not_installed",
-            "table": "harmonized_plasmids",
-            "n_rows": int(len(df)),
-            "errors": [],
-        }
-
-    try:
-        validated = HARMONIZED_PLASMID_SCHEMA.validate(df, lazy=lazy)
-        return {
-            "status": "pass",
-            "table": "harmonized_plasmids",
-            "n_rows": int(len(validated)),
-            "errors": [],
-        }
-    except pa.errors.SchemaErrors as e:
-        return {
-            "status": "fail",
-            "table": "harmonized_plasmids",
-            "n_rows": int(len(df)),
-            "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
-        }
-    except (ValueError, TypeError, KeyError, AttributeError) as e:
-        return {
-            "status": "error",
-            "table": "harmonized_plasmids",
-            "n_rows": int(len(df)),
-            "errors": [{"message": str(e)}],
-        }
+    return _validate_table(df, HARMONIZED_PLASMID_SCHEMA, "harmonized_plasmids", lazy=lazy)
 
 
 def validate_backbone_table(
@@ -331,37 +351,7 @@ def validate_backbone_table(
     lazy: bool = True,
 ) -> dict[str, Any]:
     """Validate backbone assignment table."""
-    if not PANDERA_AVAILABLE or BACKBONE_TABLE_SCHEMA is None:
-        return {
-            "status": "skipped",
-            "reason": "pandera_not_installed",
-            "table": "backbone_table",
-            "n_rows": int(len(df)),
-            "errors": [],
-        }
-
-    try:
-        validated = BACKBONE_TABLE_SCHEMA.validate(df, lazy=lazy)
-        return {
-            "status": "pass",
-            "table": "backbone_table",
-            "n_rows": int(len(validated)),
-            "errors": [],
-        }
-    except pa.errors.SchemaErrors as e:
-        return {
-            "status": "fail",
-            "table": "backbone_table",
-            "n_rows": int(len(df)),
-            "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
-        }
-    except (ValueError, TypeError, KeyError, AttributeError) as e:
-        return {
-            "status": "error",
-            "table": "backbone_table",
-            "n_rows": int(len(df)),
-            "errors": [{"message": str(e)}],
-        }
+    return _validate_table(df, BACKBONE_TABLE_SCHEMA, "backbone_table", lazy=lazy)
 
 
 def validate_scored_backbones(
@@ -370,37 +360,7 @@ def validate_scored_backbones(
     lazy: bool = True,
 ) -> dict[str, Any]:
     """Validate scored backbone table (model input)."""
-    if not PANDERA_AVAILABLE or SCORED_BACKBONE_SCHEMA is None:
-        return {
-            "status": "skipped",
-            "reason": "pandera_not_installed",
-            "table": "scored_backbones",
-            "n_rows": int(len(df)),
-            "errors": [],
-        }
-
-    try:
-        validated = SCORED_BACKBONE_SCHEMA.validate(df, lazy=lazy)
-        return {
-            "status": "pass",
-            "table": "scored_backbones",
-            "n_rows": int(len(validated)),
-            "errors": [],
-        }
-    except pa.errors.SchemaErrors as e:
-        return {
-            "status": "fail",
-            "table": "scored_backbones",
-            "n_rows": int(len(df)),
-            "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
-        }
-    except (ValueError, TypeError, KeyError, AttributeError) as e:
-        return {
-            "status": "error",
-            "table": "scored_backbones",
-            "n_rows": int(len(df)),
-            "errors": [{"message": str(e)}],
-        }
+    return _validate_table(df, SCORED_BACKBONE_SCHEMA, "scored_backbones", lazy=lazy)
 
 
 def validate_deduplicated_plasmids(
@@ -409,37 +369,7 @@ def validate_deduplicated_plasmids(
     lazy: bool = True,
 ) -> dict[str, Any]:
     """Validate deduplicated plasmid table."""
-    if not PANDERA_AVAILABLE or DEDUPLICATED_PLASMID_SCHEMA is None:
-        return {
-            "status": "skipped",
-            "reason": "pandera_not_installed",
-            "table": "deduplicated_plasmids",
-            "n_rows": int(len(df)),
-            "errors": [],
-        }
-
-    try:
-        validated = DEDUPLICATED_PLASMID_SCHEMA.validate(df, lazy=lazy)
-        return {
-            "status": "pass",
-            "table": "deduplicated_plasmids",
-            "n_rows": int(len(validated)),
-            "errors": [],
-        }
-    except pa.errors.SchemaErrors as e:
-        return {
-            "status": "fail",
-            "table": "deduplicated_plasmids",
-            "n_rows": int(len(df)),
-            "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
-        }
-    except (ValueError, TypeError, KeyError, AttributeError) as e:
-        return {
-            "status": "error",
-            "table": "deduplicated_plasmids",
-            "n_rows": int(len(df)),
-            "errors": [{"message": str(e)}],
-        }
+    return _validate_table(df, DEDUPLICATED_PLASMID_SCHEMA, "deduplicated_plasmids", lazy=lazy)
 
 
 def run_all_validations(
@@ -589,7 +519,7 @@ def format_validation_report(results: dict[str, dict[str, Any]]) -> str:
 
 
 def print_validation_report(results: dict[str, dict[str, Any]]) -> None:
-    """Print validation results to stdout.
+    """Log validation results via the logging framework.
 
     This is a convenience function for CLI usage that clearly
     indicates whether validation actually ran.
@@ -597,7 +527,7 @@ def print_validation_report(results: dict[str, dict[str, Any]]) -> None:
     Args:
         results: Result dict from run_all_validations()
     """
-    print(format_validation_report(results))
+    _log.info("\n%s", format_validation_report(results))
 
 
 def validate_tables_from_paths(
