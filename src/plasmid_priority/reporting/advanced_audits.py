@@ -1867,23 +1867,30 @@ def build_false_negative_audit(
     ]
     positives["miss_driver_count"] = positives[flag_columns].sum(axis=1).astype(int)
 
-    def _driver_text(row: pd.Series) -> str:
-        labels = []
-        mapping = {
-            "low_knownness_flag": "low_knownness",
-            "low_backbone_purity_flag": "low_backbone_purity",
-            "low_assignment_confidence_flag": "low_assignment_confidence",
-            "low_metadata_quality_flag": "low_metadata_quality",
-            "threshold_fragile_flag": "threshold_fragile",
-            "low_external_host_support_flag": "low_external_host_support",
-            "low_training_members_flag": "low_training_members",
-        }
-        for column, label in mapping.items():
-            if bool(row.get(column, False)):
-                labels.append(label)
-        return ",".join(labels) if labels else "none"
-
-    positives["miss_driver_flags"] = positives.apply(_driver_text, axis=1).fillna("")
+    mapping = {
+        "low_knownness_flag": "low_knownness",
+        "low_backbone_purity_flag": "low_backbone_purity",
+        "low_assignment_confidence_flag": "low_assignment_confidence",
+        "low_metadata_quality_flag": "low_metadata_quality",
+        "threshold_fragile_flag": "threshold_fragile",
+        "low_external_host_support_flag": "low_external_host_support",
+        "low_training_members_flag": "low_training_members",
+    }
+    flag_frame = positives.loc[:, flag_columns].fillna(False).astype(bool)
+    flag_records = flag_frame.to_dict("records")
+    positives["miss_driver_flags"] = pd.Series(
+        [
+            ",".join(
+                label
+                for column, label in mapping.items()
+                if bool(record.get(column, False))
+            )
+            or "none"
+            for record in flag_records
+        ],
+        index=positives.index,
+        dtype=object,
+    )
     for cutoff in shortlist_cutoffs:
         positives[f"missed_by_top_{cutoff}"] = positives["primary_rank"] > int(cutoff)
 

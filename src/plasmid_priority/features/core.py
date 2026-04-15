@@ -7,6 +7,7 @@ import re
 import threading
 from functools import lru_cache
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd

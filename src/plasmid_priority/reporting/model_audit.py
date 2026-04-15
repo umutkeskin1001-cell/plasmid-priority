@@ -359,6 +359,25 @@ def _guardrail_loss_from_scorecard_row(scorecard_row: pd.Series) -> float:
     return loss
 
 
+def _guardrail_loss_series(scorecard: pd.DataFrame) -> pd.Series:
+    knownness_gap = pd.to_numeric(
+        scorecard.get("knownness_matched_gap", pd.Series(np.nan, index=scorecard.index)),
+        errors="coerce",
+    ).abs()
+    source_gap = pd.to_numeric(
+        scorecard.get("source_holdout_gap", pd.Series(np.nan, index=scorecard.index)),
+        errors="coerce",
+    ).abs()
+    loss = knownness_gap.fillna(0.0) + source_gap.fillna(0.0)
+    has_any_gap = knownness_gap.notna() | source_gap.notna()
+    loss = loss.where(has_any_gap, np.nan)
+    leakage_penalty = pd.to_numeric(
+        scorecard.get("leakage_review_required", pd.Series(False, index=scorecard.index)),
+        errors="coerce",
+    ).fillna(0.0).astype(float)
+    return loss + 0.25 * leakage_penalty
+
+
 def _safe_model_track(model_name: object) -> str:
     try:
         return str(get_model_track(str(model_name)))
@@ -389,7 +408,7 @@ def _select_governance_scorecard_row(scorecard: pd.DataFrame) -> pd.Series:
         working["roc_auc"] = np.nan
     if "average_precision" not in working.columns:
         working["average_precision"] = np.nan
-    working["guardrail_loss"] = working.apply(_guardrail_loss_from_scorecard_row, axis=1)
+    working["guardrail_loss"] = _guardrail_loss_series(working)
     working["governance_priority_score"] = (
         pd.to_numeric(
             working.get("roc_auc", pd.Series(np.nan, index=working.index)), errors="coerce"

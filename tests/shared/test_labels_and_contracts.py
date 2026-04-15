@@ -62,6 +62,66 @@ class SharedLabelTests(unittest.TestCase):
         row = labels.loc[labels["backbone_id"] == "bb1"].iloc[0]
         self.assertEqual(int(row["clinical_hazard_label"]), 1)
 
+    def test_clinical_hazard_label_factory_uses_gain_not_absolute_future_level(self) -> None:
+        records = pd.DataFrame.from_records(
+            [
+                *[
+                    {
+                        "backbone_id": "bb1",
+                        "resolved_year": 2014,
+                        "country": "A",
+                        "clinical_context": "clinical" if idx < 9 else "environmental",
+                        "amr_class": "A",
+                        "drug_class_count": 1,
+                        "pd_clinical_support": 0,
+                    }
+                    for idx in range(10)
+                ],
+                *[
+                    {
+                        "backbone_id": "bb1",
+                        "resolved_year": 2016,
+                        "country": "A",
+                        "clinical_context": "clinical",
+                        "amr_class": "A",
+                        "drug_class_count": 1,
+                        "pd_clinical_support": 0,
+                    }
+                    for _ in range(10)
+                ],
+                *[
+                    {
+                        "backbone_id": "bb2",
+                        "resolved_year": 2014,
+                        "country": "B",
+                        "clinical_context": "environmental",
+                        "amr_class": "A",
+                        "drug_class_count": 1,
+                        "pd_clinical_support": 0,
+                    }
+                    for _ in range(10)
+                ],
+                *[
+                    {
+                        "backbone_id": "bb2",
+                        "resolved_year": 2016,
+                        "country": "B",
+                        "clinical_context": "clinical",
+                        "amr_class": "CARBAPENEM",
+                        "drug_class_count": 4,
+                        "pd_clinical_support": 1,
+                    }
+                    for _ in range(10)
+                ],
+            ]
+        )
+        labels = build_clinical_hazard_labels(records, None, 2015, 5)
+        row = labels.loc[labels["backbone_id"] == "bb1"].iloc[0]
+        positive = labels.loc[labels["backbone_id"] == "bb2"].iloc[0]
+
+        self.assertEqual(int(row["clinical_hazard_label"]), 0)
+        self.assertEqual(int(positive["clinical_hazard_label"]), 1)
+
 
 class SharedContractTests(unittest.TestCase):
     def test_bio_transfer_contract_accepts_valid_table(self) -> None:

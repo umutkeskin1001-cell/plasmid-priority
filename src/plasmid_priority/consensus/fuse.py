@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Mapping
 
 import numpy as np
 import pandas as pd
@@ -12,7 +11,12 @@ from plasmid_priority.validation.metrics import average_precision, roc_auc_score
 
 
 def _score_columns(frame: pd.DataFrame) -> pd.Series:
-    for candidate in ("prediction_calibrated", "calibrated_prediction", "prediction", "oof_prediction"):
+    for candidate in (
+        "prediction_calibrated",
+        "calibrated_prediction",
+        "prediction",
+        "oof_prediction",
+    ):
         if candidate in frame.columns:
             return pd.to_numeric(frame[candidate], errors="coerce")
     return pd.Series(np.nan, index=frame.index, dtype=float)
@@ -107,9 +111,17 @@ def build_operational_consensus_frame(
     for column in ("p_geo", "p_bio_transfer", "p_clinical_hazard"):
         working[column] = _numeric_or_default(working, column, default=0.5).fillna(0.5)
     for column in ("confidence_geo", "confidence_bio_transfer", "confidence_clinical_hazard"):
-        working[column] = _numeric_or_default(working, column, default=confidence_floor).fillna(confidence_floor)
+        working[column] = _numeric_or_default(
+            working,
+            column,
+            default=confidence_floor,
+        ).fillna(confidence_floor)
     for column in ("ood_geo", "ood_bio_transfer", "ood_clinical_hazard"):
-        working[column] = working.get(column, pd.Series(False, index=working.index)).fillna(False).astype(bool)
+        working[column] = (
+            working.get(column, pd.Series(False, index=working.index))
+            .fillna(False)
+            .astype(bool)
+        )
     consensus_raw = (
         resolved_weights["p_geo"] * working["p_geo"]
         + resolved_weights["p_bio_transfer"] * working["p_bio_transfer"]
@@ -125,15 +137,22 @@ def build_operational_consensus_frame(
         + working["ood_bio_transfer"].astype(float)
         + working["ood_clinical_hazard"].astype(float)
     ) / 3.0
-    branch_matrix = working.loc[:, ["p_geo", "p_bio_transfer", "p_clinical_hazard"]].to_numpy(dtype=float)
+    branch_matrix = working.loc[:, ["p_geo", "p_bio_transfer", "p_clinical_hazard"]].to_numpy(
+        dtype=float
+    )
     agreement_score = pd.Series(
         1.0 - np.abs(branch_matrix - branch_matrix.mean(axis=1, keepdims=True)).mean(axis=1),
         index=working.index,
         dtype=float,
     ).clip(lower=0.0, upper=1.0)
-    confidence_attenuation = np.clip(0.50 + 0.50 * branch_confidence.fillna(confidence_floor), 0.25, 1.0)
-    ood_attenuation = np.clip(1.0 - 0.35 * ood_mean.fillna(0.0), 0.40, 1.0)
-    consensus_score = np.clip(consensus_raw * confidence_attenuation * ood_attenuation, 0.0, 1.0)
+    confidence_attenuation = np.clip(
+        0.65 + 0.35 * branch_confidence.fillna(confidence_floor),
+        0.50,
+        1.0,
+    )
+    ood_attenuation = np.clip(1.0 - 0.35 * ood_mean.fillna(0.0), 0.65, 1.0)
+    consensus_attenuation = np.minimum(confidence_attenuation, ood_attenuation)
+    consensus_score = np.clip(consensus_raw * consensus_attenuation, 0.0, 1.0)
     consensus_review_flag = (
         (branch_confidence < review_threshold)
         | (ood_mean > ood_threshold)
@@ -147,11 +166,18 @@ def build_operational_consensus_frame(
     out["consensus_raw"] = consensus_raw
     out["consensus_score"] = consensus_score
     out["branch_agreement_score"] = agreement_score
+    out["consensus_attenuation"] = consensus_attenuation
     out["consensus_review_flag"] = consensus_review_flag
     out["consensus_priority_tier"] = consensus_priority_tier
-    out["branch_contribution_geo"] = resolved_weights["p_geo"] * working["p_geo"] * confidence_attenuation * ood_attenuation
-    out["branch_contribution_bio_transfer"] = resolved_weights["p_bio_transfer"] * working["p_bio_transfer"] * confidence_attenuation * ood_attenuation
-    out["branch_contribution_clinical_hazard"] = resolved_weights["p_clinical_hazard"] * working["p_clinical_hazard"] * confidence_attenuation * ood_attenuation
+    out["branch_contribution_geo"] = (
+        resolved_weights["p_geo"] * working["p_geo"] * consensus_attenuation
+    )
+    out["branch_contribution_bio_transfer"] = (
+        resolved_weights["p_bio_transfer"] * working["p_bio_transfer"] * consensus_attenuation
+    )
+    out["branch_contribution_clinical_hazard"] = (
+        resolved_weights["p_clinical_hazard"] * working["p_clinical_hazard"] * consensus_attenuation
+    )
     return out
 
 
@@ -170,13 +196,23 @@ def build_research_consensus_frame(
     valid = y.notna()
     if valid.sum() < 4 or y.loc[valid].nunique() < 2:
         return build_operational_consensus_frame(working)
-    candidate_weights = (
-        {"p_geo": 0.40, "p_bio_transfer": 0.30, "p_clinical_hazard": 0.30},
-        {"p_geo": 0.45, "p_bio_transfer": 0.275, "p_clinical_hazard": 0.275},
-        {"p_geo": 0.50, "p_bio_transfer": 0.25, "p_clinical_hazard": 0.25},
-        {"p_geo": 0.55, "p_bio_transfer": 0.225, "p_clinical_hazard": 0.225},
+    geo_grid = np.linspace(0.35, 0.65, 13)
+    candidate_weights = tuple(
+        {
+            "p_geo": float(geo_weight),
+            "p_bio_transfer": float((1.0 - geo_weight) / 2.0),
+            "p_clinical_hazard": float((1.0 - geo_weight) / 2.0),
+        }
+        for geo_weight in geo_grid
     )
-    best_frame = build_operational_consensus_frame(working, weights=candidate_weights[2])
+    best_frame = build_operational_consensus_frame(
+        working,
+        weights={
+            "p_geo": 0.50,
+            "p_bio_transfer": 0.25,
+            "p_clinical_hazard": 0.25,
+        },
+    )
     best_score = float("-inf")
     for weights in candidate_weights:
         frame = build_operational_consensus_frame(working, weights=weights)
@@ -193,4 +229,9 @@ def build_research_consensus_frame(
             best_frame["research_weight_bio_transfer"] = weights["p_bio_transfer"]
             best_frame["research_weight_clinical_hazard"] = weights["p_clinical_hazard"]
             best_frame["research_score"] = combined
+    if "research_weight_geo" not in best_frame.columns:
+        best_frame["research_weight_geo"] = 0.50
+        best_frame["research_weight_bio_transfer"] = 0.25
+        best_frame["research_weight_clinical_hazard"] = 0.25
+        best_frame["research_score"] = float("nan")
     return best_frame

@@ -108,11 +108,11 @@ models:
     full_priority: ["log1p_member_count_train", "log1p_n_countries_train", "priority_index"]
     bio_clean_priority: ["T_raw_norm", "H_obs_specialization_norm", "A_raw_norm", "orit_support"]
     balanced_evidence_priority: ["T_raw_norm", "H_breadth_norm", "A_raw_norm", "coherence_score", "orit_support", "amr_support_norm", "H_support_norm"]
-    bio_residual_synergy_priority: ["T_eff_norm", "H_obs_norm", "A_eff_norm", "coherence_score", "orit_support", "T_H_obs_synergy_norm", "A_H_obs_synergy_norm", "T_coherence_synergy_norm", "T_A_synergy_norm"]
-    hybrid_agreement_priority: ["T_eff_norm", "H_obs_norm", "A_eff_norm", "coherence_score", "orit_support", "T_H_obs_synergy_norm", "A_H_obs_synergy_norm", "T_coherence_synergy_norm", "T_A_synergy_norm"]
-    firth_parsimonious_priority: ["T_eff_norm", "H_obs_specialization_norm", "A_eff_norm", "coherence_score"]
+    bio_residual_synergy_priority: &bio_residual_synergy_features ["T_eff_norm", "H_obs_norm", "A_eff_norm", "coherence_score", "orit_support", "T_H_obs_synergy_norm", "A_H_obs_synergy_norm", "T_coherence_synergy_norm", "T_A_synergy_norm"]
+    hybrid_agreement_priority: *bio_residual_synergy_features
+    firth_parsimonious_priority: &parsimonious_features ["T_eff_norm", "H_obs_specialization_norm", "A_eff_norm", "coherence_score"]
     visibility_adjusted_priority: ["T_raw_norm", "H_obs_specialization_norm", "A_raw_norm", "orit_support", "H_support_norm_residual"]
-    parsimonious_priority: ["T_eff_norm", "H_obs_specialization_norm", "A_eff_norm", "coherence_score"]
+    parsimonious_priority: *parsimonious_features
     natural_auc_priority: ["T_eff_norm", "H_specialization_norm", "A_eff_norm", "coherence_score", "H_external_host_range_norm", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm"]
     phylogeny_aware_priority: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "H_external_host_range_norm", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm"]
     structured_signal_priority: ["T_eff_norm", "H_phylogenetic_specialization_norm", "H_phylogenetic_augmented_specialization_norm", "host_phylogenetic_dispersion_norm", "host_taxon_evenness_norm", "A_eff_norm", "A_recurrence_norm", "coherence_score", "H_external_host_range_norm", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "mean_n_replicon_types_norm", "plasmidfinder_complexity_norm"]
@@ -149,9 +149,9 @@ models:
     # Phase 5.2.A: 9f source-balanced
     discovery_9f_source: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm"]
     # Phase 5.2.B: 12f source-balanced
-    discovery_12f_source: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "A_recurrence_norm"]
+    discovery_12f_source: &discovery_12f_features ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "A_recurrence_norm"]
     # Phase 5.2.C: 12f class-balanced (same features, different weight mode)
-    discovery_12f_class_balanced: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "A_recurrence_norm"]
+    discovery_12f_class_balanced: *discovery_12f_features
     # Phase 7.1: 15f with synergy features (low priority)
     discovery_15f_synergy: ["T_eff_norm", "H_phylogenetic_specialization_norm", "A_eff_norm", "coherence_score", "orit_support", "backbone_purity_norm", "assignment_confidence_norm", "mash_neighbor_distance_train_norm", "replicon_architecture_norm", "clinical_context_fraction_norm", "ecology_context_diversity_norm", "A_recurrence_norm", "T_A_synergy_norm", "H_A_synergy_norm", "T_H_obs_synergy_norm"]
     # Phase 6.1: 15f pruned governance (stability-first)

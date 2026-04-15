@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import dataclass
 from typing import Any
 
@@ -50,10 +49,69 @@ class MetaSovereignEnsemble:
             ]
         )
         self.base_predictions: dict[str, np.ndarray] = {}
+        self.fitted_base_models: dict[str, Any] = {}
         self.meta_learner: LogisticRegression | None = None
         self.calibrators: dict[str, IsotonicRegression] = {}
         self.weights: np.ndarray | None = None
         self.uncertainty_estimates: np.ndarray | None = None
+
+    def _predict_base_probabilities(self, X: pd.DataFrame) -> dict[str, np.ndarray]:
+        """Predict probabilities from the fitted base models in config order."""
+        if not self.fitted_base_models:
+            raise RuntimeError("Base models not fitted. Call fit_base_models first.")
+        predictions: dict[str, np.ndarray] = {}
+        for model_name in self.config.base_models:
+            model = self.fitted_base_models.get(model_name)
+            if model is None:
+                raise RuntimeError(f"Missing fitted base model: {model_name}")
+            predictions[model_name] = np.asarray(model.predict_proba(X)[:, 1], dtype=float)
+        return predictions
+
+    def _calibrated_prediction_matrix(self, predictions: dict[str, np.ndarray]) -> np.ndarray:
+        """Return calibrated base predictions in config order."""
+        calibrated_columns: list[np.ndarray] = []
+        for model_name in self.config.base_models:
+            raw = np.asarray(predictions[model_name], dtype=float)
+            if model_name in self.calibrators:
+                cal = np.asarray(self.calibrators[model_name].predict(raw), dtype=float)
+            else:
+                cal = raw
+            calibrated_columns.append(cal)
+        return np.column_stack(calibrated_columns)
+
+    def _combine_base_features(self, predictions: dict[str, np.ndarray]) -> np.ndarray:
+        """Build meta-features from base predictions and their calibrated variants."""
+        features: list[np.ndarray] = []
+        calibrated_matrix = self._calibrated_prediction_matrix(predictions)
+
+        for idx, model_name in enumerate(self.config.base_models):
+            raw = np.asarray(predictions[model_name], dtype=float)
+            features.append(raw)
+            features.append(calibrated_matrix[:, idx])
+
+        if self.config.use_feature_interactions:
+            n_models = len(self.config.base_models)
+            for i in range(n_models):
+                for j in range(i + 1, n_models):
+                    features.append(calibrated_matrix[:, i] * calibrated_matrix[:, j])
+            if self.config.interaction_degree >= 3 and n_models >= 3:
+                for i in range(min(3, n_models)):
+                    for j in range(i + 1, min(3, n_models)):
+                        for k in range(j + 1, min(3, n_models)):
+                            features.append(
+                                calibrated_matrix[:, i]
+                                * calibrated_matrix[:, j]
+                                * calibrated_matrix[:, k]
+                            )
+        return np.column_stack(features)
+
+    def _estimate_uncertainty_from_predictions(self, predictions: dict[str, np.ndarray]) -> np.ndarray:
+        """Estimate uncertainty as disagreement across calibrated base models."""
+        calibrated_matrix = self._calibrated_prediction_matrix(predictions)
+        if calibrated_matrix.size == 0:
+            return np.array([], dtype=float)
+        uncertainty = np.std(calibrated_matrix, axis=1)
+        return np.clip(uncertainty.astype(float), 0.0, 1.0)
         
     def fit_base_models(
         self,
@@ -63,6 +121,7 @@ class MetaSovereignEnsemble:
     ) -> dict[str, np.ndarray]:
         """Fit all base models and collect OOF predictions."""
         oof_preds = {}
+        self.fitted_base_models = {}
         
         skf = StratifiedKFold(n_splits=self.config.n_folds, shuffle=True, random_state=42)
         
@@ -79,12 +138,17 @@ class MetaSovereignEnsemble:
                 
                 # OOF predictions
                 preds[val_idx] = model.predict_proba(X_val)[:, 1]
-            
+
             oof_preds[model_name] = preds
             self.calibrators[model_name] = IsotonicRegression(out_of_bounds="clip")
-            self.calibrators[model_name].fit(preds.reshape(-1, 1), y)
+            self.calibrators[model_name].fit(preds, y)
+
+            full_model = model_factory(model_name)
+            full_model.fit(X, y)
+            self.fitted_base_models[model_name] = full_model
         
         self.base_predictions = oof_preds
+        self.uncertainty_estimates = self._estimate_uncertainty_from_predictions(oof_preds)
         return oof_preds
     
     def fit_meta_learner(
@@ -93,8 +157,10 @@ class MetaSovereignEnsemble:
         y: np.ndarray,
     ) -> np.ndarray:
         """Fit level-2 meta-learner on base predictions."""
+        if not self.base_predictions:
+            raise RuntimeError("Base predictions not fitted. Call fit_base_models first.")
         # Build meta-features: base predictions + interactions
-        meta_features = self._build_meta_features(X_meta)
+        meta_features = self._build_meta_features(X_meta, base_predictions=self.base_predictions)
         
         # Fit meta-learner with strong regularization for stability
         self.meta_learner = LogisticRegression(
@@ -109,50 +175,19 @@ class MetaSovereignEnsemble:
         self.weights = self._compute_adaptive_weights(X_meta, y)
         
         # Estimate uncertainty
-        self.uncertainty_estimates = self._estimate_uncertainty(meta_features, y)
+        self.uncertainty_estimates = self._estimate_uncertainty_from_predictions(self.base_predictions)
         
         return self.meta_learner.predict_proba(meta_features)[:, 1]
     
-    def _build_meta_features(self, X: pd.DataFrame) -> np.ndarray:
-        """Build meta-features: base preds + polynomial interactions."""
-        features = []
-        
-        # Base predictions
-        for name, preds in self.base_predictions.items():
-            features.append(preds)
-            
-            # Calibrated version
-            if name in self.calibrators:
-                cal_preds = self.calibrators[name].predict(preds.reshape(-1, 1))
-                features.append(cal_preds)
-        
-        # 2-way interactions (only if enabled)
-        if self.config.use_feature_interactions:
-            pred_array = np.column_stack([
-                self.base_predictions[name] 
-                for name in self.config.base_models
-            ])
-            
-            # Top-k pairwise products
-            n_models = len(self.config.base_models)
-            for i in range(n_models):
-                for j in range(i + 1, n_models):
-                    interaction = pred_array[:, i] * pred_array[:, j]
-                    features.append(interaction)
-            
-            # 3-way interactions for top-3 models
-            if self.config.interaction_degree >= 3 and n_models >= 3:
-                for i in range(min(3, n_models)):
-                    for j in range(i + 1, min(3, n_models)):
-                        for k in range(j + 1, min(3, n_models)):
-                            triple = (
-                                pred_array[:, i] * 
-                                pred_array[:, j] * 
-                                pred_array[:, k]
-                            )
-                            features.append(triple)
-        
-        return np.column_stack(features)
+    def _build_meta_features(
+        self,
+        X: pd.DataFrame,
+        *,
+        base_predictions: dict[str, np.ndarray] | None = None,
+    ) -> np.ndarray:
+        """Build meta-features from either cached or live base predictions."""
+        predictions = base_predictions if base_predictions is not None else self._predict_base_probabilities(X)
+        return self._combine_base_features(predictions)
     
     def _compute_adaptive_weights(
         self,
@@ -181,20 +216,11 @@ class MetaSovereignEnsemble:
         X: np.ndarray,
         y: np.ndarray,
     ) -> np.ndarray:
-        """Estimate prediction uncertainty via bootstrap."""
-        n_samples = len(y)
-        n_bootstrap = 50
-        bootstrap_preds = np.zeros((n_samples, n_bootstrap))
-        
-        for b in range(n_bootstrap):
-            idx = np.random.choice(n_samples, n_samples, replace=True)
-            model = LogisticRegression(C=0.1, max_iter=1000, solver="lbfgs")
-            model.fit(X[idx], y[idx])
-            bootstrap_preds[:, b] = model.predict_proba(X)[:, 1]
-        
-        # Uncertainty = std across bootstrap samples
-        uncertainty = np.std(bootstrap_preds, axis=1)
-        return uncertainty
+        """Estimate prediction uncertainty via base-model disagreement."""
+        del X, y
+        if not self.base_predictions:
+            return np.array([], dtype=float)
+        return self._estimate_uncertainty_from_predictions(self.base_predictions)
     
     def predict(
         self,
@@ -206,7 +232,8 @@ class MetaSovereignEnsemble:
             raise RuntimeError("Meta-learner not fitted. Call fit_meta_learner first.")
         
         # Build meta-features
-        meta_features = self._build_meta_features(X)
+        base_predictions = self._predict_base_probabilities(X)
+        meta_features = self._build_meta_features(X, base_predictions=base_predictions)
         
         # Meta-learner prediction
         probs = self.meta_learner.predict_proba(meta_features)[:, 1]
@@ -214,7 +241,7 @@ class MetaSovereignEnsemble:
         # Uncertainty gating
         if use_uncertainty_gating and self.uncertainty_estimates is not None:
             # Estimate uncertainty for new data
-            new_uncertainty = self._predict_uncertainty(meta_features)
+            new_uncertainty = self._estimate_uncertainty_from_predictions(base_predictions)
             
             # Down-weight high-uncertainty predictions
             confidence = 1.0 / (1.0 + new_uncertainty)
@@ -222,23 +249,14 @@ class MetaSovereignEnsemble:
         
         return {
             "probability": probs,
-            "uncertainty": self._predict_uncertainty(meta_features) if self.uncertainty_estimates is not None else None,
+            "uncertainty": (
+                self._estimate_uncertainty_from_predictions(base_predictions)
+                if self.uncertainty_estimates is not None
+                else None
+            ),
             "confidence": self._compute_confidence(probs),
         }
-    
-    def _predict_uncertainty(self, X: np.ndarray) -> np.ndarray:
-        """Predict uncertainty for new data."""
-        # Use distance to training data as proxy
-        # Simplified: use prediction variance across models
-        model_preds = []
-        for name in self.config.base_models:
-            if name in self.base_predictions:
-                # For simplicity, use stored predictions
-                pass
-        
-        # Return placeholder (would need full implementation)
-        return np.zeros(X.shape[0]) + 0.1
-    
+
     def _compute_confidence(self, probs: np.ndarray) -> np.ndarray:
         """Compute confidence scores."""
         # Confidence = distance from 0.5
@@ -259,7 +277,9 @@ class ConformalPredictionEnsemble:
         
         # Quantile for coverage
         n = len(scores)
-        q_level = np.ceil((n + 1) * self.coverage) / n
+        if n < 1:
+            raise ValueError("Conformal predictor requires at least one calibration score.")
+        q_level = min(1.0, np.ceil((n + 1) * self.coverage) / n)
         self.q_hat = np.quantile(scores, q_level, method="higher")
     
     def predict_set(self, y_pred: np.ndarray) -> list[tuple[float, float]]:
@@ -331,8 +351,8 @@ def create_meta_sovereign_model(
     
     # Final calibration
     calibrator = IsotonicRegression(out_of_bounds="clip")
-    calibrator.fit(preds.reshape(-1, 1), y_true)
-    preds_calibrated = calibrator.predict(preds.reshape(-1, 1))
+    calibrator.fit(preds, y_true)
+    preds_calibrated = calibrator.predict(preds)
     
     return {
         "probability": preds_calibrated,

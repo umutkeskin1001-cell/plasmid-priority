@@ -52,7 +52,7 @@ def prepare_branch_scored_table(
     pd_metadata_merge_columns: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """Validate and enrich a branch scored surface."""
-    working = scored.copy()
+    working = scored.copy(deep=False)
     if label_builder is not None and branch_label_column not in working.columns:
         label_frame = label_builder(
             working,
@@ -87,7 +87,7 @@ def prepare_branch_scored_table(
             if column in pd_metadata.columns and (column == "backbone_id" or column not in working.columns)
         ]
         if len(merge_columns) > 1:
-            meta = pd_metadata.loc[:, merge_columns].copy()
+            meta = pd_metadata.loc[:, merge_columns].copy(deep=False)
             meta["backbone_id"] = meta["backbone_id"].astype(str)
             working = working.merge(meta.drop_duplicates(subset=["backbone_id"]), on="backbone_id", how="left")
     return working
@@ -112,7 +112,7 @@ def build_branch_dataset_from_prepared(
     )
     if label_column not in prepared.columns:
         raise KeyError(f"Prepared branch table is missing `{label_column}`.")
-    eligible = prepared.loc[prepared[label_column].notna()].copy()
+    eligible = prepared.loc[prepared[label_column].notna()].copy(deep=False)
     eligible[label_column] = eligible[label_column].astype(int)
     fit_config = config.fit_config[str(model_name)].model_dump(mode="python")
     return BranchDataset(

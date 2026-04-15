@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from typing import Any
+from collections.abc import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -491,6 +490,10 @@ def build_clinical_hazard_labels(
                 "last_resort_fraction_future",
                 "mdr_proxy_fraction_future",
                 "pd_clinical_support_future",
+                "clinical_fraction_future_gain",
+                "last_resort_fraction_future_gain",
+                "mdr_proxy_fraction_future_gain",
+                "pd_clinical_support_future_gain",
                 "clinical_hazard_label",
                 "clinical_hazard_label_reason",
             ]
@@ -517,24 +520,23 @@ def build_clinical_hazard_labels(
                 )
                 future_stats = future_stats.drop(columns=["pd_clinical_support_future_meta"])
 
-    thresholds = {
-        "clinical_fraction_future": 0.10,
+    gain_thresholds = {
+        "clinical_fraction_future": 0.15,
         "last_resort_fraction_future": 0.10,
         "mdr_proxy_fraction_future": 0.10,
         "pd_clinical_support_future": 0.10,
     }
-    gains = {}
-    for column, threshold in thresholds.items():
+    for column, threshold in gain_thresholds.items():
         pre_column = column.replace("_future", "_pre")
         future_values = pd.to_numeric(future_stats.get(column), errors="coerce").fillna(0.0)
         pre_values = pd.to_numeric(future_stats.get(pre_column), errors="coerce").fillna(0.0)
         gain = future_values - pre_values
-        gains[column] = gain
         future_stats[f"{column}_gain"] = gain
     escalation_flags = pd.DataFrame(
         {
-            name: pd.to_numeric(future_stats.get(name), errors="coerce").fillna(0.0) >= threshold
-            for name, threshold in thresholds.items()
+            f"{name}_gain": pd.to_numeric(future_stats.get(f"{name}_gain"), errors="coerce").fillna(0.0)
+            >= threshold
+            for name, threshold in gain_thresholds.items()
         }
     )
     future_stats["clinical_hazard_label"] = (escalation_flags.sum(axis=1) >= 2).astype(float)
@@ -544,7 +546,7 @@ def build_clinical_hazard_labels(
         "future_unseen_or_missing_future_window",
         np.where(
             future_stats["clinical_hazard_label"].astype(float) >= 1.0,
-            "at_least_two_future_escalation_thresholds_met",
+            "at_least_two_future_escalation_gains_met",
             "escalation_conditions_below_threshold",
         ),
     )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+import numpy as np
 import pandas as pd
 
 from plasmid_priority.protocol import (
@@ -70,7 +71,7 @@ def _extract_failed_criteria(row: pd.Series) -> tuple[str, ...]:
 def _failure_shortfall_total(row: pd.Series) -> float:
     total = 0.0
     for column, threshold_name in _FAILURE_CUTOFF_COLUMNS:
-        if column not in row.index:
+        if column not in row:
             continue
         value = row.get(column)
         if pd.isna(value):
@@ -115,8 +116,10 @@ def add_failure_severity(scorecard: pd.DataFrame) -> pd.DataFrame:
     """Attach a deterministic failure-severity score."""
 
     working = scorecard.copy()
-    working[_FAILURE_SEVERITY_COLUMN] = working.apply(_compute_failure_severity, axis=1).astype(
-        float
+    working[_FAILURE_SEVERITY_COLUMN] = pd.Series(
+        (_compute_failure_severity(row) for row in working.to_dict("records")),
+        index=working.index,
+        dtype=float,
     )
     return working
 
@@ -166,16 +169,18 @@ def build_pareto_shortlist(candidates: pd.DataFrame) -> pd.DataFrame:
 
     working = rank_single_model_candidates(candidates)
     shortlist_rows: list[int] = []
-    for idx, row in working.iterrows():
-        dominated = False
-        for other_idx, other in working.iterrows():
-            if idx == other_idx:
-                continue
-            if _dominates(other, row):
-                dominated = True
-                break
-        if not dominated:
-            shortlist_rows.append(idx)
+    best_score_so_far = float("-inf")
+    grouped = working.groupby(_FAILURE_SEVERITY_COLUMN, sort=True, dropna=False)
+    for _, group in grouped:
+        scores = pd.to_numeric(group[_WEIGHTED_SCORE_COLUMN], errors="coerce").astype(float)
+        if scores.empty:
+            continue
+        group_best_score = float(scores.max())
+        if group_best_score <= best_score_so_far:
+            continue
+        keep_mask = np.isclose(scores.to_numpy(dtype=float), group_best_score, rtol=0.0, atol=1e-12)
+        shortlist_rows.extend(group.index[keep_mask].tolist())
+        best_score_so_far = max(best_score_so_far, group_best_score)
     shortlist = working.loc[shortlist_rows].copy()
     return shortlist.sort_values(
         by=[_FAILURE_SEVERITY_COLUMN, _WEIGHTED_SCORE_COLUMN, _MODEL_NAME_COLUMN],

@@ -127,11 +127,14 @@ def build_branch_selection_scorecard(
     rationale_frame = pd.DataFrame(index=scorecard.index)
     for token, mask in rationale_parts:
         rationale_frame[token] = mask.fillna(False).astype(bool)
-    scorecard["selection_rationale"] = rationale_frame.apply(
-        lambda row: ", ".join(column for column, active in row.items() if bool(active))
-        or "balanced_selection",
-        axis=1,
-    )
+    rationale_labels = [
+        ", ".join(
+            column for column, active in zip(rationale_frame.columns, row, strict=False) if bool(active)
+        )
+        or "balanced_selection"
+        for row in rationale_frame.to_numpy(dtype=bool, copy=False)
+    ]
+    scorecard["selection_rationale"] = rationale_labels
     return scorecard
 
 
