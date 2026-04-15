@@ -110,7 +110,9 @@ def _augment_geo_result_metrics(
 ) -> None:
     if result.status != "ok" or result.predictions.empty:
         return
-    score_column = "oof_prediction" if "oof_prediction" in result.predictions.columns else "prediction"
+    score_column = (
+        "oof_prediction" if "oof_prediction" in result.predictions.columns else "prediction"
+    )
     if score_column not in result.predictions.columns:
         return
     merge_columns = [

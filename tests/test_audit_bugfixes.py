@@ -52,9 +52,9 @@ class TestBug002SchemaValidationExitCodes:
         content = script_path.read_text()
 
         # Should check for fail/error status and return 1
-        assert 'overall in ("fail", "error")' in content or \
-               '("fail", "error")' in content, \
+        assert 'overall in ("fail", "error")' in content or '("fail", "error")' in content, (
             "Should check for fail/error status"
+        )
         assert "return 1" in content, "Should return 1 on failure"
         assert "return 0" in content, "Should return 0 on success"
 
@@ -64,9 +64,9 @@ class TestBug002SchemaValidationExitCodes:
         content = script_path.read_text()
 
         # Should have proper comment about exit codes
-        assert "non-zero for fail/error" in content.lower() or \
-               "return 1" in content, \
+        assert "non-zero for fail/error" in content.lower() or "return 1" in content, (
             "Should document non-zero exit for fail/error"
+        )
 
     def test_schema_validation_returns_0_on_skipped(self):
         """Verify run_schema_validation.py returns 0 on skipped validation."""
@@ -75,8 +75,7 @@ class TestBug002SchemaValidationExitCodes:
 
         # Skipped should not be in the fail/error condition
         # The condition should be specifically for fail/error
-        assert '("fail", "error")' in content, \
-            "Should only return 1 for fail/error, not skipped"
+        assert '("fail", "error")' in content, "Should only return 1 for fail/error, not skipped"
 
 
 class TestBug003HardeningSnapshotFailPropagation:
@@ -257,8 +256,9 @@ class TestBug008ScriptIndexStep26:
         # Find the line for step 26
         for line in content.split("\n"):
             if "26_run_tests_or_smoke.py" in line:
-                assert "Manual/Optional" in line or "manual" in line.lower(), \
+                assert "Manual/Optional" in line or "manual" in line.lower(), (
                     "Step 26 should be marked as Manual/Optional"
+                )
                 break
         else:
             pytest.fail("Step 26 not found in INDEX.md")

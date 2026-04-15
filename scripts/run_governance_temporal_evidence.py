@@ -306,9 +306,7 @@ def _determine_recommendation(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Governance temporal evidence evaluation"
-    )
+    parser = argparse.ArgumentParser(description="Governance temporal evidence evaluation")
     parser.add_argument(
         "--jobs",
         type=int,
@@ -365,7 +363,9 @@ def main() -> int:
     print(f"Loaded {len(scored)} rows from scored data")
 
     # Check what temporal windows are available in scored data
-    available_windows = scored[["split_year", "test_year_end", "backbone_assignment_mode"]].drop_duplicates()
+    available_windows = scored[
+        ["split_year", "test_year_end", "backbone_assignment_mode"]
+    ].drop_duplicates()
     print(f"Available temporal windows: {len(available_windows)}")
     print(f"Unique split_years: {sorted(scored['split_year'].dropna().unique())}")
     print(f"Unique test_year_ends: {sorted(scored['test_year_end'].dropna().unique())}")
@@ -473,21 +473,31 @@ def main() -> int:
     summary_rows = []
     for model_name in GOVERNANCE_MODELS:
         model_summary = summary.get(model_name, {})
-        summary_rows.append({
-            "model_name": model_name,
-            "temporal_evidence_status": model_summary.get("temporal_evidence_status", "not_evaluated"),
-            "mean_rolling_auc": model_summary.get("mean_rolling_auc"),
-            "rolling_auc_std": model_summary.get("rolling_auc_std"),
-            "mean_ece": model_summary.get("mean_ece"),
-            "mean_temporal_gap_vs_oof": model_summary.get("mean_temporal_gap_vs_oof"),
-            "n_windows_evaluated": model_summary.get("n_windows_evaluated", 0),
-            "baseline_comparison": "baseline" if model_name == GOVERNANCE_BASELINE else "challenger",
-            "recommendation_class": (
-                "OFFICIAL_BASELINE" if model_name == GOVERNANCE_BASELINE
-                else ("PROMOTABLE_CHALLENGER" if recommendation == "PROCEED_WITH_GOVERNANCE_15F"
-                      else "CHALLENGER_ONLY")
-            ),
-        })
+        summary_rows.append(
+            {
+                "model_name": model_name,
+                "temporal_evidence_status": model_summary.get(
+                    "temporal_evidence_status", "not_evaluated"
+                ),
+                "mean_rolling_auc": model_summary.get("mean_rolling_auc"),
+                "rolling_auc_std": model_summary.get("rolling_auc_std"),
+                "mean_ece": model_summary.get("mean_ece"),
+                "mean_temporal_gap_vs_oof": model_summary.get("mean_temporal_gap_vs_oof"),
+                "n_windows_evaluated": model_summary.get("n_windows_evaluated", 0),
+                "baseline_comparison": "baseline"
+                if model_name == GOVERNANCE_BASELINE
+                else "challenger",
+                "recommendation_class": (
+                    "OFFICIAL_BASELINE"
+                    if model_name == GOVERNANCE_BASELINE
+                    else (
+                        "PROMOTABLE_CHALLENGER"
+                        if recommendation == "PROCEED_WITH_GOVERNANCE_15F"
+                        else "CHALLENGER_ONLY"
+                    )
+                ),
+            }
+        )
 
     summary_df = pd.DataFrame(summary_rows)
     summary_df.to_csv(temporal_tsv_path, sep="\t", index=False)
@@ -617,7 +627,9 @@ decisions based on incomplete evidence. Re-run when data issues are resolved.
 
     print("\n=== GOVERNANCE TEMPORAL EVIDENCE COMPLETE ===")
     print(f"Recommendation: {recommendation}")
-    print(f"Windows evaluated successfully: {(rolling_df['status'] == 'ok').sum()} / {len(rolling_tasks)}")
+    print(
+        f"Windows evaluated successfully: {(rolling_df['status'] == 'ok').sum()} / {len(rolling_tasks)}"
+    )
 
     return 0
 

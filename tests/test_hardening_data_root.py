@@ -10,7 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_script(module_name: str, script_name: str):
-    spec = importlib.util.spec_from_file_location(module_name, PROJECT_ROOT / "scripts" / script_name)
+    spec = importlib.util.spec_from_file_location(
+        module_name, PROJECT_ROOT / "scripts" / script_name
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
@@ -89,7 +91,9 @@ def test_run_missingness_audit_resolves_defaults_via_context_data_root() -> None
 
         with (
             mock.patch.object(module, "build_context", return_value=fake_context),
-            mock.patch.object(module, "audit_backbone_tables", return_value={"overall_status": "ok"}),
+            mock.patch.object(
+                module, "audit_backbone_tables", return_value={"overall_status": "ok"}
+            ),
             mock.patch.object(module, "format_missingness_report", return_value="ok"),
             mock.patch.object(module, "print_backbone_audit_report"),
             mock.patch.object(module.pd, "read_csv", wraps=module.pd.read_csv) as read_csv_mock,
@@ -114,7 +118,9 @@ def test_run_hardening_summary_resolves_defaults_via_context_data_root() -> None
 
         with (
             mock.patch.object(module, "build_context", return_value=fake_context),
-            mock.patch.object(module, "build_hardening_audit_summary", return_value=summary_payload),
+            mock.patch.object(
+                module, "build_hardening_audit_summary", return_value=summary_payload
+            ),
             mock.patch.object(module.pd, "read_csv", wraps=module.pd.read_csv) as read_csv_mock,
         ):
             rc = module.main([])

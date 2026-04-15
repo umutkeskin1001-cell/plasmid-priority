@@ -22,7 +22,11 @@ from plasmid_priority.modeling import (
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.scoring import fit_full_model_predictions
 from plasmid_priority.utils.dataframe import read_tsv, write_tsv
-from plasmid_priority.utils.files import ensure_directory, load_signature_manifest, write_signature_manifest
+from plasmid_priority.utils.files import (
+    ensure_directory,
+    load_signature_manifest,
+    write_signature_manifest,
+)
 
 
 def main() -> int:

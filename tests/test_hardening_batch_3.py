@@ -12,7 +12,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_script(module_name: str, script_name: str):
-    spec = importlib.util.spec_from_file_location(module_name, PROJECT_ROOT / "scripts" / script_name)
+    spec = importlib.util.spec_from_file_location(
+        module_name, PROJECT_ROOT / "scripts" / script_name
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
@@ -30,7 +32,10 @@ def test_run_hardening_summary_writes_json_when_markdown_enabled(tmp_path, capsy
     backbone_df.to_csv(backbone_path, sep="\t", index=False)
     scored_df.to_csv(scored_path, sep="\t", index=False)
 
-    summary = {"overall_status": "ok", "tables_audited": ["backbone_table", "scored_backbone_table"]}
+    summary = {
+        "overall_status": "ok",
+        "tables_audited": ["backbone_table", "scored_backbone_table"],
+    }
     with mock.patch.object(module, "build_hardening_audit_summary", return_value=summary):
         rc = module.main(
             [

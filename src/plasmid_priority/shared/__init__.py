@@ -10,8 +10,8 @@ from plasmid_priority.shared.contracts import (
     BranchInputContract,
     build_branch_input_contract,
     ensure_branch_label_alias,
-    validate_branch_input_contract,
     validate_branch_feature_set,
+    validate_branch_input_contract,
 )
 from plasmid_priority.shared.data_inventory import build_branch_inventory
 from plasmid_priority.shared.explanations import (
@@ -45,8 +45,8 @@ from plasmid_priority.shared.specs import (
 )
 from plasmid_priority.shared.temporal import (
     future_window_mask,
-    resolve_window_bounds,
     pre_split_mask,
+    resolve_window_bounds,
     split_year_window_mask,
 )
 

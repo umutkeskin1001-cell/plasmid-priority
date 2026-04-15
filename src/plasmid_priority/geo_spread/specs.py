@@ -148,16 +148,12 @@ DEFAULT_GEO_SPREAD_FIT_CONFIG_PAYLOAD: dict[str, dict[str, Any]] = {
 def _normalize_text_sequence(values: Sequence[str] | None) -> tuple[str, ...]:
     if not values:
         return ()
-    return tuple(
-        dict.fromkeys(
-            str(value).strip()
-            for value in values
-            if str(value).strip()
-        )
-    )
+    return tuple(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
 
 
-def _normalize_feature_sets(feature_sets: Mapping[str, Sequence[str]] | None) -> dict[str, tuple[str, ...]]:
+def _normalize_feature_sets(
+    feature_sets: Mapping[str, Sequence[str]] | None,
+) -> dict[str, tuple[str, ...]]:
     if not feature_sets:
         return {name: tuple(columns) for name, columns in DEFAULT_GEO_SPREAD_FEATURE_SETS.items()}
     normalized: dict[str, tuple[str, ...]] = {}
@@ -166,7 +162,9 @@ def _normalize_feature_sets(feature_sets: Mapping[str, Sequence[str]] | None) ->
     return normalized
 
 
-def _normalize_fit_config(fit_config: Mapping[str, Mapping[str, Any]] | None) -> dict[str, dict[str, Any]]:
+def _normalize_fit_config(
+    fit_config: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
     normalized: dict[str, dict[str, Any]] = {
         name: dict(payload) for name, payload in DEFAULT_GEO_SPREAD_FIT_CONFIG_PAYLOAD.items()
     }
@@ -212,7 +210,9 @@ class GeoSpreadFitConfig(BaseModel):
     def _validate_model_type(cls, value: str) -> str:
         normalized = str(value).strip().lower()
         if normalized not in {"logistic", "hybrid_stacked", "pairwise_rank_logistic"}:
-            raise ValueError("model_type must be one of: logistic, hybrid_stacked, pairwise_rank_logistic")
+            raise ValueError(
+                "model_type must be one of: logistic, hybrid_stacked, pairwise_rank_logistic"
+            )
         return normalized
 
     @model_validator(mode="after")
@@ -363,8 +363,7 @@ class GeoSpreadConfig(BaseModel):
         missing = sorted(name for name in selection_names if name not in available)
         if missing:
             raise ValueError(
-                "geo spread selection references missing model definitions: "
-                + ", ".join(missing)
+                "geo spread selection references missing model definitions: " + ", ".join(missing)
             )
         missing_fit = sorted(name for name in self.fit_config if name not in available)
         if missing_fit:

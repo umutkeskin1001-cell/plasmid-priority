@@ -14,6 +14,10 @@ def _safe_series_value(frame: pd.DataFrame, column: str, default: Any = float("n
     return frame.iloc[0].get(column, default)
 
 
+def _metric_value(row: pd.Series, column: str) -> float:
+    return float(pd.to_numeric(pd.Series([row[column]]), errors="coerce").iloc[0])
+
+
 def build_clinical_hazard_report_card(
     results: Mapping[str, Any],
     *,
@@ -35,14 +39,20 @@ def build_clinical_hazard_report_card(
             "roc_auc": result.metrics.get("roc_auc", float("nan")),
             "average_precision": result.metrics.get("average_precision", float("nan")),
             "brier_score": result.metrics.get("brier_score", float("nan")),
-            "expected_calibration_error": result.metrics.get("expected_calibration_error", float("nan")),
-            "n_backbones": result.metrics.get("n_backbones", len(getattr(result, "predictions", []))),
+            "expected_calibration_error": result.metrics.get(
+                "expected_calibration_error", float("nan")
+            ),
+            "n_backbones": result.metrics.get(
+                "n_backbones", len(getattr(result, "predictions", []))
+            ),
             "n_positive": result.metrics.get("n_positive", float("nan")),
             "error_message": getattr(result, "error_message", None),
         }
         if not calibration_frame.empty:
             match = calibration_frame.loc[
-                calibration_frame.get("model_name", pd.Series(dtype=str)).astype(str).eq(str(model_name))
+                calibration_frame.get("model_name", pd.Series(dtype=str))
+                .astype(str)
+                .eq(str(model_name))
             ]
             if not match.empty:
                 row["calibration_method"] = _safe_series_value(match, "calibration_method", "none")
@@ -57,18 +67,31 @@ def build_clinical_hazard_report_card(
     report = pd.DataFrame(rows)
     if report.empty:
         return report
-    report["is_primary_candidate"] = report["model_name"].astype(str).eq(
-        str(provenance.get("primary_model_name", "")) if provenance else ""
+    report["is_primary_candidate"] = (
+        report["model_name"]
+        .astype(str)
+        .eq(str(provenance.get("primary_model_name", "")) if provenance else "")
     )
     report["is_headline_candidate"] = report["rank"].eq(1)
     if provenance:
-        for key in ("benchmark_name", "split_year", "run_signature", "config_hash", "input_hash", "feature_surface_hash"):
+        for key in (
+            "benchmark_name",
+            "split_year",
+            "run_signature",
+            "config_hash",
+            "input_hash",
+            "feature_surface_hash",
+        ):
             report[key] = provenance.get(key)
     if selection_scorecard is not None and not selection_scorecard.empty:
         report = report.merge(
             selection_scorecard.loc[
                 :,
-                [column for column in selection_scorecard.columns if column in {"model_name", "selection_score", "selection_rank"}],
+                [
+                    column
+                    for column in selection_scorecard.columns
+                    if column in {"model_name", "selection_score", "selection_rank"}
+                ],
             ],
             on="model_name",
             how="left",
@@ -106,9 +129,11 @@ def format_clinical_hazard_report_markdown(
         )
     lines.extend(["", "## Ranked models"])
     for _, row in report_card.iterrows():
+        roc_auc = _metric_value(row, "roc_auc")
+        average_precision = _metric_value(row, "average_precision")
         lines.append(
-            f"- `{row['model_name']}`: ROC AUC `{float(pd.to_numeric(pd.Series([row['roc_auc']]), errors='coerce').iloc[0]):.3f}`, "
-            f"AP `{float(pd.to_numeric(pd.Series([row['average_precision']]), errors='coerce').iloc[0]):.3f}`"
+            f"- `{row['model_name']}`: ROC AUC `{roc_auc:.3f}`, AP "
+            f"`{average_precision:.3f}`"
         )
     lines.append("")
     return "\n".join(lines)

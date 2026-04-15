@@ -153,7 +153,9 @@ def main() -> int:
             == str(primary_model)
         ].head(1)
         primary_selection_adjusted = selection_adjusted_permutation_summary.loc[
-            selection_adjusted_permutation_summary.get("model_name", pd.Series(dtype=str)).astype(str)
+            selection_adjusted_permutation_summary.get("model_name", pd.Series(dtype=str)).astype(
+                str
+            )
             == str(primary_model)
         ].head(1)
         best_count_alignment = (
@@ -251,10 +253,10 @@ def main() -> int:
         atomic_write_json(
             manifest_path,
             {
-            "pipeline_settings": pipeline_settings,
-            "input_signatures": [_path_signature(path) for path in input_paths],
-            "source_signatures": [_path_signature(path) for path in source_paths],
-            "output_signature": _path_signature(text_output_path),
+                "pipeline_settings": pipeline_settings,
+                "input_signatures": [_path_signature(path) for path in input_paths],
+                "source_signatures": [_path_signature(path) for path in source_paths],
+                "output_signature": _path_signature(text_output_path),
             },
         )
         run.set_metric("cache_hit", False)

@@ -45,6 +45,10 @@ def _safe_probability(values: np.ndarray) -> np.ndarray:
     return np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
 
 
+def _identity_calibrator(values: np.ndarray) -> np.ndarray:
+    return _safe_probability(values)
+
+
 def _float_option(payload: Mapping[str, Any], key: str, default: float) -> float:
     try:
         return float(payload.get(key, default))
@@ -69,9 +73,11 @@ def _prepare_knownness_surface(scored: pd.DataFrame | None) -> pd.DataFrame | No
     return prepare_geo_spread_scored_table(scored)
 
 
-def _fit_platt_calibrator(y_true: np.ndarray, y_score: np.ndarray) -> Callable[[np.ndarray], np.ndarray]:
+def _fit_platt_calibrator(
+    y_true: np.ndarray, y_score: np.ndarray
+) -> Callable[[np.ndarray], np.ndarray]:
     if np.unique(y_true).size < 2 or len(y_true) < 2:
-        return lambda values: _safe_probability(values)
+        return _identity_calibrator
     model = LogisticRegression(
         C=1e6,
         fit_intercept=True,
@@ -80,7 +86,9 @@ def _fit_platt_calibrator(y_true: np.ndarray, y_score: np.ndarray) -> Callable[[
         solver="lbfgs",
     )
     model.fit(np.asarray(y_score, dtype=float).reshape(-1, 1), np.asarray(y_true, dtype=int))
-    return lambda values: _safe_probability(model.predict_proba(np.asarray(values, dtype=float).reshape(-1, 1))[:, 1])
+    return lambda values: _safe_probability(
+        model.predict_proba(np.asarray(values, dtype=float).reshape(-1, 1))[:, 1]
+    )
 
 
 def _fit_isotonic_calibrator(
@@ -88,7 +96,7 @@ def _fit_isotonic_calibrator(
     y_score: np.ndarray,
 ) -> Callable[[np.ndarray], np.ndarray]:
     if np.unique(y_true).size < 2 or len(y_true) < 2:
-        return lambda values: _safe_probability(values)
+        return _identity_calibrator
     model = IsotonicRegression(out_of_bounds="clip")
     model.fit(np.asarray(y_score, dtype=float), np.asarray(y_true, dtype=float))
     return lambda values: _safe_probability(model.predict(np.asarray(values, dtype=float)))
@@ -111,7 +119,9 @@ def _review_reason(
     reasons = np.full(len(confidence), "none", dtype=object)
     reasons[ood_flag] = "ood"
     reasons[(~ood_flag) & (~support_sufficient)] = "low_support"
-    reasons[(~ood_flag) & support_sufficient & (confidence < float(confidence_threshold))] = "low_confidence"
+    reasons[(~ood_flag) & support_sufficient & (confidence < float(confidence_threshold))] = (
+        "low_confidence"
+    )
     return pd.Series(reasons, dtype=object)
 
 
@@ -194,9 +204,7 @@ def calibrate_geo_spread_predictions(
     working = working.reset_index(drop=True)
 
     if isinstance(fit_config, GeoSpreadConfig):
-        fit_payload = dict(
-            fit_config.fit_config.get(str(model_name), {}).model_dump(mode="python")
-        )
+        fit_payload = dict(fit_config.fit_config.get(str(model_name), {}).model_dump(mode="python"))
     elif hasattr(fit_config, "model_dump"):
         fit_payload = dict(fit_config.model_dump(mode="python"))
     else:
@@ -204,14 +212,25 @@ def calibrate_geo_spread_predictions(
     if "calibration" not in fit_payload and str(model_name) in _DERIVED_MODEL_CALIBRATION:
         fit_payload["calibration"] = _DERIVED_MODEL_CALIBRATION[str(model_name)]
     method = _normalize_method(fit_payload.get("calibration", "none"))
-    support_threshold = float(np.clip(_float_option(fit_payload, "support_knownness_threshold", 0.25), 0.0, 1.0))
-    ood_knownness_threshold = float(np.clip(_float_option(fit_payload, "ood_knownness_threshold", 0.10), 0.0, 1.0))
+    support_threshold = float(
+        np.clip(_float_option(fit_payload, "support_knownness_threshold", 0.25), 0.0, 1.0)
+    )
+    ood_knownness_threshold = float(
+        np.clip(_float_option(fit_payload, "ood_knownness_threshold", 0.10), 0.0, 1.0)
+    )
     confidence_review_threshold = float(
         np.clip(_float_option(fit_payload, "confidence_review_threshold", 0.45), 0.0, 1.0)
     )
 
-    y_true = pd.to_numeric(working[label_column], errors="coerce").fillna(-1).astype(int).to_numpy(dtype=int)
-    raw_scores = pd.to_numeric(working[score_column], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    y_true = (
+        pd.to_numeric(working[label_column], errors="coerce")
+        .fillna(-1)
+        .astype(int)
+        .to_numpy(dtype=int)
+    )
+    raw_scores = (
+        pd.to_numeric(working[score_column], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    )
     labeled_mask = y_true >= 0
 
     if method == "platt":
@@ -219,7 +238,7 @@ def calibrate_geo_spread_predictions(
     elif method == "isotonic":
         calibrator = _fit_isotonic_calibrator(y_true[labeled_mask], raw_scores[labeled_mask])
     else:
-        calibrator = lambda values: _safe_probability(values)
+        calibrator = _identity_calibrator
 
     calibrated = calibrator(raw_scores)
 
@@ -251,7 +270,9 @@ def calibrate_geo_spread_predictions(
 
     score_uncertainty = 4.0 * raw_scores * (1.0 - raw_scores)
     calibration_gap = np.abs(calibrated - raw_scores)
-    support_uncertainty = np.where(np.isnan(knownness_numeric), 0.35, 1.0 - np.clip(knownness_numeric, 0.0, 1.0))
+    support_uncertainty = np.where(
+        np.isnan(knownness_numeric), 0.35, 1.0 - np.clip(knownness_numeric, 0.0, 1.0)
+    )
     prediction_uncertainty = np.clip(
         0.55 * score_uncertainty + 0.30 * calibration_gap + 0.15 * support_uncertainty,
         0.0,
@@ -265,9 +286,18 @@ def calibrate_geo_spread_predictions(
         confidence=confidence,
         confidence_threshold=confidence_review_threshold,
     ).set_axis(working.index)
-    abstain_or_review_flag = (confidence < confidence_review_threshold) | (~support_sufficient) | ood_flag
+    abstain_or_review_flag = (
+        (confidence < confidence_review_threshold) | (~support_sufficient) | ood_flag
+    )
 
-    calibrated_frame = working.loc[:, [c for c in working.columns if c in {backbone_id_column, score_column, label_column, knownness_column}]].copy()
+    calibrated_frame = working.loc[
+        :,
+        [
+            c
+            for c in working.columns
+            if c in {backbone_id_column, score_column, label_column, knownness_column}
+        ],
+    ].copy()
     calibrated_frame["calibrated_prediction"] = calibrated
     calibrated_frame["prediction_uncertainty"] = prediction_uncertainty
     calibrated_frame["confidence"] = confidence
@@ -295,19 +325,47 @@ def calibrate_geo_spread_predictions(
         "mean_prediction_uncertainty": float(np.mean(prediction_uncertainty)),
         "support_sufficiency_rate": float(np.mean(support_sufficient.astype(float))),
         "ood_rate": float(np.mean(ood_flag.astype(float))),
-        "raw_brier_score": float(brier_score(y_true[labeled_mask], raw_scores[labeled_mask])) if labeled_mask.any() else float("nan"),
-        "calibrated_brier_score": float(brier_score(y_true[labeled_mask], calibrated[labeled_mask])) if labeled_mask.any() else float("nan"),
-        "raw_log_loss": float(log_loss(y_true[labeled_mask], raw_scores[labeled_mask])) if labeled_mask.any() else float("nan"),
-        "calibrated_log_loss": float(log_loss(y_true[labeled_mask], calibrated[labeled_mask])) if labeled_mask.any() else float("nan"),
-        "raw_expected_calibration_error": float(expected_calibration_error(y_true[labeled_mask], raw_scores[labeled_mask])) if labeled_mask.any() else float("nan"),
-        "calibrated_expected_calibration_error": float(expected_calibration_error(y_true[labeled_mask], calibrated[labeled_mask])) if labeled_mask.any() else float("nan"),
-        "raw_max_calibration_error": float(max_calibration_error(y_true[labeled_mask], raw_scores[labeled_mask])) if labeled_mask.any() else float("nan"),
-        "calibrated_max_calibration_error": float(max_calibration_error(y_true[labeled_mask], calibrated[labeled_mask])) if labeled_mask.any() else float("nan"),
+        "raw_brier_score": float(brier_score(y_true[labeled_mask], raw_scores[labeled_mask]))
+        if labeled_mask.any()
+        else float("nan"),
+        "calibrated_brier_score": float(brier_score(y_true[labeled_mask], calibrated[labeled_mask]))
+        if labeled_mask.any()
+        else float("nan"),
+        "raw_log_loss": float(log_loss(y_true[labeled_mask], raw_scores[labeled_mask]))
+        if labeled_mask.any()
+        else float("nan"),
+        "calibrated_log_loss": float(log_loss(y_true[labeled_mask], calibrated[labeled_mask]))
+        if labeled_mask.any()
+        else float("nan"),
+        "raw_expected_calibration_error": float(
+            expected_calibration_error(y_true[labeled_mask], raw_scores[labeled_mask])
+        )
+        if labeled_mask.any()
+        else float("nan"),
+        "calibrated_expected_calibration_error": float(
+            expected_calibration_error(y_true[labeled_mask], calibrated[labeled_mask])
+        )
+        if labeled_mask.any()
+        else float("nan"),
+        "raw_max_calibration_error": float(
+            max_calibration_error(y_true[labeled_mask], raw_scores[labeled_mask])
+        )
+        if labeled_mask.any()
+        else float("nan"),
+        "calibrated_max_calibration_error": float(
+            max_calibration_error(y_true[labeled_mask], calibrated[labeled_mask])
+        )
+        if labeled_mask.any()
+        else float("nan"),
     }
-    summary["calibration_curve"] = calibration_curve_data(
-        y_true[labeled_mask],
-        calibrated[labeled_mask] if labeled_mask.any() else np.array([], dtype=float),
-    ) if labeled_mask.any() else []
+    summary["calibration_curve"] = (
+        calibration_curve_data(
+            y_true[labeled_mask],
+            calibrated[labeled_mask] if labeled_mask.any() else np.array([], dtype=float),
+        )
+        if labeled_mask.any()
+        else []
+    )
 
     provenance = {
         "model_name": str(model_name),

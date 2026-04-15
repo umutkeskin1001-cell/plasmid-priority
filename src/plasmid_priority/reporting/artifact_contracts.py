@@ -46,9 +46,7 @@ def validate_probability_columns(
         values = pd.to_numeric(frame[column], errors="coerce")
         invalid = values.notna() & (~values.between(0.0, 1.0, inclusive="both"))
         if invalid.any():
-            raise ValueError(
-                f"{artifact_name} column `{column}` contains values outside [0, 1]"
-            )
+            raise ValueError(f"{artifact_name} column `{column}` contains values outside [0, 1]")
 
 
 def validate_report_artifact(

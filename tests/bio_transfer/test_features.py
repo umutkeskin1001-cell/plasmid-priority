@@ -21,7 +21,9 @@ class BioTransferFeatureTests(unittest.TestCase):
         self.assertIn("mobility_support_norm", built.columns)
         self.assertIn("host_breadth_mobility_synergy_norm", built.columns)
         self.assertNotIn("bio_transfer_label_future", built.columns)
-        self.assertAlmostEqual(float(built.loc[0, "host_breadth_mobility_synergy_norm"]), 0.32, places=6)
+        self.assertAlmostEqual(
+            float(built.loc[0, "host_breadth_mobility_synergy_norm"]), 0.32, places=6
+        )
 
 
 if __name__ == "__main__":

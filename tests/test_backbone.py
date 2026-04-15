@@ -190,7 +190,9 @@ class BackboneTests(unittest.TestCase):
                 "backbone_seen_in_training": [True, True, False],
             }
         )
-        coherence = pd.DataFrame({"backbone_id": ["bb1", "UNSEEN::bb2"], "coherence_score": [0.8, 0.1]})
+        coherence = pd.DataFrame(
+            {"backbone_id": ["bb1", "UNSEEN::bb2"], "coherence_score": [0.8, 0.1]}
+        )
         table = build_backbone_table(
             records,
             coherence,

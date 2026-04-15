@@ -19,8 +19,6 @@ from plasmid_priority.clinical_hazard.specs import (
 from plasmid_priority.shared.branching import (
     BranchDataset,
     build_branch_dataset_from_prepared,
-    fit_branch_model,
-    fit_branch_model_predictions,
     prepare_branch_scored_table,
 )
 from plasmid_priority.shared.labels import build_clinical_hazard_labels
@@ -55,7 +53,9 @@ def _build_label_frame(
     if not unseen_backbones:
         return label_frame
     masked = label_frame.copy()
-    masked.loc[masked["backbone_id"].astype(str).isin(unseen_backbones), "clinical_hazard_label"] = pd.NA
+    masked.loc[
+        masked["backbone_id"].astype(str).isin(unseen_backbones), "clinical_hazard_label"
+    ] = pd.NA
     masked.loc[
         masked["backbone_id"].astype(str).isin(unseen_backbones),
         "clinical_hazard_label_reason",
@@ -72,7 +72,9 @@ def prepare_clinical_hazard_scored_table(
     pd_metadata: pd.DataFrame | None = None,
     label: str = "clinical hazard scored table",
 ) -> pd.DataFrame:
-    clinical_config = config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    clinical_config = (
+        config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    )
     clinical_contract = contract or build_clinical_hazard_input_contract()
     prepared = prepare_branch_scored_table(
         scored,
@@ -106,7 +108,9 @@ def prepare_clinical_hazard_dataset(
     pd_metadata: pd.DataFrame | None = None,
     label: str = "clinical hazard scored table",
 ) -> ClinicalHazardDataset:
-    clinical_config = config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    clinical_config = (
+        config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    )
     clinical_contract = contract or build_clinical_hazard_input_contract()
     prepared = prepare_clinical_hazard_scored_table(
         scored,
@@ -132,7 +136,9 @@ def build_clinical_hazard_dataset_from_prepared(
     config: ClinicalHazardConfig | dict[str, Any] | None = None,
     contract: ClinicalHazardInputContract | None = None,
 ) -> ClinicalHazardDataset:
-    clinical_config = config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    clinical_config = (
+        config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    )
     clinical_contract = contract or build_clinical_hazard_input_contract()
     return build_branch_dataset_from_prepared(
         prepared,
@@ -149,7 +155,9 @@ def resolve_clinical_hazard_dataset_model_names(
     include_research: bool = False,
     include_ablation: bool = False,
 ) -> tuple[str, ...]:
-    clinical_config = config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    clinical_config = (
+        config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    )
     names = list(clinical_config.core_model_names)
     names.extend([clinical_config.primary_model_name, clinical_config.conservative_model_name])
     if clinical_config.fallback_model_name:

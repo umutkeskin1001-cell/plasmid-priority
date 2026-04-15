@@ -1,14 +1,14 @@
 """Consensus branch helpers."""
 
-from plasmid_priority.consensus.dataset import (
-    ConsensusDataset,
-    prepare_consensus_dataset,
-)
 from plasmid_priority.consensus.calibration import (
     BranchCalibrationResult,
     build_consensus_calibrated_prediction_table,
     build_consensus_calibration_summary,
     calibrate_consensus_predictions,
+)
+from plasmid_priority.consensus.dataset import (
+    ConsensusDataset,
+    prepare_consensus_dataset,
 )
 from plasmid_priority.consensus.evaluate import (
     build_consensus_model_summary,

@@ -115,7 +115,9 @@ def resolve_consensus_model_names(
     include_research: bool = False,
     include_ablation: bool = False,
 ) -> tuple[str, ...]:
-    consensus_config = config if isinstance(config, ConsensusConfig) else load_consensus_config(config)
+    consensus_config = (
+        config if isinstance(config, ConsensusConfig) else load_consensus_config(config)
+    )
     return resolve_branch_model_names(
         consensus_config,
         include_research=include_research,
@@ -127,5 +129,7 @@ def resolve_consensus_fit_config(
     config: Mapping[str, Any] | ConsensusConfig | None,
     model_name: str,
 ) -> ConsensusFitConfig:
-    consensus_config = config if isinstance(config, ConsensusConfig) else load_consensus_config(config)
+    consensus_config = (
+        config if isinstance(config, ConsensusConfig) else load_consensus_config(config)
+    )
     return resolve_branch_fit_config(consensus_config, model_name)

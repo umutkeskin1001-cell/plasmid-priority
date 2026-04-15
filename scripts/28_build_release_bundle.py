@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 import hashlib
-import subprocess
 import shutil
+import subprocess
 import sys
 import tomllib
 from datetime import datetime, timezone
@@ -83,7 +83,11 @@ def _official_model_names(project_root: Path) -> list[str]:
         protocol = pd.read_csv(protocol_path, sep="\t")
     except EmptyDataError:
         return []
-    if protocol.empty or "benchmark_role" not in protocol.columns or "model_name" not in protocol.columns:
+    if (
+        protocol.empty
+        or "benchmark_role" not in protocol.columns
+        or "model_name" not in protocol.columns
+    ):
         return []
     official_roles = {
         "primary_benchmark",
@@ -105,9 +109,7 @@ def _release_protocol(context) -> ScientificProtocol:
     config = context.config if isinstance(context.config, dict) else {}
     models = dict(config.get("models", {})) if isinstance(config.get("models", {}), dict) else {}
     pipeline = (
-        dict(config.get("pipeline", {}))
-        if isinstance(config.get("pipeline", {}), dict)
-        else {}
+        dict(config.get("pipeline", {})) if isinstance(config.get("pipeline", {}), dict) else {}
     )
     models.setdefault("primary_model_name", "discovery_12f_source")
     models.setdefault("primary_model_fallback", "parsimonious_priority")
@@ -115,9 +117,7 @@ def _release_protocol(context) -> ScientificProtocol:
     models.setdefault("governance_model_name", "phylo_support_fusion_priority")
     models.setdefault("governance_model_fallback", "support_synergy_priority")
     core_model_names = [
-        str(name)
-        for name in models.get("core_model_names", [])
-        if str(name).strip()
+        str(name) for name in models.get("core_model_names", []) if str(name).strip()
     ]
     required_core_names = [
         str(models["primary_model_name"]),
@@ -144,7 +144,8 @@ def _build_release_manifest(context) -> dict[str, object]:
             decision_frame = pd.DataFrame()
         if not decision_frame.empty:
             decision_status = str(
-                decision_frame.iloc[0].get("scientific_acceptance_status", "not_scored") or "not_scored"
+                decision_frame.iloc[0].get("scientific_acceptance_status", "not_scored")
+                or "not_scored"
             ).strip()
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -172,7 +173,9 @@ def _build_release_manifest(context) -> dict[str, object]:
 
 def _build_release_info(context_root: Path) -> str:
     metrics_path = context_root / "reports/core_tables/model_metrics.tsv"
-    single_model_decision_path = context_root / "reports/core_tables/single_model_official_decision.tsv"
+    single_model_decision_path = (
+        context_root / "reports/core_tables/single_model_official_decision.tsv"
+    )
     version = _project_version(context_root)
     if not metrics_path.exists():
         return (

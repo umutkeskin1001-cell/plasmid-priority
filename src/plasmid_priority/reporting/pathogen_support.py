@@ -340,8 +340,7 @@ def build_pathogen_group_comparison(
             {
                 "pathogen_dataset": str(dataset_name),
                 "matching_rule": (
-                    "dominant species exact match plus "
-                    "at least one shared top backbone AMR gene"
+                    "dominant species exact match plus at least one shared top backbone AMR gene"
                 ),
                 "n_high": int(len(high)),
                 "n_low": int(len(low)),

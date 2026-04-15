@@ -57,9 +57,7 @@ def _pipeline_settings_from_config(config: dict | None) -> PipelineSettings:
     host_phylo_breadth_weight /= total_host_phylo_weight
     host_phylo_dispersion_weight /= total_host_phylo_weight
     return PipelineSettings(
-        split_year=_coerce_int(
-            pipeline.get("split_year"), default=DEFAULT_PIPELINE_SPLIT_YEAR
-        ),
+        split_year=_coerce_int(pipeline.get("split_year"), default=DEFAULT_PIPELINE_SPLIT_YEAR),
         min_new_countries_for_spread=_coerce_int(
             pipeline.get("min_new_countries_for_spread"),
             default=DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD,

@@ -7,13 +7,13 @@ from typing import Any
 
 import pandas as pd
 
+from plasmid_priority.bio_transfer.specs import BioTransferConfig
 from plasmid_priority.shared.calibration import (
     BranchCalibrationResult,
     build_branch_calibrated_prediction_table,
     build_branch_calibration_summary,
     calibrate_branch_predictions,
 )
-from plasmid_priority.bio_transfer.specs import BioTransferConfig, load_bio_transfer_config
 
 BioTransferCalibrationResult = BranchCalibrationResult
 
@@ -47,7 +47,9 @@ def build_bio_transfer_calibration_summary(
     scored: pd.DataFrame | None = None,
     config: Mapping[str, Any] | BioTransferConfig | None = None,
 ) -> pd.DataFrame:
-    return build_branch_calibration_summary(results, scored=scored, fit_config=config, label_column="bio_transfer_label")
+    return build_branch_calibration_summary(
+        results, scored=scored, fit_config=config, label_column="bio_transfer_label"
+    )
 
 
 def build_bio_transfer_calibrated_prediction_table(
@@ -56,4 +58,6 @@ def build_bio_transfer_calibrated_prediction_table(
     scored: pd.DataFrame | None = None,
     config: Mapping[str, Any] | BioTransferConfig | None = None,
 ) -> pd.DataFrame:
-    return build_branch_calibrated_prediction_table(results, scored=scored, fit_config=config, label_column="bio_transfer_label")
+    return build_branch_calibrated_prediction_table(
+        results, scored=scored, fit_config=config, label_column="bio_transfer_label"
+    )

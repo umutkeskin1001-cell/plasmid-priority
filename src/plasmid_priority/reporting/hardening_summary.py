@@ -113,9 +113,7 @@ def build_hardening_audit_summary(
             "trend_direction": lt_findings["trend_direction"],
             "interpretation": lt_findings["interpretation"],
             "status": (
-                "concern"
-                if lt_findings["overall_concern_level"] in ("high", "moderate")
-                else "ok"
+                "concern" if lt_findings["overall_concern_level"] in ("high", "moderate") else "ok"
             ),
         }
 
@@ -139,7 +137,8 @@ def build_hardening_audit_summary(
             if table_key in missingness_result:
                 table_audit = missingness_result[table_key]
                 high_missing_cols = [
-                    col for col in table_audit.get("columns", [])
+                    col
+                    for col in table_audit.get("columns", [])
                     if col.get("high_missingness_flag")
                 ][:5]  # Top 5
                 summary["missingness"][f"{table_key}_high_missingness_top5"] = [

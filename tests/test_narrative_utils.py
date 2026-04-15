@@ -4,9 +4,9 @@ import pandas as pd
 
 from plasmid_priority.reporting.narrative_utils import (
     benchmark_scope_note,
-    candidate_stability_summary_text,
     blocked_holdout_summary_text,
     blocked_holdout_summary_text_tr,
+    candidate_stability_summary_text,
     country_missingness_summary_text,
     rolling_temporal_summary,
     select_confirmatory_row,
@@ -75,9 +75,7 @@ def test_country_missingness_summary_text_describes_label_variants() -> None:
             },
         ]
     )
-    text = country_missingness_summary_text(
-        bounds, sensitivity, model_name="primary_model"
-    )
+    text = country_missingness_summary_text(bounds, sensitivity, model_name="primary_model")
     assert "country-missingness audit" in text
     assert "Sensitivity across those label variants spans ROC AUC" in text
 
@@ -124,8 +122,18 @@ def test_summarize_false_negative_audit_returns_top_drivers() -> None:
 def test_select_confirmatory_row_returns_ok_row_only() -> None:
     frame = pd.DataFrame(
         [
-            {"cohort_name": "confirmatory_internal", "model_name": "primary", "status": "ok", "roc_auc": 0.7},
-            {"cohort_name": "confirmatory_internal", "model_name": "primary", "status": "fail", "roc_auc": 0.2},
+            {
+                "cohort_name": "confirmatory_internal",
+                "model_name": "primary",
+                "status": "ok",
+                "roc_auc": 0.7,
+            },
+            {
+                "cohort_name": "confirmatory_internal",
+                "model_name": "primary",
+                "status": "fail",
+                "roc_auc": 0.2,
+            },
         ]
     )
     row = select_confirmatory_row(frame, cohort_name="confirmatory_internal", model_name="primary")

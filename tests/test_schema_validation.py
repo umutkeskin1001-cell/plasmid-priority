@@ -55,15 +55,17 @@ class TestSchemaValidationWithValidData:
     @pytest.mark.skipif(not PANDERA_AVAILABLE, reason="Pandera not installed")
     def test_validate_harmonized_plasmids_valid_data(self):
         """Valid harmonized plasmid data should pass validation."""
-        df = pd.DataFrame({
-            "sequence_accession": ["ACC001", "ACC002", "ACC003"],
-            "backbone_id": ["BB001", "BB002", "BB003"],
-            "resolved_year": [2020.0, 2021.0, 2022.0],
-            "country": ["USA", "UK", None],
-            "predicted_mobility": ["conjugative", "mobilizable", None],
-            "gc_content": [50.0, 55.0, 60.0],
-            "size": [10000.0, 20000.0, 30000.0],
-        })
+        df = pd.DataFrame(
+            {
+                "sequence_accession": ["ACC001", "ACC002", "ACC003"],
+                "backbone_id": ["BB001", "BB002", "BB003"],
+                "resolved_year": [2020.0, 2021.0, 2022.0],
+                "country": ["USA", "UK", None],
+                "predicted_mobility": ["conjugative", "mobilizable", None],
+                "gc_content": [50.0, 55.0, 60.0],
+                "size": [10000.0, 20000.0, 30000.0],
+            }
+        )
 
         result = validate_harmonized_plasmids(df)
 
@@ -75,15 +77,17 @@ class TestSchemaValidationWithValidData:
     @pytest.mark.skipif(not PANDERA_AVAILABLE, reason="Pandera not installed")
     def test_validate_backbone_table_valid_data(self):
         """Valid backbone table data should pass validation."""
-        df = pd.DataFrame({
-            "backbone_id": ["BB001", "BB002", "BB003"],
-            "primary_cluster_id": ["C001", "C002", None],
-            "predicted_mobility": ["conjugative", None, "mobilizable"],
-            "mpf_type": ["MPF_F", None, None],
-            "primary_replicon": ["IncF", None, "IncI"],
-            "backbone_assignment_rule": ["primary_cluster_id", None, None],
-            "backbone_seen_in_training": [True, False, None],
-        })
+        df = pd.DataFrame(
+            {
+                "backbone_id": ["BB001", "BB002", "BB003"],
+                "primary_cluster_id": ["C001", "C002", None],
+                "predicted_mobility": ["conjugative", None, "mobilizable"],
+                "mpf_type": ["MPF_F", None, None],
+                "primary_replicon": ["IncF", None, "IncI"],
+                "backbone_assignment_rule": ["primary_cluster_id", None, None],
+                "backbone_seen_in_training": [True, False, None],
+            }
+        )
 
         result = validate_backbone_table(df)
 
@@ -95,19 +99,21 @@ class TestSchemaValidationWithValidData:
     @pytest.mark.skipif(not PANDERA_AVAILABLE, reason="Pandera not installed")
     def test_validate_scored_backbones_valid_data(self):
         """Valid scored backbone data should pass validation."""
-        df = pd.DataFrame({
-            "backbone_id": ["BB001", "BB002", "BB003"],
-            "spread_label": [1.0, 0.0, np.nan],
-            "priority_index": [0.8, 0.3, 0.5],
-            "bio_priority_index": [0.7, 0.4, 0.6],
-            "T_eff_norm": [0.6, 0.2, 0.5],
-            "H_eff_norm": [0.5, 0.3, 0.4],
-            "A_eff_norm": [0.4, 0.1, 0.3],
-            "log1p_member_count_train": [2.0, 1.0, 0.0],
-            "log1p_n_countries_train": [1.5, 0.5, 0.0],
-            "refseq_share_train": [0.8, 0.2, 0.5],
-            "coherence_score": [0.9, 0.7, 0.8],
-        })
+        df = pd.DataFrame(
+            {
+                "backbone_id": ["BB001", "BB002", "BB003"],
+                "spread_label": [1.0, 0.0, np.nan],
+                "priority_index": [0.8, 0.3, 0.5],
+                "bio_priority_index": [0.7, 0.4, 0.6],
+                "T_eff_norm": [0.6, 0.2, 0.5],
+                "H_eff_norm": [0.5, 0.3, 0.4],
+                "A_eff_norm": [0.4, 0.1, 0.3],
+                "log1p_member_count_train": [2.0, 1.0, 0.0],
+                "log1p_n_countries_train": [1.5, 0.5, 0.0],
+                "refseq_share_train": [0.8, 0.2, 0.5],
+                "coherence_score": [0.9, 0.7, 0.8],
+            }
+        )
 
         result = validate_scored_backbones(df)
 
@@ -119,12 +125,14 @@ class TestSchemaValidationWithValidData:
     @pytest.mark.skipif(not PANDERA_AVAILABLE, reason="Pandera not installed")
     def test_validate_deduplicated_plasmids_valid_data(self):
         """Valid deduplicated plasmid data should pass validation."""
-        df = pd.DataFrame({
-            "sequence_accession": ["ACC001", "ACC002", "ACC003"],
-            "backbone_id": ["BB001", "BB001", "BB002"],
-            "is_canonical_representative": [True, False, True],
-            "dedup_representative_group": ["G001", "G001", "G002"],
-        })
+        df = pd.DataFrame(
+            {
+                "sequence_accession": ["ACC001", "ACC002", "ACC003"],
+                "backbone_id": ["BB001", "BB001", "BB002"],
+                "is_canonical_representative": [True, False, True],
+                "dedup_representative_group": ["G001", "G001", "G002"],
+            }
+        )
 
         result = validate_deduplicated_plasmids(df)
 
@@ -140,10 +148,12 @@ class TestSchemaValidationFailureCases:
     @pytest.mark.skipif(not PANDERA_AVAILABLE, reason="Pandera not installed")
     def test_validate_backbone_table_missing_required_column(self):
         """Missing required column should cause validation to fail."""
-        df = pd.DataFrame({
-            # Missing "backbone_id" which is required
-            "primary_cluster_id": ["C001", "C002"],
-        })
+        df = pd.DataFrame(
+            {
+                # Missing "backbone_id" which is required
+                "primary_cluster_id": ["C001", "C002"],
+            }
+        )
 
         result = validate_backbone_table(df)
 
@@ -155,10 +165,12 @@ class TestSchemaValidationFailureCases:
     @pytest.mark.skipif(not PANDERA_AVAILABLE, reason="Pandera not installed")
     def test_validate_harmonized_plasmids_null_accession(self):
         """Null sequence_accession should fail validation."""
-        df = pd.DataFrame({
-            "sequence_accession": [None, "ACC002"],
-            "backbone_id": ["BB001", "BB002"],
-        })
+        df = pd.DataFrame(
+            {
+                "sequence_accession": [None, "ACC002"],
+                "backbone_id": ["BB001", "BB002"],
+            }
+        )
 
         result = validate_harmonized_plasmids(df)
 
@@ -167,10 +179,12 @@ class TestSchemaValidationFailureCases:
     @pytest.mark.skipif(not PANDERA_AVAILABLE, reason="Pandera not installed")
     def test_validate_scored_backbones_out_of_range(self):
         """Values outside [0, 1] for normalized columns should fail."""
-        df = pd.DataFrame({
-            "backbone_id": ["BB001"],
-            "priority_index": [1.5],  # Should be in [0, 1]
-        })
+        df = pd.DataFrame(
+            {
+                "backbone_id": ["BB001"],
+                "priority_index": [1.5],  # Should be in [0, 1]
+            }
+        )
 
         result = validate_scored_backbones(df)
 
@@ -183,19 +197,25 @@ class TestRunAllValidations:
     @pytest.mark.skipif(not PANDERA_AVAILABLE, reason="Pandera not installed")
     def test_run_all_with_valid_data(self):
         """Running all validations with valid data should pass."""
-        harmonized = pd.DataFrame({
-            "sequence_accession": ["ACC001"],
-            "backbone_id": ["BB001"],
-            "resolved_year": [2020.0],
-        })
-        backbones = pd.DataFrame({
-            "backbone_id": ["BB001"],
-        })
-        scored = pd.DataFrame({
-            "backbone_id": ["BB001"],
-            "spread_label": [1.0],
-            "priority_index": [0.8],
-        })
+        harmonized = pd.DataFrame(
+            {
+                "sequence_accession": ["ACC001"],
+                "backbone_id": ["BB001"],
+                "resolved_year": [2020.0],
+            }
+        )
+        backbones = pd.DataFrame(
+            {
+                "backbone_id": ["BB001"],
+            }
+        )
+        scored = pd.DataFrame(
+            {
+                "backbone_id": ["BB001"],
+                "spread_label": [1.0],
+                "priority_index": [0.8],
+            }
+        )
 
         results = run_all_validations(
             harmonized=harmonized,

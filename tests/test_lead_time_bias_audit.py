@@ -19,11 +19,13 @@ class LeadTimeBiasAuditTests(unittest.TestCase):
 
     def test_compute_metrics_returns_expected_keys(self) -> None:
         """Lead-time bias metrics returns dictionary with expected keys."""
-        scored = pd.DataFrame({
-            "backbone_id": list(range(20)),
-            "spread_label": [1] * 5 + [0] * 15,
-            "log1p_member_count_train": list(range(20)),
-        })
+        scored = pd.DataFrame(
+            {
+                "backbone_id": list(range(20)),
+                "spread_label": [1] * 5 + [0] * 15,
+                "log1p_member_count_train": list(range(20)),
+            }
+        )
 
         result = compute_lead_time_bias_metrics(scored)
 
@@ -35,21 +37,25 @@ class LeadTimeBiasAuditTests(unittest.TestCase):
 
     def test_compute_metrics_handles_missing_spread_label(self) -> None:
         """Handles missing spread_label gracefully."""
-        scored = pd.DataFrame({
-            "backbone_id": ["A", "B"],
-            "log1p_member_count_train": [1.0, 2.0],
-        })
+        scored = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B"],
+                "log1p_member_count_train": [1.0, 2.0],
+            }
+        )
 
         result = compute_lead_time_bias_metrics(scored)
         self.assertEqual(result["status"], "missing_outcome_column")
 
     def test_compute_metrics_handles_insufficient_data(self) -> None:
         """Handles insufficient data gracefully."""
-        scored = pd.DataFrame({
-            "backbone_id": ["A", "B"],
-            "spread_label": [1, 0],
-            "log1p_member_count_train": [1.0, 2.0],
-        })
+        scored = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B"],
+                "spread_label": [1, 0],
+                "log1p_member_count_train": [1.0, 2.0],
+            }
+        )
 
         result = compute_lead_time_bias_metrics(scored)
         self.assertEqual(result["status"], "insufficient_data")
@@ -57,11 +63,13 @@ class LeadTimeBiasAuditTests(unittest.TestCase):
     def test_high_correlation_triggers_high_concern(self) -> None:
         """Spearman > 0.3 triggers high concern."""
         # Create data with strong positive correlation
-        scored = pd.DataFrame({
-            "backbone_id": list(range(100)),
-            "log1p_member_count_train": list(range(100)),  # 0-99
-            "spread_label": [1 if i > 70 else 0 for i in range(100)],  # spread at high counts
-        })
+        scored = pd.DataFrame(
+            {
+                "backbone_id": list(range(100)),
+                "log1p_member_count_train": list(range(100)),  # 0-99
+                "spread_label": [1 if i > 70 else 0 for i in range(100)],  # spread at high counts
+            }
+        )
 
         result = compute_lead_time_bias_metrics(scored)
 
@@ -73,11 +81,13 @@ class LeadTimeBiasAuditTests(unittest.TestCase):
 
     def test_build_decile_table_returns_expected_structure(self) -> None:
         """Decile table has expected structure."""
-        scored = pd.DataFrame({
-            "backbone_id": list(range(100)),
-            "spread_label": [1] * 30 + [0] * 70,
-            "log1p_member_count_train": list(range(100)),
-        })
+        scored = pd.DataFrame(
+            {
+                "backbone_id": list(range(100)),
+                "spread_label": [1] * 30 + [0] * 70,
+                "log1p_member_count_train": list(range(100)),
+            }
+        )
 
         result = build_visibility_decile_table(scored)
 
@@ -89,12 +99,14 @@ class LeadTimeBiasAuditTests(unittest.TestCase):
 
     def test_build_audit_returns_two_dataframes(self) -> None:
         """build_lead_time_bias_audit returns summary and decile tables."""
-        scored = pd.DataFrame({
-            "backbone_id": list(range(50)),
-            "spread_label": [1] * 15 + [0] * 35,
-            "log1p_member_count_train": list(range(50)),
-            "log1p_n_countries_train": list(range(50)),
-        })
+        scored = pd.DataFrame(
+            {
+                "backbone_id": list(range(50)),
+                "spread_label": [1] * 15 + [0] * 35,
+                "log1p_member_count_train": list(range(50)),
+                "log1p_n_countries_train": list(range(50)),
+            }
+        )
 
         summary, deciles = build_lead_time_bias_audit(scored)
 
@@ -112,11 +124,13 @@ class LeadTimeBiasAuditTests(unittest.TestCase):
 
     def test_summarize_counts_concerns_correctly(self) -> None:
         """Summary correctly counts concern levels."""
-        summary_table = pd.DataFrame({
-            "visibility_column": ["v1", "v2", "v3"],
-            "status": ["ok", "ok", "ok"],
-            "lead_time_bias_concern": ["high", "moderate", "low"],
-        })
+        summary_table = pd.DataFrame(
+            {
+                "visibility_column": ["v1", "v2", "v3"],
+                "status": ["ok", "ok", "ok"],
+                "lead_time_bias_concern": ["high", "moderate", "low"],
+            }
+        )
         deciles = pd.DataFrame()  # Empty is fine for this test
 
         result = summarize_lead_time_bias_findings(summary_table, deciles)
@@ -128,14 +142,14 @@ class LeadTimeBiasAuditTests(unittest.TestCase):
 
     def test_build_decile_with_missing_visibility(self) -> None:
         """Handles missing visibility column."""
-        scored = pd.DataFrame({
-            "backbone_id": ["A", "B"],
-            "spread_label": [1, 0],
-        })
-
-        result = build_visibility_decile_table(
-            scored, visibility_column="nonexistent"
+        scored = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B"],
+                "spread_label": [1, 0],
+            }
         )
+
+        result = build_visibility_decile_table(scored, visibility_column="nonexistent")
 
         self.assertTrue(result.empty)
 

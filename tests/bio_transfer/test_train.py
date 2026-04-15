@@ -25,13 +25,66 @@ class BioTransferTrainSmokeTests(unittest.TestCase):
             {
                 "backbone_id": ["b1"] * 4 + ["b2"] * 4 + ["b3"] * 4 + ["b4"] * 4,
                 "resolved_year": [2012, 2014, 2016, 2018] * 4,
-                "country": ["us", "us", "us", "us", "us", "us", "us", "us", "us", "us", "de", "fr", "us", "us", "gb", "gb"],
-                "host_genus": ["genus_a", "genus_a", "genus_a", "genus_a", "genus_a", "genus_a", "genus_b", "genus_c", "genus_d", "genus_d", "genus_d", "genus_d", "genus_e", "genus_e", "genus_f", "genus_g"],
-                "host_family": ["fam_a", "fam_a", "fam_a", "fam_a", "fam_a", "fam_a", "fam_b", "fam_c", "fam_d", "fam_d", "fam_d", "fam_d", "fam_e", "fam_e", "fam_f", "fam_g"],
+                "country": [
+                    "us",
+                    "us",
+                    "us",
+                    "us",
+                    "us",
+                    "us",
+                    "us",
+                    "us",
+                    "us",
+                    "us",
+                    "de",
+                    "fr",
+                    "us",
+                    "us",
+                    "gb",
+                    "gb",
+                ],
+                "host_genus": [
+                    "genus_a",
+                    "genus_a",
+                    "genus_a",
+                    "genus_a",
+                    "genus_a",
+                    "genus_a",
+                    "genus_b",
+                    "genus_c",
+                    "genus_d",
+                    "genus_d",
+                    "genus_d",
+                    "genus_d",
+                    "genus_e",
+                    "genus_e",
+                    "genus_f",
+                    "genus_g",
+                ],
+                "host_family": [
+                    "fam_a",
+                    "fam_a",
+                    "fam_a",
+                    "fam_a",
+                    "fam_a",
+                    "fam_a",
+                    "fam_b",
+                    "fam_c",
+                    "fam_d",
+                    "fam_d",
+                    "fam_d",
+                    "fam_d",
+                    "fam_e",
+                    "fam_e",
+                    "fam_f",
+                    "fam_g",
+                ],
             }
         )
 
-        result = fit_bio_transfer_model(scored, model_name="bio_transfer_baseline", records=records, n_splits=2, n_repeats=1)
+        result = fit_bio_transfer_model(
+            scored, model_name="bio_transfer_baseline", records=records, n_splits=2, n_repeats=1
+        )
         self.assertEqual(getattr(result, "status", None), "ok")
 
 

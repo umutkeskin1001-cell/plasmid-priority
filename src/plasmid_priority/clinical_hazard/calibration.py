@@ -47,7 +47,9 @@ def build_clinical_hazard_calibration_summary(
     scored: pd.DataFrame | None = None,
     config: Mapping[str, Any] | ClinicalHazardConfig | None = None,
 ) -> pd.DataFrame:
-    return build_branch_calibration_summary(results, scored=scored, fit_config=config, label_column="clinical_hazard_label")
+    return build_branch_calibration_summary(
+        results, scored=scored, fit_config=config, label_column="clinical_hazard_label"
+    )
 
 
 def build_clinical_hazard_calibrated_prediction_table(
@@ -56,4 +58,6 @@ def build_clinical_hazard_calibrated_prediction_table(
     scored: pd.DataFrame | None = None,
     config: Mapping[str, Any] | ClinicalHazardConfig | None = None,
 ) -> pd.DataFrame:
-    return build_branch_calibrated_prediction_table(results, scored=scored, fit_config=config, label_column="clinical_hazard_label")
+    return build_branch_calibrated_prediction_table(
+        results, scored=scored, fit_config=config, label_column="clinical_hazard_label"
+    )

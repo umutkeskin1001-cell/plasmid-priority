@@ -166,11 +166,11 @@ def build_visibility_decile_table(
     # Create quantile bins using rank-based method for stability
     ranks = visibility.rank(method="average", pct=True)
     try:
-        bin_labels = [f"Q{i+1}" for i in range(n_quantiles)]
+        bin_labels = [f"Q{i + 1}" for i in range(n_quantiles)]
         bins = pd.qcut(ranks, q=n_quantiles, labels=bin_labels, duplicates="drop")
     except ValueError:
         # Fallback if qcut fails
-        bins = pd.cut(ranks, bins=n_quantiles, labels=[f"Q{i+1}" for i in range(n_quantiles)])
+        bins = pd.cut(ranks, bins=n_quantiles, labels=[f"Q{i + 1}" for i in range(n_quantiles)])
 
     eligible["_visibility_bin"] = bins
     outcome = eligible[outcome_column].astype(int)
@@ -203,17 +203,19 @@ def build_visibility_decile_table(
         else:
             ci_lower = ci_upper = spread_rate
 
-        rows.append({
-            "quantile_bin": str(bin_name),
-            "visibility_min": round(float(bin_visibility.min()), 4),
-            "visibility_max": round(float(bin_visibility.max()), 4),
-            "visibility_median": round(float(bin_visibility.median()), 4),
-            "n_backbones": n_backbones,
-            "n_positive": n_positive,
-            "spread_rate": round(spread_rate, 4),
-            "spread_rate_ci_lower": round(ci_lower, 4),
-            "spread_rate_ci_upper": round(ci_upper, 4),
-        })
+        rows.append(
+            {
+                "quantile_bin": str(bin_name),
+                "visibility_min": round(float(bin_visibility.min()), 4),
+                "visibility_max": round(float(bin_visibility.max()), 4),
+                "visibility_median": round(float(bin_visibility.median()), 4),
+                "n_backbones": n_backbones,
+                "n_positive": n_positive,
+                "spread_rate": round(spread_rate, 4),
+                "spread_rate_ci_lower": round(ci_lower, 4),
+                "spread_rate_ci_upper": round(ci_upper, 4),
+            }
+        )
 
     return pd.DataFrame(rows)
 
@@ -242,10 +244,7 @@ def build_lead_time_bias_audit(
         ]
 
     # Filter to metrics that exist in the data
-    available_metrics = [
-        col for col in visibility_metrics
-        if col in scored.columns
-    ]
+    available_metrics = [col for col in visibility_metrics if col in scored.columns]
 
     if not available_metrics:
         empty_summary = pd.DataFrame(

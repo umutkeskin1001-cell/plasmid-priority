@@ -22,11 +22,7 @@ def _normalized_entropy(values: pd.Series) -> float:
 
 def _dominant_share(values: pd.Series) -> float:
     counts = (
-        values.astype(str)
-        .str.strip()
-        .replace("", np.nan)
-        .dropna()
-        .value_counts(normalize=True)
+        values.astype(str).str.strip().replace("", np.nan).dropna().value_counts(normalize=True)
     )
     if counts.empty:
         return 0.0
@@ -45,9 +41,9 @@ def build_geo_spread_context_features(
     if "backbone_id" not in working.columns:
         return pd.DataFrame(columns=["backbone_id"])
     working["backbone_id"] = working["backbone_id"].astype(str)
-    working["resolved_year"] = pd.to_numeric(
-        working.get("resolved_year"), errors="coerce"
-    ).fillna(0).astype(int)
+    working["resolved_year"] = (
+        pd.to_numeric(working.get("resolved_year"), errors="coerce").fillna(0).astype(int)
+    )
     working["country_clean"] = (
         working.get("country", pd.Series("", index=working.index))
         .fillna("")
@@ -55,8 +51,7 @@ def build_geo_spread_context_features(
         .str.strip()
     )
     working = working.loc[
-        working["resolved_year"].between(1, int(split_year))
-        & working["country_clean"].ne("")
+        working["resolved_year"].between(1, int(split_year)) & working["country_clean"].ne("")
     ].copy()
     if working.empty:
         return pd.DataFrame(columns=["backbone_id"])

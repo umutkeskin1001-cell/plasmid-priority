@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 
 
-
 def _length_bin(length_val: float) -> str:
     try:
         length = float(length_val)
@@ -169,24 +168,27 @@ def assign_backbone_ids_training_only(
     return assigned
 
 
-def assign_backbone_ids(records: pd.DataFrame, *, backbone_assignment_mode: str = "all_records") -> pd.DataFrame:
+def assign_backbone_ids(
+    records: pd.DataFrame, *, backbone_assignment_mode: str = "all_records"
+) -> pd.DataFrame:
     """Assign an operational backbone identifier using plan-defined precedence.
-    
+
     Args:
         records: Input records to assign backbone IDs to
         backbone_assignment_mode: Explicit backbone assignment mode (required for discovery safety)
             - "training_only": Only training-period backbones are assigned (discovery-safe)
             - "all_records": All records are assigned (not discovery-safe)
-    
+
     Returns:
         DataFrame with backbone_id, backbone_assignment_rule, and backbone_assignment_mode columns
     """
     if backbone_assignment_mode not in ["training_only", "all_records"]:
         raise ValueError(
-            f"backbone_assignment_mode must be 'training_only' or 'all_records', got '{backbone_assignment_mode}'. "
+            f"backbone_assignment_mode must be 'training_only' or 'all_records', got "
+            f"'{backbone_assignment_mode}'. "
             "For discovery safety, use 'training_only' mode explicitly."
         )
-    
+
     assigned = records.copy()
     primary = assigned["primary_cluster_id"].fillna("").astype(str).str.strip()
     fallback = _fallback_key_series(assigned)

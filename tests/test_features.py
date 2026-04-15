@@ -14,10 +14,11 @@ from plasmid_priority.features.core import (
 
 
 class FeatureTests(unittest.TestCase):
-    def test_pairwise_host_taxonomy_distance_caps_large_signature_sets_deterministically(self) -> None:
+    def test_pairwise_host_taxonomy_distance_caps_large_signature_sets_deterministically(
+        self,
+    ) -> None:
         signatures = [
-            ("1224", "1236", "91347", "543", str(index // 2), str(index))
-            for index in range(60)
+            ("1224", "1236", "91347", "543", str(index // 2), str(index)) for index in range(60)
         ]
         sampled = _subsample_signatures_for_pairwise_distance(signatures)
         self.assertEqual(len(sampled), 50)
@@ -190,9 +191,15 @@ class FeatureTests(unittest.TestCase):
                 "TAXONOMY_phylum": ["Proteobacteria"] * 12,
             }
         )
-        low_power = compute_feature_h(records, host_evenness_bias_power=0.3).set_index("backbone_id")
-        high_power = compute_feature_h(records, host_evenness_bias_power=1.0).set_index("backbone_id")
-        self.assertGreater(float(low_power.loc["bb_biased", "H_raw"]), float(high_power.loc["bb_biased", "H_raw"]))
+        low_power = compute_feature_h(records, host_evenness_bias_power=0.3).set_index(
+            "backbone_id"
+        )
+        high_power = compute_feature_h(records, host_evenness_bias_power=1.0).set_index(
+            "backbone_id"
+        )
+        self.assertGreater(
+            float(low_power.loc["bb_biased", "H_raw"]), float(high_power.loc["bb_biased", "H_raw"])
+        )
         self.assertAlmostEqual(
             float(low_power.loc["bb_balanced", "host_taxon_evenness_score"]),
             float(high_power.loc["bb_balanced", "host_taxon_evenness_score"]),
@@ -311,8 +318,12 @@ class FeatureATests(unittest.TestCase):
         self.assertGreater(float(feature_a.loc["bb_amr", "A_consistency"]), 0.0)
         self.assertGreater(float(feature_a.loc["bb_amr", "A_recurrence"]), 0.0)
         self.assertGreater(float(feature_a.loc["bb_amr", "mdr_proxy_fraction"]), 0.0)
-        self.assertGreater(float(feature_a.loc["bb_amr", "mean_last_resort_convergence_score"]), 0.0)
-        self.assertGreater(float(feature_a.loc["bb_amr", "mean_amr_mechanism_diversity_proxy"]), 0.0)
+        self.assertGreater(
+            float(feature_a.loc["bb_amr", "mean_last_resort_convergence_score"]), 0.0
+        )
+        self.assertGreater(
+            float(feature_a.loc["bb_amr", "mean_amr_mechanism_diversity_proxy"]), 0.0
+        )
         self.assertEqual(float(feature_a.loc["bb_clean", "A_recurrence"]), 0.0)
 
     def test_compute_feature_a_all_empty_amr(self) -> None:

@@ -8,14 +8,15 @@ from plasmid_priority.geo_spread import (
     build_geo_spread_adaptive_result,
     build_geo_spread_blended_result,
     build_geo_spread_meta_result,
-    build_geo_spread_selection_scorecard,
     select_geo_spread_primary_model,
 )
 from plasmid_priority.modeling.module_a import ModelResult
 
 
 class GeoSpreadSelectionTests(unittest.TestCase):
-    def _result(self, name: str, scores: list[float], labels: list[int], auc: float, ap: float) -> ModelResult:
+    def _result(
+        self, name: str, scores: list[float], labels: list[int], auc: float, ap: float
+    ) -> ModelResult:
         return ModelResult(
             name=name,
             metrics={
@@ -92,7 +93,9 @@ class GeoSpreadSelectionTests(unittest.TestCase):
                 0.69,
             ),
         }
-        results["geo_reliability_blend"] = build_geo_spread_blended_result(results, include_ci=False)
+        results["geo_reliability_blend"] = build_geo_spread_blended_result(
+            results, include_ci=False
+        )
         adaptive = build_geo_spread_adaptive_result(results, scored=scored, include_ci=False)
         self.assertEqual(adaptive.status, "ok")
         self.assertEqual(adaptive.name, "geo_adaptive_knownness_priority")
@@ -140,7 +143,9 @@ class GeoSpreadSelectionTests(unittest.TestCase):
                 0.70,
             ),
         }
-        results["geo_reliability_blend"] = build_geo_spread_blended_result(results, include_ci=False)
+        results["geo_reliability_blend"] = build_geo_spread_blended_result(
+            results, include_ci=False
+        )
         results["geo_adaptive_knownness_priority"] = build_geo_spread_adaptive_result(
             results,
             scored=scored,
@@ -213,7 +218,13 @@ class GeoSpreadSelectionTests(unittest.TestCase):
         )
         recommended, scorecard = select_geo_spread_primary_model(results, calibration_summary)
         self.assertEqual(recommended, "geo_reliability_blend")
-        self.assertFalse(bool(scorecard.loc[scorecard["model_name"] == "geo_meta_knownness_priority", "primary_eligible"].iloc[0]))
+        self.assertFalse(
+            bool(
+                scorecard.loc[
+                    scorecard["model_name"] == "geo_meta_knownness_priority", "primary_eligible"
+                ].iloc[0]
+            )
+        )
 
 
 if __name__ == "__main__":

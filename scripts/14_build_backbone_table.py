@@ -85,7 +85,9 @@ def main() -> int:
                     f.write("No backbone_table audit data available.\n")
 
             run.note(f"Missingness audit written to {audit_dir}")
-            run.set_metric("missingness_audit_status", audit_result.get("overall_status", "unknown"))
+            run.set_metric(
+                "missingness_audit_status", audit_result.get("overall_status", "unknown")
+            )
 
     return 0
 

@@ -78,7 +78,10 @@ class ValidationMetricTests(unittest.TestCase):
         y_true = np.array([1, 1, 0, 0, 0, 0])
         better = np.array([0.9, 0.8, 0.4, 0.3, 0.2, 0.1])
         worse = np.array([0.7, 0.2, 0.9, 0.8, 0.1, 0.05])
-        self.assertLess(weighted_classification_cost(y_true, better), weighted_classification_cost(y_true, worse))
+        self.assertLess(
+            weighted_classification_cost(y_true, better),
+            weighted_classification_cost(y_true, worse),
+        )
 
     def test_permutation_pvalue_is_small_for_nearly_perfect_ranking(self) -> None:
         y_true = np.array([0, 0, 0, 1, 1, 1])

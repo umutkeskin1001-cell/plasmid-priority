@@ -1,15 +1,15 @@
 """Geo spread branch contracts, specs, and helpers."""
 
+from plasmid_priority.geo_spread.calibration import (
+    GeoSpreadCalibrationResult,
+    build_geo_spread_calibrated_prediction_table,
+    build_geo_spread_calibration_summary,
+    calibrate_geo_spread_predictions,
+)
 from plasmid_priority.geo_spread.contracts import (
     GeoSpreadInputContract,
     build_geo_spread_input_contract,
     validate_geo_spread_input_contract,
-)
-from plasmid_priority.geo_spread.features import (
-    GEO_SPREAD_ALLOWED_FEATURES,
-    GEO_SPREAD_FEATURE_CATEGORIES,
-    classify_geo_spread_feature,
-    validate_geo_spread_feature_set,
 )
 from plasmid_priority.geo_spread.dataset import (
     GeoSpreadDataset,
@@ -28,12 +28,13 @@ from plasmid_priority.geo_spread.evaluate import (
     build_geo_spread_prediction_table,
     evaluate_geo_spread_branch,
 )
-from plasmid_priority.geo_spread.calibration import (
-    GeoSpreadCalibrationResult,
-    build_geo_spread_calibrated_prediction_table,
-    build_geo_spread_calibration_summary,
-    calibrate_geo_spread_predictions,
+from plasmid_priority.geo_spread.features import (
+    GEO_SPREAD_ALLOWED_FEATURES,
+    GEO_SPREAD_FEATURE_CATEGORIES,
+    classify_geo_spread_feature,
+    validate_geo_spread_feature_set,
 )
+from plasmid_priority.geo_spread.inventory import build_geo_spread_inventory
 from plasmid_priority.geo_spread.provenance import (
     GeoSpreadRunProvenance,
     build_geo_spread_run_provenance,
@@ -47,7 +48,6 @@ from plasmid_priority.geo_spread.report import (
 )
 from plasmid_priority.geo_spread.select import (
     GEO_SPREAD_ADAPTIVE_PRIORITY,
-    GEO_SPREAD_META_PRIORITY,
     GEO_SPREAD_RELIABILITY_BLEND,
     build_geo_spread_adaptive_result,
     build_geo_spread_blended_result,
@@ -55,7 +55,6 @@ from plasmid_priority.geo_spread.select import (
     build_geo_spread_selection_scorecard,
     select_geo_spread_primary_model,
 )
-from plasmid_priority.geo_spread.inventory import build_geo_spread_inventory
 from plasmid_priority.geo_spread.specs import (
     DEFAULT_GEO_SPREAD_CORE_MODEL_NAMES,
     DEFAULT_GEO_SPREAD_FEATURE_SETS,

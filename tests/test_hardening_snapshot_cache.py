@@ -44,7 +44,9 @@ def _seed_data_files(data_root: Path) -> None:
     (data_root / "scores").mkdir(parents=True, exist_ok=True)
     (data_root / "harmonized").mkdir(parents=True, exist_ok=True)
     (data_root / "deduplicated").mkdir(parents=True, exist_ok=True)
-    (data_root / "features" / "backbone_table.tsv").write_text("backbone_id\nbb1\n", encoding="utf-8")
+    (data_root / "features" / "backbone_table.tsv").write_text(
+        "backbone_id\nbb1\n", encoding="utf-8"
+    )
     (data_root / "scores" / "backbone_scored.tsv").write_text(
         "backbone_id\tspread_label\nbb1\t1\n", encoding="utf-8"
     )
@@ -70,7 +72,11 @@ def test_snapshot_reuses_cached_audit_results_when_signatures_unchanged() -> Non
             "models": {"epv": {"status": "ok", "n_models_evaluated": 1}},
             "lead_time_bias": {"status": "ok", "overall_concern_level": "low"},
             "missingness": {"overall_status": "ok", "high_missingness_columns_total": 0},
-            "schema_validation": {"overall_status": "ok", "pandera_available": True, "tables_validated": []},
+            "schema_validation": {
+                "overall_status": "ok",
+                "pandera_available": True,
+                "tables_validated": [],
+            },
         }
 
         with (

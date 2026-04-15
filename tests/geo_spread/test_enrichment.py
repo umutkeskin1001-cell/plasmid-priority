@@ -36,9 +36,18 @@ class GeoSpreadEnrichmentTests(unittest.TestCase):
             "geo_dominant_region_share_train",
         ):
             self.assertIn(column, enriched.columns)
-        self.assertGreater(float(enriched.loc[enriched["backbone_id"] == "bb1", "geo_country_entropy_train"].iloc[0]), 0.0)
+        self.assertGreater(
+            float(
+                enriched.loc[enriched["backbone_id"] == "bb1", "geo_country_entropy_train"].iloc[0]
+            ),
+            0.0,
+        )
         self.assertEqual(
-            float(enriched.loc[enriched["backbone_id"] == "bb2", "geo_dominant_region_share_train"].iloc[0]),
+            float(
+                enriched.loc[
+                    enriched["backbone_id"] == "bb2", "geo_dominant_region_share_train"
+                ].iloc[0]
+            ),
             1.0,
         )
 

@@ -35,7 +35,14 @@ def _prediction_frame(result: ModelResult) -> pd.DataFrame:
     score_column = "oof_prediction" if "oof_prediction" in frame.columns else "prediction"
     if score_column not in frame.columns:
         raise ValueError(f"Model `{result.name}` predictions do not contain a usable score column.")
-    frame = frame.loc[:, [column for column in frame.columns if column in {"backbone_id", "spread_label", score_column}]].copy()
+    frame = frame.loc[
+        :,
+        [
+            column
+            for column in frame.columns
+            if column in {"backbone_id", "spread_label", score_column}
+        ],
+    ].copy()
     frame = frame.rename(columns={score_column: str(result.name)})
     return frame
 
@@ -66,14 +73,23 @@ def build_geo_spread_blended_result(
             merge_keys.append("spread_label")
         merged = merged.merge(frame, on=merge_keys, how="inner")
     if merged.empty:
-        return build_failed_model_result(blend_name, "Blend components do not share a common evaluation cohort.")
+        return build_failed_model_result(
+            blend_name, "Blend components do not share a common evaluation cohort."
+        )
 
     score = np.zeros(len(merged), dtype=float)
     for model_name, weight in component_weights.items():
-        score += float(weight) * pd.to_numeric(merged[model_name], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+        score += float(weight) * pd.to_numeric(merged[model_name], errors="coerce").fillna(
+            0.0
+        ).to_numpy(dtype=float)
     total_weight = max(sum(component_weights.values()), 1e-12)
     score = np.asarray(score / total_weight, dtype=float)
-    y = pd.to_numeric(merged["spread_label"], errors="coerce").fillna(0).astype(int).to_numpy(dtype=int)
+    y = (
+        pd.to_numeric(merged["spread_label"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .to_numpy(dtype=int)
+    )
     detail = merged.loc[:, [*component_weights.keys()]].copy()
     detail["blend_prediction"] = score
     return _evaluate_prediction_set(
@@ -149,12 +165,34 @@ def _knownness_metrics(y: np.ndarray, score: np.ndarray, knownness: np.ndarray) 
 
 
 def _meta_design_matrix(merged: pd.DataFrame) -> np.ndarray:
-    support = pd.to_numeric(merged["geo_context_hybrid_priority"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
-    legacy_support = pd.to_numeric(merged["geo_support_light_priority"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
-    phylo = pd.to_numeric(merged["geo_phylo_ecology_priority"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
-    blend = pd.to_numeric(merged[GEO_SPREAD_RELIABILITY_BLEND], errors="coerce").fillna(0.0).to_numpy(dtype=float)
-    adaptive = pd.to_numeric(merged[GEO_SPREAD_ADAPTIVE_PRIORITY], errors="coerce").fillna(0.0).to_numpy(dtype=float)
-    knownness = pd.to_numeric(merged["knownness_score"], errors="coerce").fillna(0.45).to_numpy(dtype=float)
+    support = (
+        pd.to_numeric(merged["geo_context_hybrid_priority"], errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    legacy_support = (
+        pd.to_numeric(merged["geo_support_light_priority"], errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    phylo = (
+        pd.to_numeric(merged["geo_phylo_ecology_priority"], errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    blend = (
+        pd.to_numeric(merged[GEO_SPREAD_RELIABILITY_BLEND], errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    adaptive = (
+        pd.to_numeric(merged[GEO_SPREAD_ADAPTIVE_PRIORITY], errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    knownness = (
+        pd.to_numeric(merged["knownness_score"], errors="coerce").fillna(0.45).to_numpy(dtype=float)
+    )
     support_gap = support - phylo
     support_delta = support - legacy_support
     agreement = 1.0 - np.abs(support - phylo)
@@ -222,14 +260,11 @@ def build_geo_spread_adaptive_result(
     high_frame = _prediction_frame(high_knownness_result)
     prepared = prepare_geo_spread_scored_table(scored)
     knownness_frame = prepared.loc[:, ["backbone_id", "spread_label", "knownness_score"]].copy()
-    merged = (
-        support_frame.merge(
-            high_frame,
-            on=["backbone_id", "spread_label"],
-            how="inner",
-        )
-        .merge(knownness_frame, on=["backbone_id", "spread_label"], how="left")
-    )
+    merged = support_frame.merge(
+        high_frame,
+        on=["backbone_id", "spread_label"],
+        how="inner",
+    ).merge(knownness_frame, on=["backbone_id", "spread_label"], how="left")
     if merged.empty:
         return build_failed_model_result(
             adaptive_name,
@@ -238,17 +273,23 @@ def build_geo_spread_adaptive_result(
 
     support_score = pd.to_numeric(merged[support_model_name], errors="coerce").fillna(0.0)
     high_score = pd.to_numeric(merged[high_knownness_model_name], errors="coerce").fillna(0.0)
-    knownness = pd.to_numeric(merged["knownness_score"], errors="coerce").fillna(float(knownness_center))
+    knownness = pd.to_numeric(merged["knownness_score"], errors="coerce").fillna(
+        float(knownness_center)
+    )
     low_knownness_weight = _sigmoid_gate(
         knownness.to_numpy(dtype=float),
         center=float(knownness_center),
         sharpness=float(knownness_sharpness),
     )
-    score = (
-        low_knownness_weight * support_score.to_numpy(dtype=float)
-        + (1.0 - low_knownness_weight) * high_score.to_numpy(dtype=float)
+    score = low_knownness_weight * support_score.to_numpy(dtype=float) + (
+        1.0 - low_knownness_weight
+    ) * high_score.to_numpy(dtype=float)
+    y = (
+        pd.to_numeric(merged["spread_label"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .to_numpy(dtype=int)
     )
-    y = pd.to_numeric(merged["spread_label"], errors="coerce").fillna(0).astype(int).to_numpy(dtype=int)
     detail = pd.DataFrame(
         {
             support_model_name: support_score.to_numpy(dtype=float),
@@ -308,19 +349,32 @@ def build_geo_spread_meta_result(
     knownness_frame = prepared.loc[:, ["backbone_id", "spread_label", "knownness_score"]].copy()
     merged = merged.merge(knownness_frame, on=["backbone_id", "spread_label"], how="left")
     if merged.empty:
-        return build_failed_model_result(meta_name, "Meta learner components do not share a common evaluation cohort.")
+        return build_failed_model_result(
+            meta_name, "Meta learner components do not share a common evaluation cohort."
+        )
 
-    y = pd.to_numeric(merged["spread_label"], errors="coerce").fillna(0).astype(int).to_numpy(dtype=int)
-    knownness = pd.to_numeric(merged["knownness_score"], errors="coerce").fillna(0.45).to_numpy(dtype=float)
+    y = (
+        pd.to_numeric(merged["spread_label"], errors="coerce")
+        .fillna(0)
+        .astype(int)
+        .to_numpy(dtype=int)
+    )
+    knownness = (
+        pd.to_numeric(merged["knownness_score"], errors="coerce").fillna(0.45).to_numpy(dtype=float)
+    )
     X = _meta_design_matrix(merged)
     if np.unique(y).size < 2 or len(y) < 8:
-        return build_failed_model_result(meta_name, "Meta learner requires at least two classes and 8 labeled rows.")
+        return build_failed_model_result(
+            meta_name, "Meta learner requires at least two classes and 8 labeled rows."
+        )
 
     positives = int(np.sum(y == 1))
     negatives = int(np.sum(y == 0))
     n_splits = max(2, min(5, positives, negatives))
     if n_splits < 2:
-        return build_failed_model_result(meta_name, "Meta learner requires at least two examples per class.")
+        return build_failed_model_result(
+            meta_name, "Meta learner requires at least two examples per class."
+        )
 
     oof = np.zeros(len(y), dtype=float)
     splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -384,7 +438,9 @@ def build_geo_spread_selection_scorecard(
             "model_name": str(model_name),
             "roc_auc": float(result.metrics.get("roc_auc", float("nan"))),
             "average_precision": float(result.metrics.get("average_precision", float("nan"))),
-            "decision_utility_score": float(result.metrics.get("decision_utility_score", float("nan"))),
+            "decision_utility_score": float(
+                result.metrics.get("decision_utility_score", float("nan"))
+            ),
             "novelty_adjusted_average_precision": float(
                 result.metrics.get("novelty_adjusted_average_precision", float("nan"))
             ),
@@ -395,7 +451,9 @@ def build_geo_spread_selection_scorecard(
             "abstain_rate": float("nan"),
             "calibrated_expected_calibration_error": float("nan"),
             "calibrated_brier_score": float("nan"),
-            "low_knownness_roc_auc": float(result.metrics.get("low_knownness_roc_auc", float("nan"))),
+            "low_knownness_roc_auc": float(
+                result.metrics.get("low_knownness_roc_auc", float("nan"))
+            ),
             "low_knownness_average_precision": float(
                 result.metrics.get("low_knownness_average_precision", float("nan"))
             ),
@@ -413,7 +471,9 @@ def build_geo_spread_selection_scorecard(
                 .eq(str(model_name))
             ]
             if not match.empty:
-                row["abstain_rate"] = float(pd.to_numeric(match.iloc[0].get("abstain_rate"), errors="coerce"))
+                row["abstain_rate"] = float(
+                    pd.to_numeric(match.iloc[0].get("abstain_rate"), errors="coerce")
+                )
                 row["calibrated_expected_calibration_error"] = float(
                     pd.to_numeric(
                         match.iloc[0].get("calibrated_expected_calibration_error"),
@@ -454,10 +514,9 @@ def build_geo_spread_selection_scorecard(
     calibrated_ece = pd.to_numeric(
         scorecard["calibrated_expected_calibration_error"], errors="coerce"
     )
-    scorecard["primary_eligible"] = (
-        abstain_rate.fillna(1.0).le(0.60)
-        & calibrated_ece.fillna(float("inf")).le(0.05)
-    )
+    scorecard["primary_eligible"] = abstain_rate.fillna(1.0).le(0.60) & calibrated_ece.fillna(
+        float("inf")
+    ).le(0.05)
     scorecard = scorecard.sort_values(
         ["primary_eligible", "selection_score", "roc_auc", "average_precision", "model_name"],
         ascending=[False, False, False, False, True],

@@ -32,7 +32,9 @@ def prepare_consensus_dataset(
     *,
     config: ConsensusConfig | dict[str, Any] | None = None,
 ) -> ConsensusDataset:
-    consensus_config = config if isinstance(config, ConsensusConfig) else load_consensus_config(config)
+    consensus_config = (
+        config if isinstance(config, ConsensusConfig) else load_consensus_config(config)
+    )
     from plasmid_priority.consensus.fuse import merge_branch_predictions
 
     table = merge_branch_predictions(

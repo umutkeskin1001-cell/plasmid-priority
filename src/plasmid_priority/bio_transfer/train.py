@@ -7,12 +7,16 @@ from typing import Any
 
 import pandas as pd
 
-from plasmid_priority.bio_transfer.features import build_bio_transfer_features
 from plasmid_priority.bio_transfer.contracts import build_bio_transfer_input_contract
 from plasmid_priority.bio_transfer.dataset import prepare_bio_transfer_scored_table
-from plasmid_priority.shared.labels import build_bio_transfer_labels
+from plasmid_priority.bio_transfer.features import build_bio_transfer_features
 from plasmid_priority.bio_transfer.specs import load_bio_transfer_config
-from plasmid_priority.shared.branching import fit_branch, fit_branch_model, fit_branch_model_predictions
+from plasmid_priority.shared.branching import (
+    fit_branch,
+    fit_branch_model,
+    fit_branch_model_predictions,
+)
+from plasmid_priority.shared.labels import build_bio_transfer_labels
 
 
 def _bio_transfer_label_builder(

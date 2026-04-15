@@ -62,20 +62,21 @@ def validate_geo_spread_input_contract(
         raise ValueError(f"{label} is missing required columns: {missing_text}.")
 
     split_year_values = (
-        pd.to_numeric(scored["split_year"], errors="coerce")
-        .dropna()
-        .astype(int)
-        .unique()
-        .tolist()
+        pd.to_numeric(scored["split_year"], errors="coerce").dropna().astype(int).unique().tolist()
     )
     if split_year_values != [int(benchmark.split_year)]:
         raise ValueError(
-            f"{label} has split_year metadata {split_year_values}, expected only {int(benchmark.split_year)}."
+            f"{label} has split_year metadata {split_year_values}, expected only "
+            f"{int(benchmark.split_year)}."
         )
 
     if contract.require_assignment_mode:
         assignment_modes = (
-            scored["backbone_assignment_mode"].fillna("").astype(str).str.strip().replace("", np.nan)
+            scored["backbone_assignment_mode"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", np.nan)
         )
         invalid_modes = sorted(
             {

@@ -11,7 +11,11 @@ from plasmid_priority.clinical_hazard.contracts import build_clinical_hazard_inp
 from plasmid_priority.clinical_hazard.dataset import prepare_clinical_hazard_scored_table
 from plasmid_priority.clinical_hazard.features import build_clinical_hazard_features
 from plasmid_priority.clinical_hazard.specs import load_clinical_hazard_config
-from plasmid_priority.shared.branching import fit_branch, fit_branch_model, fit_branch_model_predictions
+from plasmid_priority.shared.branching import (
+    fit_branch,
+    fit_branch_model,
+    fit_branch_model_predictions,
+)
 from plasmid_priority.shared.labels import build_clinical_hazard_labels
 
 
@@ -36,11 +40,13 @@ def fit_clinical_hazard_model(
         contract=clinical_contract,
         records=records,
         pd_metadata=pd_metadata,
-        label_builder=lambda _scored, _records, split_year, horizon_years: build_clinical_hazard_labels(
-            records if records is not None else _scored,
-            pd_metadata,
-            split_year,
-            horizon_years,
+        label_builder=lambda _scored, _records, split_year, horizon_years: (
+            build_clinical_hazard_labels(
+                records if records is not None else _scored,
+                pd_metadata,
+                split_year,
+                horizon_years,
+            )
         ),
         feature_builder=build_clinical_hazard_features,
         branch_label_column="clinical_hazard_label",
@@ -69,11 +75,13 @@ def fit_clinical_hazard_model_predictions(
         contract=clinical_contract,
         records=records,
         pd_metadata=pd_metadata,
-        label_builder=lambda _scored, _records, split_year, horizon_years: build_clinical_hazard_labels(
-            records if records is not None else _scored,
-            pd_metadata,
-            split_year,
-            horizon_years,
+        label_builder=lambda _scored, _records, split_year, horizon_years: (
+            build_clinical_hazard_labels(
+                records if records is not None else _scored,
+                pd_metadata,
+                split_year,
+                horizon_years,
+            )
         ),
         feature_builder=build_clinical_hazard_features,
         branch_label_column="clinical_hazard_label",
@@ -123,11 +131,13 @@ def fit_clinical_hazard_branch(
         contract=clinical_contract,
         records=records,
         pd_metadata=pd_metadata,
-        label_builder=lambda _scored, _records, split_year, horizon_years: build_clinical_hazard_labels(
-            records if records is not None else _scored,
-            pd_metadata,
-            split_year,
-            horizon_years,
+        label_builder=lambda _scored, _records, split_year, horizon_years: (
+            build_clinical_hazard_labels(
+                records if records is not None else _scored,
+                pd_metadata,
+                split_year,
+                horizon_years,
+            )
         ),
         feature_builder=build_clinical_hazard_features,
         branch_label_column="clinical_hazard_label",

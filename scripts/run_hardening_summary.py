@@ -148,7 +148,9 @@ Examples:
         print(f"Loaded deduplicated table: {len(deduplicated_table)} rows", file=sys.stderr)
 
     if backbone_table is None and scored_table is None:
-        print("Error: At least one of backbone or scored tables must be available.", file=sys.stderr)
+        print(
+            "Error: At least one of backbone or scored tables must be available.", file=sys.stderr
+        )
         return 1
 
     # Build summary

@@ -346,16 +346,12 @@ def main(argv: list[str] | None = None) -> int:
     purity_atlas_output = context.data_dir / "analysis/backbone_purity_atlas.tsv"
     assignment_confidence_output = context.data_dir / "analysis/assignment_confidence_summary.tsv"
     incremental_value_output = context.data_dir / "analysis/incremental_value_over_baseline.tsv"
-    novelty_specialist_metrics_output = (
-        context.data_dir / "analysis/novelty_specialist_metrics.tsv"
-    )
+    novelty_specialist_metrics_output = context.data_dir / "analysis/novelty_specialist_metrics.tsv"
     novelty_specialist_predictions_output = (
         context.data_dir / "analysis/novelty_specialist_predictions.tsv"
     )
     adaptive_gated_metrics_output = context.data_dir / "analysis/adaptive_gated_metrics.tsv"
-    adaptive_gated_predictions_output = (
-        context.data_dir / "analysis/adaptive_gated_predictions.tsv"
-    )
+    adaptive_gated_predictions_output = context.data_dir / "analysis/adaptive_gated_predictions.tsv"
     gate_consistency_output = context.data_dir / "analysis/gate_consistency_audit.tsv"
     future_sentinel_output = context.data_dir / "analysis/future_sentinel_audit.tsv"
     ensure_directory(source_output.parent)

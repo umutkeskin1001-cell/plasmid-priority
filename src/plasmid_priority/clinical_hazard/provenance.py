@@ -25,7 +25,9 @@ def build_clinical_hazard_run_provenance(
     calibrated_predictions: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     clinical_config = load_clinical_hazard_config(config)
-    feature_surface = {name: list(clinical_config.feature_sets.get(name, ())) for name in model_names}
+    feature_surface = {
+        name: list(clinical_config.feature_sets.get(name, ())) for name in model_names
+    }
     return build_branch_run_provenance(
         scored,
         branch_name="clinical_hazard",

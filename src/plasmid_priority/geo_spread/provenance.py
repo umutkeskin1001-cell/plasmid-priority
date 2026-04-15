@@ -27,7 +27,10 @@ from plasmid_priority.utils.files import path_signature_with_hash
 
 def _stable_json_payload(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return {str(key): _stable_json_payload(item) for key, item in sorted(value.items(), key=lambda item: str(item[0]))}
+        return {
+            str(key): _stable_json_payload(item)
+            for key, item in sorted(value.items(), key=lambda item: str(item[0]))
+        }
     if isinstance(value, (list, tuple)):
         return [_stable_json_payload(item) for item in value]
     if isinstance(value, set):
@@ -49,7 +52,9 @@ def _stable_json_payload(value: Any) -> Any:
 
 def stable_json_dumps(value: Any) -> str:
     """Dump a Python object to canonical JSON for hashing."""
-    return json.dumps(_stable_json_payload(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return json.dumps(
+        _stable_json_payload(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
 
 
 def content_hash(payload: Any) -> str:
@@ -71,7 +76,9 @@ def dataframe_content_hash(
         selected = [str(column) for column in columns if str(column) in working.columns]
         working = working.loc[:, selected]
     if sort_by is not None and not working.empty:
-        sort_columns = [str(sort_by)] if isinstance(sort_by, str) else [str(column) for column in sort_by]
+        sort_columns = (
+            [str(sort_by)] if isinstance(sort_by, str) else [str(column) for column in sort_by]
+        )
         present = [column for column in sort_columns if column in working.columns]
         if present:
             working = working.sort_values(present, kind="mergesort").reset_index(drop=True)
@@ -84,7 +91,9 @@ def dataframe_content_hash(
     normalized = working.copy()
     for column in normalized.columns:
         normalized[column] = normalized[column].map(
-            lambda value: stable_json_dumps(value) if not isinstance(value, (str, int, bool)) else value
+            lambda value: (
+                stable_json_dumps(value) if not isinstance(value, (str, int, bool)) else value
+            )
         )
     series_hash = pd.util.hash_pandas_object(normalized, index=False).to_numpy(
         dtype="uint64", copy=False
@@ -213,8 +222,7 @@ def build_geo_spread_run_provenance(
     source_signatures = None
     if source_paths:
         source_signatures = [
-            path_signature_with_hash(Path(path), include_file_hash=True)
-            for path in source_paths
+            path_signature_with_hash(Path(path), include_file_hash=True) for path in source_paths
         ]
     input_signature = {
         "row_count": int(len(scored)),
@@ -241,12 +249,22 @@ def build_geo_spread_run_provenance(
         input_hash=input_hash,
         feature_surface_hash=feature_surface_hash,
         n_rows=int(len(scored)),
-        n_positive=int(pd.to_numeric(scored.get("spread_label"), errors="coerce").fillna(0).astype(int).sum())
+        n_positive=int(
+            pd.to_numeric(scored.get("spread_label"), errors="coerce").fillna(0).astype(int).sum()
+        )
         if "spread_label" in scored.columns
         else 0,
-        calibration_summary_hash=dataframe_content_hash(calibration_summary, sort_by="model_name") if calibration_summary is not None and not calibration_summary.empty else None,
-        predictions_hash=dataframe_content_hash(predictions, sort_by=["model_name", "backbone_id"]) if predictions is not None and not predictions.empty else None,
-        calibration_table_hash=dataframe_content_hash(calibrated_predictions, sort_by=["model_name", "backbone_id"]) if calibrated_predictions is not None and not calibrated_predictions.empty else None,
+        calibration_summary_hash=dataframe_content_hash(calibration_summary, sort_by="model_name")
+        if calibration_summary is not None and not calibration_summary.empty
+        else None,
+        predictions_hash=dataframe_content_hash(predictions, sort_by=["model_name", "backbone_id"])
+        if predictions is not None and not predictions.empty
+        else None,
+        calibration_table_hash=dataframe_content_hash(
+            calibrated_predictions, sort_by=["model_name", "backbone_id"]
+        )
+        if calibrated_predictions is not None and not calibrated_predictions.empty
+        else None,
         source_signatures=source_signatures,
         input_signature=input_signature,
         config_signature=config_signature,

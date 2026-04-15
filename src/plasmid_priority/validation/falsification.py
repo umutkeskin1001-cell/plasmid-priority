@@ -39,22 +39,26 @@ def build_outcome_permutation_falsification(
     from plasmid_priority.modeling import MODULE_A_FEATURE_SETS, evaluate_model_name
 
     if model_name not in MODULE_A_FEATURE_SETS:
-        return pd.DataFrame({
-            "test_name": ["outcome_permutation_falsification"],
-            "model_name": [model_name],
-            "status": ["skipped_unknown_model"],
-            "n_permutations": [0],
-        })
+        return pd.DataFrame(
+            {
+                "test_name": ["outcome_permutation_falsification"],
+                "model_name": [model_name],
+                "status": ["skipped_unknown_model"],
+                "n_permutations": [0],
+            }
+        )
 
     # Get eligible records
     eligible = scored.loc[scored["spread_label"].notna()].copy()
     if eligible.empty or eligible["spread_label"].nunique() < 2:
-        return pd.DataFrame({
-            "test_name": ["outcome_permutation_falsification"],
-            "model_name": [model_name],
-            "status": ["skipped_insufficient_labels"],
-            "n_permutations": [0],
-        })
+        return pd.DataFrame(
+            {
+                "test_name": ["outcome_permutation_falsification"],
+                "model_name": [model_name],
+                "status": ["skipped_insufficient_labels"],
+                "n_permutations": [0],
+            }
+        )
 
     # Evaluate on true labels
     true_result = evaluate_model_name(eligible, model_name=model_name, include_ci=False)
@@ -79,12 +83,14 @@ def build_outcome_permutation_falsification(
         permuted_aps.append(perm_result.metrics.get("average_precision", float("nan")))
 
     if not permuted_aucs:
-        return pd.DataFrame({
-            "test_name": ["outcome_permutation_falsification"],
-            "model_name": [model_name],
-            "status": ["failed_no_valid_permutations"],
-            "n_permutations": [n_permutations],
-        })
+        return pd.DataFrame(
+            {
+                "test_name": ["outcome_permutation_falsification"],
+                "model_name": [model_name],
+                "status": ["failed_no_valid_permutations"],
+                "n_permutations": [n_permutations],
+            }
+        )
 
     permuted_aucs_arr = np.asarray([x for x in permuted_aucs if not np.isnan(x)], dtype=float)
     permuted_aps_arr = np.asarray([x for x in permuted_aps if not np.isnan(x)], dtype=float)
@@ -120,20 +126,22 @@ def build_outcome_permutation_falsification(
     else:
         interpretation = "pass_collapses_under_falsification"
 
-    return pd.DataFrame({
-        "test_name": ["outcome_permutation_falsification"],
-        "model_name": [model_name],
-        "status": ["completed"],
-        "interpretation": [interpretation],
-        "n_permutations": [n_permutations],
-        "true_roc_auc": [true_auc],
-        "permuted_roc_auc_mean": [mean_perm_auc],
-        "permuted_roc_auc_std": [std_perm_auc],
-        "auc_collapse_delta": [auc_collapse],
-        "empirical_p_value": [empirical_p],
-        "true_average_precision": [true_ap],
-        "permuted_average_precision_mean": [mean_perm_ap],
-    })
+    return pd.DataFrame(
+        {
+            "test_name": ["outcome_permutation_falsification"],
+            "model_name": [model_name],
+            "status": ["completed"],
+            "interpretation": [interpretation],
+            "n_permutations": [n_permutations],
+            "true_roc_auc": [true_auc],
+            "permuted_roc_auc_mean": [mean_perm_auc],
+            "permuted_roc_auc_std": [std_perm_auc],
+            "auc_collapse_delta": [auc_collapse],
+            "empirical_p_value": [empirical_p],
+            "true_average_precision": [true_ap],
+            "permuted_average_precision_mean": [mean_perm_ap],
+        }
+    )
 
 
 def build_label_shuffle_falsification(
@@ -197,25 +205,29 @@ def build_label_shuffle_falsification(
         pooled_std = np.sqrt((np.std(shuffled_aucs_arr) ** 2 + 0) / 2)  # vs 0 for single obs
         cohens_d = (observed_auc - np.mean(shuffled_aucs_arr)) / (pooled_std + 1e-10)
 
-        rows.append({
-            "test_name": "label_shuffle_falsification",
-            "model_name": model_name,
-            "n_shuffles": n_shuffles,
-            "observed_roc_auc": observed_auc,
-            "shuffled_roc_auc_mean": np.mean(shuffled_aucs_arr),
-            "shuffled_roc_auc_std": np.std(shuffled_aucs_arr),
-            "shuffled_roc_auc_q95": np.quantile(shuffled_aucs_arr, 0.95),
-            "observed_ap": observed_ap,
-            "shuffled_ap_mean": np.mean(shuffled_aps_arr),
-            "empirical_p_value": p_value,
-            "cohens_d_vs_shuffle": cohens_d,
-            "status": "completed",
-            "interpretation": (
-                "pass_strong_signal" if p_value < 0.01 and cohens_d > 1.0
-                else "moderate_signal" if p_value < 0.05
-                else "weak_signal_warning"
-            ),
-        })
+        rows.append(
+            {
+                "test_name": "label_shuffle_falsification",
+                "model_name": model_name,
+                "n_shuffles": n_shuffles,
+                "observed_roc_auc": observed_auc,
+                "shuffled_roc_auc_mean": np.mean(shuffled_aucs_arr),
+                "shuffled_roc_auc_std": np.std(shuffled_aucs_arr),
+                "shuffled_roc_auc_q95": np.quantile(shuffled_aucs_arr, 0.95),
+                "observed_ap": observed_ap,
+                "shuffled_ap_mean": np.mean(shuffled_aps_arr),
+                "empirical_p_value": p_value,
+                "cohens_d_vs_shuffle": cohens_d,
+                "status": "completed",
+                "interpretation": (
+                    "pass_strong_signal"
+                    if p_value < 0.01 and cohens_d > 1.0
+                    else "moderate_signal"
+                    if p_value < 0.05
+                    else "weak_signal_warning"
+                ),
+            }
+        )
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 

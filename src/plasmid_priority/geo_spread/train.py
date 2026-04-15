@@ -93,7 +93,9 @@ def fit_geo_spread_model_predictions(
     )
     if predictions.empty or include_posterior_uncertainty:
         return predictions
-    return predictions.loc[:, [column for column in predictions.columns if column in {"backbone_id", "prediction"}]].copy()
+    return predictions.loc[
+        :, [column for column in predictions.columns if column in {"backbone_id", "prediction"}]
+    ].copy()
 
 
 def fit_geo_spread_branch(
@@ -119,11 +121,13 @@ def fit_geo_spread_branch(
         else prepare_geo_spread_scored_table(scored, config=geo_config, records=records)
     )
     selected_model_names = (
-        list(resolve_geo_spread_dataset_model_names(
-            config,
-            include_research=include_research,
-            include_ablation=include_ablation,
-        ))
+        list(
+            resolve_geo_spread_dataset_model_names(
+                config,
+                include_research=include_research,
+                include_ablation=include_ablation,
+            )
+        )
         if model_names is None
         else [str(name) for name in model_names]
     )

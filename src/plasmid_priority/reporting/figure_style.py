@@ -75,9 +75,7 @@ def annotate_bar_values(
         )
 
 
-def apply_axis_style(
-    ax: plt.Axes, *, grid_axis: Literal["both", "x", "y"] | None = "y"
-) -> None:
+def apply_axis_style(ax: plt.Axes, *, grid_axis: Literal["both", "x", "y"] | None = "y") -> None:
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     if grid_axis is not None:

@@ -98,9 +98,7 @@ def run_preflight_checks(scored: pd.DataFrame, split_year: int) -> None:
     for model_name in PHASE_52_DISCOVERY_CANDIDATES:
         track = get_model_track(model_name)
         if track != "discovery":
-            raise ValueError(
-                f"Model {model_name} has track '{track}' but expected 'discovery'"
-            )
+            raise ValueError(f"Model {model_name} has track '{track}' but expected 'discovery'")
 
     # Verify baseline is discovery-safe (it should be)
     baseline_track = get_model_track("bio_clean_priority")
@@ -111,9 +109,7 @@ def run_preflight_checks(scored: pd.DataFrame, split_year: int) -> None:
 
     # 3. Feature column presence check
     all_required_columns = [
-        column
-        for model_name in PHASE_52_MODELS
-        for column in MODULE_A_FEATURE_SETS[model_name]
+        column for model_name in PHASE_52_MODELS for column in MODULE_A_FEATURE_SETS[model_name]
     ]
     assert_feature_columns_present(
         scored,
@@ -160,9 +156,7 @@ def compute_selection_adjusted_p_value(
     # Get OOF predictions for baseline
     baseline_columns = MODULE_A_FEATURE_SETS[baseline_name]
     baseline_eligible = (
-        _ensure_feature_columns(scored, baseline_columns)
-        .loc[scored["spread_label"].notna()]
-        .copy()
+        _ensure_feature_columns(scored, baseline_columns).loc[scored["spread_label"].notna()].copy()
     )
     baseline_eligible["spread_label"] = baseline_eligible["spread_label"].astype(int)
     baseline_fit_kwargs = _model_fit_kwargs(baseline_name)
@@ -328,9 +322,7 @@ def run_phase_52_batch(
     batch_winner = {
         "selected_config_name": selected_config.config_name,
         "selected_config_raw_auc": selected_config.raw_auc,
-        "top_k_config_names": [
-            c.config_name for c in honest_result.top_k_configs
-        ],
+        "top_k_config_names": [c.config_name for c in honest_result.top_k_configs],
         "reported_selection_adjusted_auc": honest_result.reported_selection_adjusted_auc,
         "reported_ci": list(honest_result.reported_ci),
         "recommended_winner_after_gates": None,  # Determined below
@@ -342,11 +334,7 @@ def run_phase_52_batch(
         batch_winner["recommended_winner_after_gates"] = selected_config.config_name
     else:
         # Check if any candidate passes gates
-        passing_candidates = [
-            name
-            for name, eval_ in gate_evaluations.items()
-            if eval_["overall"]
-        ]
+        passing_candidates = [name for name, eval_ in gate_evaluations.items() if eval_["overall"]]
         if passing_candidates:
             # Pick highest AUC among passing
             best_passing = max(
@@ -390,7 +378,8 @@ def write_phase_52_artifacts(
         "baseline": batch_output["baseline_metrics"],
         "candidates": batch_output["candidate_metrics"],
         "batch_winner": {
-            k: v for k, v in batch_output["batch_winner"].items()
+            k: v
+            for k, v in batch_output["batch_winner"].items()
             if k != "recommended_winner_after_gates"  # Handle None
         },
     }
@@ -419,18 +408,24 @@ def write_phase_52_artifacts(
     summary_rows = []
     for model_name, metrics in batch_output["candidate_metrics"].items():
         gates = batch_output["gate_evaluations"][model_name]
-        summary_rows.append({
-            "model_name": model_name,
-            "raw_auc": metrics["raw_auc"],
-            "auc_ci": metrics["auc_ci"],
-            "ece": metrics["ece"],
-            "paired_delong_p": metrics["paired_delong_p"],  # Paired DeLong, NOT selection-adjusted
-            "delta_vs_baseline": metrics["delta_vs_baseline"],
-            "gain_class": metrics["gain_class"],
-            "discovery_contract_pass": metrics["discovery_contract_pass"],
-            "leakage_review_status": metrics["leakage_review_status"],  # "required" = no explicit signal
-            "gate_overall": gates["overall"],
-        })
+        summary_rows.append(
+            {
+                "model_name": model_name,
+                "raw_auc": metrics["raw_auc"],
+                "auc_ci": metrics["auc_ci"],
+                "ece": metrics["ece"],
+                "paired_delong_p": metrics[
+                    "paired_delong_p"
+                ],  # Paired DeLong, NOT selection-adjusted
+                "delta_vs_baseline": metrics["delta_vs_baseline"],
+                "gain_class": metrics["gain_class"],
+                "discovery_contract_pass": metrics["discovery_contract_pass"],
+                "leakage_review_status": metrics[
+                    "leakage_review_status"
+                ],  # "required" = no explicit signal
+                "gate_overall": gates["overall"],
+            }
+        )
     summary_table = pd.DataFrame(summary_rows)
     summary_path = reports_dir / "phase_52_per_model_summary.tsv"
     summary_table.to_csv(summary_path, sep="\t", index=False)
@@ -444,14 +439,18 @@ def write_phase_52_artifacts(
     # E) reports/phase_52_gate_evaluation.tsv
     gate_rows = []
     for model_name, gates in batch_output["gate_evaluations"].items():
-        gate_rows.append({
-            "model_name": model_name,
-            "ece_pass": gates["ece_pass"],
-            "paired_delong_p_pass": gates["paired_delong_p_pass"],  # p < 0.05 threshold
-            "discovery_contract_pass": gates["discovery_contract_pass"],
-            "leakage_review_status": gates["leakage_review_status"],  # "required" = no explicit signal
-            "overall": gates["overall"],
-        })
+        gate_rows.append(
+            {
+                "model_name": model_name,
+                "ece_pass": gates["ece_pass"],
+                "paired_delong_p_pass": gates["paired_delong_p_pass"],  # p < 0.05 threshold
+                "discovery_contract_pass": gates["discovery_contract_pass"],
+                "leakage_review_status": gates[
+                    "leakage_review_status"
+                ],  # "required" = no explicit signal
+                "overall": gates["overall"],
+            }
+        )
     gate_table = pd.DataFrame(gate_rows)
     gate_path = reports_dir / "phase_52_gate_evaluation.tsv"
     gate_table.to_csv(gate_path, sep="\t", index=False)
@@ -603,10 +602,10 @@ def main(argv: list[str] | None = None) -> int:
         winner = batch_output["batch_winner"]["recommended_winner_after_gates"]
         run.set_metric("cache_hit", False)
         run.set_metric("batch_winner", winner or "none")
-        run.set_metric("n_candidates_passing_gates", sum(
-            1 for g in batch_output["gate_evaluations"].values()
-            if g["overall"]
-        ))
+        run.set_metric(
+            "n_candidates_passing_gates",
+            sum(1 for g in batch_output["gate_evaluations"].values() if g["overall"]),
+        )
 
     return 0
 

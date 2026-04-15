@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
 import json
 import os
-import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -29,6 +28,7 @@ from plasmid_priority.utils.files import (
     write_signature_manifest,
 )
 from plasmid_priority.utils.parallel import limit_native_threads
+
 
 def _resolve_training_input_path(data_root: Path) -> Path | None:
     candidates = (
@@ -96,9 +96,7 @@ def _build_candidate_scorecard(results: dict[str, object]) -> pd.DataFrame:
                 "expected_calibration_error": float(
                     metrics.get("expected_calibration_error", float("nan"))
                 ),
-                "knownness_matched_gap": float(
-                    metrics.get("knownness_matched_gap", float("nan"))
-                ),
+                "knownness_matched_gap": float(metrics.get("knownness_matched_gap", float("nan"))),
                 "feature_count": len(MODULE_A_FEATURE_SETS[model_name]),
             }
         )
@@ -112,7 +110,9 @@ def _candidate_model_names() -> list[str]:
     ]
 
 
-def _cache_metadata(*, n_splits: int, n_repeats: int, seed: int, jobs: int, skip_full_fit: bool) -> dict[str, object]:
+def _cache_metadata(
+    *, n_splits: int, n_repeats: int, seed: int, jobs: int, skip_full_fit: bool
+) -> dict[str, object]:
     return {
         "candidate_models": _candidate_model_names(),
         "n_splits": int(n_splits),
@@ -168,7 +168,10 @@ def _choose_best_candidate(scorecard: pd.DataFrame) -> dict[str, object]:
     ).reset_index(drop=True)
     leader = ranked.iloc[0]
     challenger = ranked.iloc[1] if len(ranked) > 1 else None
-    if challenger is not None and abs(float(leader["roc_auc"]) - float(challenger["roc_auc"])) <= 0.001:
+    if (
+        challenger is not None
+        and abs(float(leader["roc_auc"]) - float(challenger["roc_auc"])) <= 0.001
+    ):
         if (
             float(challenger["brier_score"]) <= float(leader["brier_score"])
             and float(challenger["expected_calibration_error"])
@@ -233,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         script_path=PROJECT_ROOT / "scripts/29_train_sovereign.py",
     )
 
-    print(f"\n[1/5] Context loaded")
+    print("\n[1/5] Context loaded")
     print(f"  Data root: {data_root}")
 
     features_path = _resolve_training_input_path(data_root)
@@ -259,7 +262,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if not args.force and load_signature_manifest(
             manifest_path,
-            input_paths=[path for path in [features_path, config_path, metrics_path] if path.exists()],
+            input_paths=[
+                path for path in [features_path, config_path, metrics_path] if path.exists()
+            ],
             source_paths=source_paths,
             metadata=cache_metadata,
         ):
@@ -287,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"❌ Missing candidate definitions: {missing}")
             return 1
 
-        print(f"\n[3/5] Evaluating sovereign candidates")
+        print("\n[3/5] Evaluating sovereign candidates")
         jobs = max(int(args.jobs), 1)
         results = _evaluate_candidates(
             valid,
@@ -300,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
         scorecard = _build_candidate_scorecard(results)
         print(scorecard.to_string(index=False))
 
-        print(f"\n[4/5] Selecting best balanced candidate")
+        print("\n[4/5] Selecting best balanced candidate")
         winner = _choose_best_candidate(scorecard)
         winner_name = str(winner["model_name"])
         print(f"  Selected: {winner_name}")
@@ -335,7 +340,9 @@ def main(argv: list[str] | None = None) -> int:
             "positive_rate": float(valid["spread_label"].mean()),
             "training_input_path": str(features_path),
             "best_existing_model_name": best_existing_model,
-            "best_existing_roc_auc": float(best_existing_auc) if pd.notna(best_existing_auc) else None,
+            "best_existing_roc_auc": float(best_existing_auc)
+            if pd.notna(best_existing_auc)
+            else None,
             "improvement_over_best": (
                 float(winner["roc_auc"]) - float(best_existing_auc)
                 if pd.notna(best_existing_auc)
@@ -367,8 +374,12 @@ def main(argv: list[str] | None = None) -> int:
 
         write_signature_manifest(
             manifest_path,
-            input_paths=[path for path in [features_path, config_path, metrics_path] if path.exists()],
-            output_paths=[path for path in [scorecard_path, output_file, pred_file] if path.exists()],
+            input_paths=[
+                path for path in [features_path, config_path, metrics_path] if path.exists()
+            ],
+            output_paths=[
+                path for path in [scorecard_path, output_file, pred_file] if path.exists()
+            ],
             source_paths=source_paths,
             metadata=cache_metadata,
         )
@@ -378,7 +389,7 @@ def main(argv: list[str] | None = None) -> int:
         run.set_metric("jobs", jobs)
         run.set_metric("winner_roc_auc", float(winner["roc_auc"]))
 
-        print(f"\n[5/5] Saved outputs")
+        print("\n[5/5] Saved outputs")
         print(f"  Scorecard: {scorecard_path}")
         print(f"  Summary:   {output_file}")
         if args.skip_full_fit:

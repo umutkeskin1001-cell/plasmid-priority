@@ -7,8 +7,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from plasmid_priority.clinical_hazard.specs import ClinicalHazardBenchmarkSpec, load_clinical_hazard_config
-from plasmid_priority.shared.contracts import build_branch_input_contract, validate_branch_input_contract
+from plasmid_priority.clinical_hazard.specs import (
+    ClinicalHazardBenchmarkSpec,
+    load_clinical_hazard_config,
+)
+from plasmid_priority.shared.contracts import (
+    build_branch_input_contract,
+    validate_branch_input_contract,
+)
 
 
 class ClinicalHazardInputContract(BaseModel):

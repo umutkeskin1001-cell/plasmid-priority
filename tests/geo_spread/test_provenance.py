@@ -59,24 +59,14 @@ class GeoSpreadProvenanceTests(unittest.TestCase):
         base = build_geo_spread_run_provenance(
             self._scored(),
             model_names=("geo_counts_baseline",),
-            config={
-                "geo_spread": {
-                    "fit_config": {
-                        "geo_counts_baseline": {"calibration": "none"}
-                    }
-                }
-            },
+            config={"geo_spread": {"fit_config": {"geo_counts_baseline": {"calibration": "none"}}}},
             source_paths=[Path(__file__)],
         )
         changed = build_geo_spread_run_provenance(
             self._scored(),
             model_names=("geo_counts_baseline",),
             config={
-                "geo_spread": {
-                    "fit_config": {
-                        "geo_counts_baseline": {"calibration": "isotonic"}
-                    }
-                }
+                "geo_spread": {"fit_config": {"geo_counts_baseline": {"calibration": "isotonic"}}}
             },
             source_paths=[Path(__file__)],
         )

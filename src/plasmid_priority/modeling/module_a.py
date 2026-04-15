@@ -945,15 +945,15 @@ def _oof_hybrid_predictions_from_eligible(
                 max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
             )
             preds[test_idx] += fold_predictions["prediction"].to_numpy(dtype=float)
-            logistic_base[test_idx] += fold_predictions[
-                "logistic_base_prediction"
-            ].to_numpy(dtype=float)
-            nonlinear_base[test_idx] += fold_predictions[
-                "nonlinear_base_prediction"
-            ].to_numpy(dtype=float)
-            agreement[test_idx] += fold_predictions["agreement_score"].to_numpy(dtype=float)
-            review[test_idx] += fold_predictions["agreement_review_flag"].astype(float).to_numpy(
+            logistic_base[test_idx] += fold_predictions["logistic_base_prediction"].to_numpy(
                 dtype=float
+            )
+            nonlinear_base[test_idx] += fold_predictions["nonlinear_base_prediction"].to_numpy(
+                dtype=float
+            )
+            agreement[test_idx] += fold_predictions["agreement_score"].to_numpy(dtype=float)
+            review[test_idx] += (
+                fold_predictions["agreement_review_flag"].astype(float).to_numpy(dtype=float)
             )
             if "nonlinear_backend_requested" in fold_predictions.columns:
                 nonlinear_backend_requested[test_idx] = str(
@@ -1310,8 +1310,8 @@ def _quantile_binned_codes(values: pd.Series, *, n_bins: int) -> np.ndarray:
     if int(valid.nunique()) <= max(int(n_bins), 2):
         unique_values = sorted(valid.astype(float).unique().tolist())
         category_map = {float(value): idx for idx, value in enumerate(unique_values)}
-        result[valid_mask] = valid.astype(float).map(category_map).fillna(0).astype(int).to_numpy(
-            dtype=int
+        result[valid_mask] = (
+            valid.astype(float).map(category_map).fillna(0).astype(int).to_numpy(dtype=int)
         )
         return result
     ranked = valid.rank(method="average")
@@ -1325,8 +1325,8 @@ def _quantile_binned_codes(values: pd.Series, *, n_bins: int) -> np.ndarray:
     except ValueError:
         result[valid_mask] = 0
         return result
-    result[valid_mask] = pd.Series(codes, index=valid.index).fillna(0).astype(int).to_numpy(
-        dtype=int
+    result[valid_mask] = (
+        pd.Series(codes, index=valid.index).fillna(0).astype(int).to_numpy(dtype=int)
     )
     return result
 
@@ -1347,7 +1347,7 @@ def select_cmim_features(
             n_bins=n_bins,
         )["feature_name"]
         .astype(str)
-        .tolist()
+        .tolist(),
     )
 
 
@@ -1360,9 +1360,7 @@ def build_cmim_feature_selection_table(
 ) -> pd.DataFrame:
     """Greedy CMIM ranking over candidate features for the spread label."""
     candidate_features = {
-        feature
-        for feature_set in MODULE_A_FEATURE_SETS.values()
-        for feature in feature_set
+        feature for feature_set in MODULE_A_FEATURE_SETS.values() for feature in feature_set
     }
     candidate_columns = (
         list(dict.fromkeys(str(column) for column in columns))
@@ -1537,8 +1535,7 @@ def get_research_models_by_track(track: str) -> tuple[str, ...]:
     """
     _ensure_config_loaded()
     return tuple(
-        name for name in RESEARCH_MODEL_NAMES
-        if MODULE_A_MODEL_TRACKS.get(str(name)) == str(track)
+        name for name in RESEARCH_MODEL_NAMES if MODULE_A_MODEL_TRACKS.get(str(name)) == str(track)
     )
 
 
@@ -2950,7 +2947,15 @@ def run_module_a(
                 for future, name in future_to_name.items():
                     try:
                         resolved_name, result = future.result()
-                    except (ValueError, RuntimeError, KeyError, TypeError, np.linalg.LinAlgError, OSError, MemoryError) as exc:
+                    except (
+                        ValueError,
+                        RuntimeError,
+                        KeyError,
+                        TypeError,
+                        np.linalg.LinAlgError,
+                        OSError,
+                        MemoryError,
+                    ) as exc:
                         error_message = f"{type(exc).__name__}: {exc}"
                         warnings.warn(
                             (
@@ -2959,9 +2964,12 @@ def run_module_a(
                             ),
                             stacklevel=2,
                         )
-                        resolved_name, result = name, build_failed_model_result(
+                        resolved_name, result = (
                             name,
-                            error_message,
+                            build_failed_model_result(
+                                name,
+                                error_message,
+                            ),
                         )
                     completed[resolved_name] = result
         except (OSError, PermissionError, RuntimeError):
@@ -2988,7 +2996,15 @@ def run_module_a(
                     for future, name in future_to_name.items():
                         try:
                             resolved_name, result = future.result()
-                        except (ValueError, RuntimeError, KeyError, TypeError, np.linalg.LinAlgError, OSError, MemoryError) as exc:
+                        except (
+                            ValueError,
+                            RuntimeError,
+                            KeyError,
+                            TypeError,
+                            np.linalg.LinAlgError,
+                            OSError,
+                            MemoryError,
+                        ) as exc:
                             error_message = f"{type(exc).__name__}: {exc}"
                             warnings.warn(
                                 (
@@ -2997,9 +3013,12 @@ def run_module_a(
                                 ),
                                 stacklevel=2,
                             )
-                            resolved_name, result = name, build_failed_model_result(
+                            resolved_name, result = (
                                 name,
-                                error_message,
+                                build_failed_model_result(
+                                    name,
+                                    error_message,
+                                ),
                             )
                         completed[resolved_name] = result
         for name in selected_model_names:

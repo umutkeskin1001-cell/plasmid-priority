@@ -46,228 +46,245 @@ def _build_schema(
 # =============================================================================
 
 # Harmonized plasmid table schema (output of 04_harmonize_metadata.py)
-HARMONIZED_PLASMID_SCHEMA = _build_schema(
-    {
-        "sequence_accession": Column(
-            str,
-            nullable=False,
-            description="Primary sequence accession (NUCCORE_ACC)",
-        ),
-        "backbone_id": Column(
-            str,
-            nullable=False,
-            description="Backbone identifier",
-        ),
-        "resolved_year": Column(
-            float,
-            checks=[
-                Check.greater_than(MIN_YEAR),
-                Check.less_than(MAX_YEAR),
-            ],
-            nullable=True,
-            required=False,
-            description="Resolved year of sequence",
-        ),
-        "country": Column(
-            str,
-            nullable=True,
-            required=False,
-            description="Resolved country from location",
-        ),
-        "predicted_mobility": Column(
-            str,
-            nullable=True,
-            required=False,
-            description="Mobility prediction from MobSuite",
-        ),
-        "gc_content": Column(
-            float,
-            checks=Check.in_range(0.0, 100.0),
-            nullable=True,
-            required=False,
-            description="GC content percentage",
-        ),
-        "size": Column(
-            float,
-            checks=Check.greater_than(0),
-            nullable=True,
-            required=False,
-            description="Plasmid size in bp",
-        ),
-    },
-    strict="filter",
-    description="Harmonized plasmid metadata table",
-) if PANDERA_AVAILABLE else None
+HARMONIZED_PLASMID_SCHEMA = (
+    _build_schema(
+        {
+            "sequence_accession": Column(
+                str,
+                nullable=False,
+                description="Primary sequence accession (NUCCORE_ACC)",
+            ),
+            "backbone_id": Column(
+                str,
+                nullable=False,
+                description="Backbone identifier",
+            ),
+            "resolved_year": Column(
+                float,
+                checks=[
+                    Check.greater_than(MIN_YEAR),
+                    Check.less_than(MAX_YEAR),
+                ],
+                nullable=True,
+                required=False,
+                description="Resolved year of sequence",
+            ),
+            "country": Column(
+                str,
+                nullable=True,
+                required=False,
+                description="Resolved country from location",
+            ),
+            "predicted_mobility": Column(
+                str,
+                nullable=True,
+                required=False,
+                description="Mobility prediction from MobSuite",
+            ),
+            "gc_content": Column(
+                float,
+                checks=Check.in_range(0.0, 100.0),
+                nullable=True,
+                required=False,
+                description="GC content percentage",
+            ),
+            "size": Column(
+                float,
+                checks=Check.greater_than(0),
+                nullable=True,
+                required=False,
+                description="Plasmid size in bp",
+            ),
+        },
+        strict="filter",
+        description="Harmonized plasmid metadata table",
+    )
+    if PANDERA_AVAILABLE
+    else None
+)
 
 
 # Backbone table schema (output of backbone assignment)
-BACKBONE_TABLE_SCHEMA = _build_schema(
-    {
-        "backbone_id": Column(
-            str,
-            nullable=False,
-            description="Unique backbone identifier",
-        ),
-        "primary_cluster_id": Column(
-            str,
-            nullable=True,
-            required=False,
-            description="Primary MOB-cluster assignment",
-        ),
-        "predicted_mobility": Column(
-            str,
-            nullable=True,
-            required=False,
-            description="Dominant mobility class",
-        ),
-        "mpf_type": Column(
-            str,
-            nullable=True,
-            required=False,
-            description="Dominant MPF type",
-        ),
-        "primary_replicon": Column(
-            str,
-            nullable=True,
-            required=False,
-            description="Dominant replicon type",
-        ),
-        "backbone_assignment_rule": Column(
-            str,
-            nullable=True,
-            required=False,
-            description="Rule used for backbone assignment",
-        ),
-        "backbone_seen_in_training": Column(
-            object,  # pandas uses object dtype for nullable booleans
-            nullable=True,
-            required=False,
-            description="Whether backbone appeared in training period",
-        ),
-    },
-    strict="filter",
-    description="Backbone assignment table",
-) if PANDERA_AVAILABLE else None
+BACKBONE_TABLE_SCHEMA = (
+    _build_schema(
+        {
+            "backbone_id": Column(
+                str,
+                nullable=False,
+                description="Unique backbone identifier",
+            ),
+            "primary_cluster_id": Column(
+                str,
+                nullable=True,
+                required=False,
+                description="Primary MOB-cluster assignment",
+            ),
+            "predicted_mobility": Column(
+                str,
+                nullable=True,
+                required=False,
+                description="Dominant mobility class",
+            ),
+            "mpf_type": Column(
+                str,
+                nullable=True,
+                required=False,
+                description="Dominant MPF type",
+            ),
+            "primary_replicon": Column(
+                str,
+                nullable=True,
+                required=False,
+                description="Dominant replicon type",
+            ),
+            "backbone_assignment_rule": Column(
+                str,
+                nullable=True,
+                required=False,
+                description="Rule used for backbone assignment",
+            ),
+            "backbone_seen_in_training": Column(
+                object,  # pandas uses object dtype for nullable booleans
+                nullable=True,
+                required=False,
+                description="Whether backbone appeared in training period",
+            ),
+        },
+        strict="filter",
+        description="Backbone assignment table",
+    )
+    if PANDERA_AVAILABLE
+    else None
+)
 
 
 # Scored backbone table schema (critical model input)
-SCORED_BACKBONE_SCHEMA = _build_schema(
-    {
-        "backbone_id": Column(
-            str,
-            nullable=False,
-            description="Unique backbone identifier",
-        ),
-        "spread_label": Column(
-            float,
-            checks=Check.isin([0.0, 1.0, float("nan")]),
-            nullable=True,
-            required=False,
-            description="Binary spread outcome (1=spread, 0=no spread)",
-        ),
-        "priority_index": Column(
-            float,
-            checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
-            nullable=True,
-            required=False,
-            description="Overall priority score",
-        ),
-        "bio_priority_index": Column(
-            float,
-            checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
-            nullable=True,
-            required=False,
-            description="Biological component score",
-        ),
-        "T_eff_norm": Column(
-            float,
-            checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
-            nullable=True,
-            required=False,
-            description="Normalized transfer efficiency",
-        ),
-        "H_eff_norm": Column(
-            float,
-            checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
-            nullable=True,
-            required=False,
-            description="Normalized host range efficiency",
-        ),
-        "A_eff_norm": Column(
-            float,
-            checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
-            nullable=True,
-            required=False,
-            description="Normalized AMR efficiency",
-        ),
-        "log1p_member_count_train": Column(
-            float,
-            checks=Check.greater_than_or_equal_to(0),
-            nullable=True,
-            required=False,
-            description="Log-transformed training member count",
-        ),
-        "log1p_n_countries_train": Column(
-            float,
-            checks=Check.greater_than_or_equal_to(0),
-            nullable=True,
-            required=False,
-            description="Log-transformed training country count",
-        ),
-        "refseq_share_train": Column(
-            float,
-            checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
-            nullable=True,
-            required=False,
-            description="Share of RefSeq sources in training",
-        ),
-        "coherence_score": Column(
-            float,
-            checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
-            nullable=True,
-            required=False,
-            description="Backbone coherence score",
-        ),
-    },
-    strict="filter",
-    description="Scored backbone table with model features",
-) if PANDERA_AVAILABLE else None
+SCORED_BACKBONE_SCHEMA = (
+    _build_schema(
+        {
+            "backbone_id": Column(
+                str,
+                nullable=False,
+                description="Unique backbone identifier",
+            ),
+            "spread_label": Column(
+                float,
+                checks=Check.isin([0.0, 1.0, float("nan")]),
+                nullable=True,
+                required=False,
+                description="Binary spread outcome (1=spread, 0=no spread)",
+            ),
+            "priority_index": Column(
+                float,
+                checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
+                nullable=True,
+                required=False,
+                description="Overall priority score",
+            ),
+            "bio_priority_index": Column(
+                float,
+                checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
+                nullable=True,
+                required=False,
+                description="Biological component score",
+            ),
+            "T_eff_norm": Column(
+                float,
+                checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
+                nullable=True,
+                required=False,
+                description="Normalized transfer efficiency",
+            ),
+            "H_eff_norm": Column(
+                float,
+                checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
+                nullable=True,
+                required=False,
+                description="Normalized host range efficiency",
+            ),
+            "A_eff_norm": Column(
+                float,
+                checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
+                nullable=True,
+                required=False,
+                description="Normalized AMR efficiency",
+            ),
+            "log1p_member_count_train": Column(
+                float,
+                checks=Check.greater_than_or_equal_to(0),
+                nullable=True,
+                required=False,
+                description="Log-transformed training member count",
+            ),
+            "log1p_n_countries_train": Column(
+                float,
+                checks=Check.greater_than_or_equal_to(0),
+                nullable=True,
+                required=False,
+                description="Log-transformed training country count",
+            ),
+            "refseq_share_train": Column(
+                float,
+                checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
+                nullable=True,
+                required=False,
+                description="Share of RefSeq sources in training",
+            ),
+            "coherence_score": Column(
+                float,
+                checks=Check.in_range(0.0, 1.0, include_min=True, include_max=True),
+                nullable=True,
+                required=False,
+                description="Backbone coherence score",
+            ),
+        },
+        strict="filter",
+        description="Scored backbone table with model features",
+    )
+    if PANDERA_AVAILABLE
+    else None
+)
 
 
 # Deduplicated plasmid table schema
-DEDUPLICATED_PLASMID_SCHEMA = _build_schema(
-    {
-        "sequence_accession": Column(
-            str,
-            nullable=False,
-            description="Primary sequence accession",
-        ),
-        "backbone_id": Column(
-            str,
-            nullable=False,
-            description="Assigned backbone",
-        ),
-        "is_canonical_representative": Column(
-            bool,
-            nullable=True,
-            required=False,
-            description="Whether this is the canonical sequence for its group",
-        ),
-        "dedup_representative_group": Column(
-            str,
-            nullable=True,
-            required=False,
-            description="Deduplication group identifier",
-        ),
-    },
-    strict="filter",
-    description="Deduplicated plasmid table",
-) if PANDERA_AVAILABLE else None
+DEDUPLICATED_PLASMID_SCHEMA = (
+    _build_schema(
+        {
+            "sequence_accession": Column(
+                str,
+                nullable=False,
+                description="Primary sequence accession",
+            ),
+            "backbone_id": Column(
+                str,
+                nullable=False,
+                description="Assigned backbone",
+            ),
+            "is_canonical_representative": Column(
+                bool,
+                nullable=True,
+                required=False,
+                description="Whether this is the canonical sequence for its group",
+            ),
+            "dedup_representative_group": Column(
+                str,
+                nullable=True,
+                required=False,
+                description="Deduplication group identifier",
+            ),
+        },
+        strict="filter",
+        description="Deduplicated plasmid table",
+    )
+    if PANDERA_AVAILABLE
+    else None
+)
 
 
 # =============================================================================
 # VALIDATION FUNCTIONS
 # =============================================================================
+
 
 def validate_harmonized_plasmids(
     df: pd.DataFrame,

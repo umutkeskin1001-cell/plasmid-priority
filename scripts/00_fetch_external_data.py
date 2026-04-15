@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 import gzip
 import io
+import json
 import re
 import shutil
 import tarfile
@@ -20,14 +20,20 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 from plasmid_priority.config import build_context
-from plasmid_priority.utils.files import ensure_directory, atomic_write_json
+from plasmid_priority.utils.files import atomic_write_json, ensure_directory
 
-AMRFINDER_BASE_URL = "https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/latest/"
+AMRFINDER_BASE_URL = (
+    "https://ftp.ncbi.nlm.nih.gov/pathogen/Antimicrobial_resistance/AMRFinderPlus/database/latest/"
+)
 CARD_ARCHIVE_URL = "https://card.mcmaster.ca/latest/data"
 WHO_MIA_PDF_URL = "https://cdn.who.int/media/docs/default-source/gcp/who-mia-list-2024-lv.pdf"
 PATHOGEN_RESULTS_BASE_URL = "https://ftp.ncbi.nlm.nih.gov/pathogen/Results/"
-RESFINDER_DOWNLOADS_URL = "https://bitbucket.org/genomicepidemiology/resfinder_db/downloads/?iframe=true&spa=0&tab=tags"
-PLASMIDFINDER_DB_DOWNLOAD_URL = "https://bitbucket.org/genomicepidemiology/plasmidfinder_db/get/2.1.tar.gz"
+RESFINDER_DOWNLOADS_URL = (
+    "https://bitbucket.org/genomicepidemiology/resfinder_db/downloads/?iframe=true&spa=0&tab=tags"
+)
+PLASMIDFINDER_DB_DOWNLOAD_URL = (
+    "https://bitbucket.org/genomicepidemiology/plasmidfinder_db/get/2.1.tar.gz"
+)
 MOBSUITE_ARCHIVE_URL = "https://zenodo.org/records/10304948/files/data.tar.gz?download=1"
 VFDB_ANNOTATIONS_URL = "https://www.mgc.ac.cn/VFs/Down/VFs.xls.gz"
 CONJSCAN_REPO_ZIP_URL = "https://codeload.github.com/macsy-models/CONJScan/zip/refs/heads/main"
@@ -127,7 +133,9 @@ def _extract_first_tar_member(
             if normalized == member_name or normalized.endswith(f"/{member_name}"):
                 extracted = archive.extractfile(member)
                 if extracted is None:
-                    raise FileNotFoundError(f"Member {member_name} was not readable in {archive_path}")
+                    raise FileNotFoundError(
+                        f"Member {member_name} was not readable in {archive_path}"
+                    )
                 with output_path.open("wb") as handle:
                     shutil.copyfileobj(extracted, handle)
                 return
@@ -179,7 +187,9 @@ def fetch_amrfinder_database(external_root: Path, *, force: bool = False) -> dic
     release_dir = ensure_directory(amrfinder_root / version)
     files = ("version.txt", "AMRProt.fa", "AMR_CDS.fa", "database_format_version.txt")
     for filename in files:
-        _download_if_needed(urljoin(AMRFINDER_BASE_URL, filename), release_dir / filename, force=force)
+        _download_if_needed(
+            urljoin(AMRFINDER_BASE_URL, filename), release_dir / filename, force=force
+        )
     return {
         "version": version,
         "release_dir": str(release_dir),
@@ -239,8 +249,10 @@ def fetch_plasmidfinder_database(external_root: Path, *, force: bool = False) ->
 def fetch_mobsuite_database(external_root: Path, *, force: bool = False) -> dict[str, object]:
     mobsuite_root = ensure_directory(external_root / "mobsuite_db")
     tar_path = mobsuite_root / "data.tar"
-    if not force and _tar_contains_member(tar_path, "host_range_literature_plasmidDB.txt") and _tar_contains_member(
-        tar_path, "clusters.txt"
+    if (
+        not force
+        and _tar_contains_member(tar_path, "host_range_literature_plasmidDB.txt")
+        and _tar_contains_member(tar_path, "clusters.txt")
     ):
         return {"path": str(tar_path), "downloaded": False}
 
@@ -248,7 +260,10 @@ def fetch_mobsuite_database(external_root: Path, *, force: bool = False) -> dict
     temp_tar = _temporary_path(suffix=".tar")
     try:
         _download(MOBSUITE_ARCHIVE_URL, temp_archive)
-        with tarfile.open(temp_archive, "r:gz") as source_archive, tarfile.open(temp_tar, "w") as output_archive:
+        with (
+            tarfile.open(temp_archive, "r:gz") as source_archive,
+            tarfile.open(temp_tar, "w") as output_archive,
+        ):
             for target_name in ("host_range_literature_plasmidDB.txt", "clusters.txt"):
                 matched = None
                 for member in source_archive.getmembers():
@@ -260,7 +275,9 @@ def fetch_mobsuite_database(external_root: Path, *, force: bool = False) -> dict
                     raise FileNotFoundError(f"{target_name} not found in MOB-suite archive.")
                 extracted = source_archive.extractfile(matched)
                 if extracted is None:
-                    raise FileNotFoundError(f"{target_name} could not be extracted from MOB-suite archive.")
+                    raise FileNotFoundError(
+                        f"{target_name} could not be extracted from MOB-suite archive."
+                    )
                 payload = extracted.read()
                 info = tarfile.TarInfo(name=target_name)
                 info.size = len(payload)
@@ -300,7 +317,10 @@ def fetch_vfdb_annotations(external_root: Path, *, force: bool = False) -> dict[
             values = sheet.row_values(row_index)
             if not any(str(value).strip() for value in values):
                 continue
-            row = {header: values[index] if index < len(values) else "" for index, header in enumerate(headers)}
+            row = {
+                header: values[index] if index < len(values) else ""
+                for index, header in enumerate(headers)
+            }
             rows.append(row)
         pd.DataFrame(rows).to_csv(output_path, sep="\t", index=False)
         return {"path": str(output_path), "downloaded": True}
@@ -363,7 +383,9 @@ def fetch_bacmet_annotations(external_root: Path, *, force: bool = False) -> dic
         "compound",
         "ncbi_annotation",
     ]
-    combined = pd.concat([exp.reindex(columns=columns), pred.reindex(columns=columns)], ignore_index=True)
+    combined = pd.concat(
+        [exp.reindex(columns=columns), pred.reindex(columns=columns)], ignore_index=True
+    )
     combined.to_csv(output_path, sep="\t", index=False)
     return {
         "path": str(output_path),
@@ -397,14 +419,18 @@ def fetch_kegg_tables(external_root: Path, *, force: bool = False) -> dict[str, 
     ko_list = _download_text(urljoin(KEGG_REST_BASE_URL, "list/ko"))
     ko_pathway = _download_text(urljoin(KEGG_REST_BASE_URL, "link/pathway/ko"))
 
-    def _two_column_tsv(text: str, output_path: Path, first_name: str, second_name: str) -> pd.DataFrame:
+    def _two_column_tsv(
+        text: str, output_path: Path, first_name: str, second_name: str
+    ) -> pd.DataFrame:
         rows: list[dict[str, str]] = []
         for line in text.splitlines():
             line = line.strip()
             if not line:
                 continue
             left, right = line.split("\t", 1)
-            rows.append({first_name: left.replace("path:", "").replace("ko:", ""), second_name: right})
+            rows.append(
+                {first_name: left.replace("path:", "").replace("ko:", ""), second_name: right}
+            )
         frame = pd.DataFrame(rows)
         frame.to_csv(output_path, sep="\t", index=False)
         return frame
@@ -465,7 +491,9 @@ def fetch_conjscan_annotations(external_root: Path, *, force: bool = False) -> d
                     profile_prefix = "T4SS_" + system_name.removeprefix("T4SS_type")
                 else:
                     profile_prefix = system_name
-                matched_profiles = [name for name in profile_members if Path(name).stem.startswith(profile_prefix)]
+                matched_profiles = [
+                    name for name in profile_members if Path(name).stem.startswith(profile_prefix)
+                ]
                 rows.append(
                     {
                         "package": "CONJScan",
@@ -498,15 +526,51 @@ def fetch_iceberg_annotations(external_root: Path, *, force: bool = False) -> di
         return frame
 
     frames = [
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getdata1.php?key=ICE"), source_table="getdata1", source_key="ICE"),
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getdata1.php?key=IME"), source_table="getdata1", source_key="IME"),
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getdata1.php?key=CIME"), source_table="getdata1", source_key="CIME"),
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=or"), source_table="getmeta", source_key="or"),
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=sk"), source_table="getmeta", source_key="sk"),
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=ga"), source_table="getmeta", source_key="ga"),
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=ur"), source_table="getmeta", source_key="ur"),
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=wa"), source_table="getmeta", source_key="wa"),
-        _read_json_table(urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=na"), source_table="getmeta", source_key="na"),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getdata1.php?key=ICE"),
+            source_table="getdata1",
+            source_key="ICE",
+        ),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getdata1.php?key=IME"),
+            source_table="getdata1",
+            source_key="IME",
+        ),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getdata1.php?key=CIME"),
+            source_table="getdata1",
+            source_key="CIME",
+        ),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=or"),
+            source_table="getmeta",
+            source_key="or",
+        ),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=sk"),
+            source_table="getmeta",
+            source_key="sk",
+        ),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=ga"),
+            source_table="getmeta",
+            source_key="ga",
+        ),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=ur"),
+            source_table="getmeta",
+            source_key="ur",
+        ),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=wa"),
+            source_table="getmeta",
+            source_key="wa",
+        ),
+        _read_json_table(
+            urljoin("https://tool2-mml.sjtu.edu.cn/ICEberg3/", "getmeta.php?key=na"),
+            source_table="getmeta",
+            source_key="na",
+        ),
     ]
     combined = pd.concat(frames, ignore_index=True, sort=False)
     combined.to_csv(output_path, sep="\t", index=False)
@@ -614,23 +678,36 @@ def fetch_pathogen_detection_metadata(
             row_count = 0
             clinical_count = 0
             environmental_count = 0
-            for chunk in pd.read_csv(local_path, sep="\t", dtype=str, low_memory=False, chunksize=50000):
+            for chunk in pd.read_csv(
+                local_path, sep="\t", dtype=str, low_memory=False, chunksize=50000
+            ):
                 normalized = _normalize_pathogen_frame(chunk, group_name=group)
-                normalized.to_csv(combined_handle, sep="\t", index=False, header=not combined_header_written)
+                normalized.to_csv(
+                    combined_handle, sep="\t", index=False, header=not combined_header_written
+                )
                 combined_header_written = True
                 source_type_text = normalized["Source type"].fillna("").astype(str).str.lower()
                 location_text = normalized["Location"].fillna("").astype(str).str.lower()
-                clinical_mask = source_type_text.str.contains("clinical|hospital|patient|human", regex=True) | location_text.str.contains(
+                clinical_mask = source_type_text.str.contains(
                     "clinical|hospital|patient|human", regex=True
-                )
+                ) | location_text.str.contains("clinical|hospital|patient|human", regex=True)
                 environmental_mask = source_type_text.str.contains(
                     "environmental|wastewater|soil|water|river|food", regex=True
-                ) | location_text.str.contains("environmental|wastewater|soil|water|river|food", regex=True)
+                ) | location_text.str.contains(
+                    "environmental|wastewater|soil|water|river|food", regex=True
+                )
                 if clinical_mask.any():
-                    normalized.loc[clinical_mask].to_csv(clinical_handle, sep="\t", index=False, header=not clinical_header_written)
+                    normalized.loc[clinical_mask].to_csv(
+                        clinical_handle, sep="\t", index=False, header=not clinical_header_written
+                    )
                     clinical_header_written = True
                 if environmental_mask.any():
-                    normalized.loc[environmental_mask].to_csv(environmental_handle, sep="\t", index=False, header=not environmental_header_written)
+                    normalized.loc[environmental_mask].to_csv(
+                        environmental_handle,
+                        sep="\t",
+                        index=False,
+                        header=not environmental_header_written,
+                    )
                     environmental_header_written = True
                 row_count += int(len(normalized))
                 clinical_count += int(clinical_mask.sum())
@@ -651,7 +728,9 @@ def fetch_pathogen_detection_metadata(
                 "sources": source_rows,
                 "combined_rows": int(sum(entry["rows"] for entry in source_rows)),
                 "clinical_rows": int(sum(entry["clinical_rows"] for entry in source_rows)),
-                "environmental_rows": int(sum(entry["environmental_rows"] for entry in source_rows)),
+                "environmental_rows": int(
+                    sum(entry["environmental_rows"] for entry in source_rows)
+                ),
             },
         )
         return {
@@ -705,7 +784,9 @@ def fetch_clinical_context_lookup(external_root: Path, *, force: bool = False) -
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--force", action="store_true", help="Re-download assets even if they already exist.")
+    parser.add_argument(
+        "--force", action="store_true", help="Re-download assets even if they already exist."
+    )
     parser.add_argument(
         "--include-large",
         action="store_true",

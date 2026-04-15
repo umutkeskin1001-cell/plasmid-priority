@@ -17,6 +17,10 @@ def _safe_series_value(frame: pd.DataFrame, column: str, default: Any = float("n
     return value
 
 
+def _metric_value(row: pd.Series, column: str) -> float:
+    return float(pd.to_numeric(pd.Series([row[column]]), errors="coerce").iloc[0])
+
+
 def build_geo_spread_report_card(
     results: Mapping[str, ModelResult],
     *,
@@ -47,9 +51,7 @@ def build_geo_spread_report_card(
             ),
             "top_k_precision": result.metrics.get("precision_at_top_10", float("nan")),
             "top_k_recall": result.metrics.get("recall_at_top_10", float("nan")),
-            "decision_utility_score": result.metrics.get(
-                "decision_utility_score", float("nan")
-            ),
+            "decision_utility_score": result.metrics.get("decision_utility_score", float("nan")),
             "novelty_adjusted_average_precision": result.metrics.get(
                 "novelty_adjusted_average_precision", float("nan")
             ),
@@ -85,8 +87,10 @@ def build_geo_spread_report_card(
     report = pd.DataFrame(rows)
     if report.empty:
         return report
-    report["is_primary_candidate"] = report["model_name"].astype(str).eq(
-        str(provenance.get("primary_model_name", "")) if provenance else ""
+    report["is_primary_candidate"] = (
+        report["model_name"]
+        .astype(str)
+        .eq(str(provenance.get("primary_model_name", "")) if provenance else "")
     )
     report["is_headline_candidate"] = report["rank"].eq(1)
     if provenance:
@@ -103,7 +107,11 @@ def build_geo_spread_report_card(
         report = report.merge(
             selection_scorecard.loc[
                 :,
-                [column for column in selection_scorecard.columns if column in {"model_name", "selection_score", "selection_rank"}],
+                [
+                    column
+                    for column in selection_scorecard.columns
+                    if column in {"model_name", "selection_score", "selection_rank"}
+                ],
             ],
             on="model_name",
             how="left",
@@ -124,7 +132,11 @@ def format_geo_spread_report_markdown(
 
     top_row = report_card.iloc[0]
     recommended_row = (
-        report_card.loc[report_card.get("is_recommended_primary", pd.Series(False, index=report_card.index)).fillna(False)]
+        report_card.loc[
+            report_card.get(
+                "is_recommended_primary", pd.Series(False, index=report_card.index)
+            ).fillna(False)
+        ]
         if "is_recommended_primary" in report_card.columns
         else pd.DataFrame()
     )
@@ -159,17 +171,21 @@ def format_geo_spread_report_markdown(
         pd.Series([top_row.get("event_within_3y_roc_auc", float("nan"))]), errors="coerce"
     ).iloc[0]
     if pd.notna(best_low_knownness_auc):
-        lines.append(f"- best_predictive_low_knownness_roc_auc: `{float(best_low_knownness_auc):.3f}`")
+        lines.append(
+            f"- best_predictive_low_knownness_roc_auc: `{float(best_low_knownness_auc):.3f}`"
+        )
     if pd.notna(worst_low_knownness_auc):
-        lines.append(f"- best_predictive_worst_knownness_quartile_roc_auc: `{float(worst_low_knownness_auc):.3f}`")
+        worst_auc_value = float(worst_low_knownness_auc)
+        lines.append(f"- best_predictive_worst_knownness_quartile_roc_auc: `{worst_auc_value:.3f}`")
     if pd.notna(within_3y_auc):
         lines.append(f"- best_predictive_event_within_3y_roc_auc: `{float(within_3y_auc):.3f}`")
     if not recommended_row.empty:
         recommended = recommended_row.iloc[0]
         lines.append(f"- recommended_primary_model: `{recommended['model_name']}`")
         if "selection_score" in recommended.index:
+            recommended_score = _metric_value(recommended, "selection_score")
             lines.append(
-                f"- recommended_primary_selection_score: `{float(pd.to_numeric(pd.Series([recommended.get('selection_score')]), errors='coerce').iloc[0]):.3f}`"
+                f"- recommended_primary_selection_score: `{recommended_score:.3f}`"
             )
     if "abstain_rate" in report_card.columns:
         reference_row = recommended_row.iloc[0] if not recommended_row.empty else top_row
@@ -187,37 +203,36 @@ def format_geo_spread_report_markdown(
         ]
     )
     for _, row in report_card.iterrows():
-        low_knownness_auc = pd.to_numeric(
-            pd.Series([row.get("low_knownness_roc_auc", float("nan"))]), errors="coerce"
-        ).iloc[0]
+        low_knownness_auc = _metric_value(row, "low_knownness_roc_auc")
         low_knownness_suffix = (
             f", low-knownness AUC `{float(low_knownness_auc):.3f}`"
             if pd.notna(low_knownness_auc)
             else ""
         )
-        worst_low_knownness_auc = pd.to_numeric(
-            pd.Series([row.get("worst_knownness_quartile_roc_auc", float("nan"))]), errors="coerce"
-        ).iloc[0]
+        worst_low_knownness_auc = _metric_value(row, "worst_knownness_quartile_roc_auc")
         worst_low_knownness_suffix = (
             f", worst-knownness quartile AUC `{float(worst_low_knownness_auc):.3f}`"
             if pd.notna(worst_low_knownness_auc)
             else ""
         )
-        ece_value = pd.to_numeric(
-            pd.Series(
-                [
-                    row.get(
-                        "calibrated_expected_calibration_error",
-                        row.get("expected_calibration_error", float("nan")),
-                    )
-                ]
-            ),
-            errors="coerce",
-        ).iloc[0]
+        ece_value = float(
+            pd.to_numeric(
+                pd.Series(
+                    [
+                        row.get(
+                            "calibrated_expected_calibration_error",
+                            row.get("expected_calibration_error", float("nan")),
+                        )
+                    ]
+                ),
+                errors="coerce",
+            ).iloc[0]
+        )
+        roc_auc = _metric_value(row, "roc_auc")
+        average_precision = _metric_value(row, "average_precision")
         lines.append(
-            f"- `{row['model_name']}`: ROC AUC `{float(pd.to_numeric(pd.Series([row['roc_auc']]), errors='coerce').iloc[0]):.3f}`, "
-            f"AP `{float(pd.to_numeric(pd.Series([row['average_precision']]), errors='coerce').iloc[0]):.3f}`, "
-            f"calibrated ECE `{float(ece_value):.3f}`"
+            f"- `{row['model_name']}`: ROC AUC `{roc_auc:.3f}`, AP "
+            f"`{average_precision:.3f}`, calibrated ECE `{ece_value:.3f}`"
             f"{low_knownness_suffix}{worst_low_knownness_suffix}"
         )
     lines.append("")

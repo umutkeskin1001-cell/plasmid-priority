@@ -234,9 +234,7 @@ class TestExperimentGates(unittest.TestCase):
         evaluate_experiment_gates(result, gates)
 
         # Verify frozen thresholds unchanged
-        self.assertEqual(
-            FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"], original_ece
-        )
+        self.assertEqual(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"], original_ece)
         self.assertEqual(
             FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["selection_adjusted_p_max"], original_p
         )

@@ -61,7 +61,10 @@ class GeoSpreadPipelineTests(unittest.TestCase):
         self.assertEqual(dataset.model_name, "geo_parsimonious_priority")
         self.assertEqual(dataset.label_column, "spread_label")
         self.assertEqual(len(dataset.eligible), 12)
-        self.assertEqual(tuple(dataset.feature_columns), tuple(dataset.config.feature_sets["geo_parsimonious_priority"]))
+        self.assertEqual(
+            tuple(dataset.feature_columns),
+            tuple(dataset.config.feature_sets["geo_parsimonious_priority"]),
+        )
 
     def test_fit_geo_spread_model_returns_model_result(self) -> None:
         result = fit_geo_spread_model(
@@ -153,7 +156,9 @@ class GeoSpreadPipelineTests(unittest.TestCase):
             mock.patch.object(
                 geo_train,
                 "_fit_geo_spread_model_on_dataset",
-                return_value=mock.Mock(status="ok", metrics={"roc_auc": 0.5}, predictions=pd.DataFrame()),
+                return_value=mock.Mock(
+                    status="ok", metrics={"roc_auc": 0.5}, predictions=pd.DataFrame()
+                ),
             ),
         ):
             geo_train.fit_geo_spread_branch(
@@ -187,7 +192,9 @@ class GeoSpreadPipelineTests(unittest.TestCase):
             )
 
         self.assertEqual(results["geo_support_light_priority"].status, "failed")
-        self.assertIn("missing feature surface", results["geo_support_light_priority"].error_message)
+        self.assertIn(
+            "missing feature surface", results["geo_support_light_priority"].error_message
+        )
 
 
 if __name__ == "__main__":

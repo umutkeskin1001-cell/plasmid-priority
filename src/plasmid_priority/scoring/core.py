@@ -228,15 +228,11 @@ def recompute_priority_from_reference(
     amr_mdr_proxy_reference = _column_or_zero(reference, "mdr_proxy_fraction")
     amr_xdr_proxy_values = _column_or_zero(rescored, "xdr_proxy_fraction")
     amr_xdr_proxy_reference = _column_or_zero(reference, "xdr_proxy_fraction")
-    last_resort_convergence_values = _column_or_zero(
-        rescored, "mean_last_resort_convergence_score"
-    )
+    last_resort_convergence_values = _column_or_zero(rescored, "mean_last_resort_convergence_score")
     last_resort_convergence_reference = _column_or_zero(
         reference, "mean_last_resort_convergence_score"
     )
-    amr_mechanism_diversity_values = _column_or_zero(
-        rescored, "mean_amr_mechanism_diversity_proxy"
-    )
+    amr_mechanism_diversity_values = _column_or_zero(rescored, "mean_amr_mechanism_diversity_proxy")
     amr_mechanism_diversity_reference = _column_or_zero(
         reference, "mean_amr_mechanism_diversity_proxy"
     )

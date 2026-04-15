@@ -6,7 +6,6 @@ import inspect
 import unittest
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -48,7 +47,7 @@ class ReportScienceBoundaryTests(unittest.TestCase):
     def test_report_builder_does_not_call_fit_functions(self) -> None:
         """Verify the report builder does not call model fitting functions."""
         source = inspect.getsource(build_reports_script)
-        
+
         # These are the main model fitting functions that should not be called
         forbidden_patterns = [
             "fit_full_model_predictions(",
@@ -56,7 +55,7 @@ class ReportScienceBoundaryTests(unittest.TestCase):
             "fit_predict_model_holdout(",
             "run_module_a(",
         ]
-        
+
         for pattern in forbidden_patterns:
             self.assertNotIn(
                 pattern,

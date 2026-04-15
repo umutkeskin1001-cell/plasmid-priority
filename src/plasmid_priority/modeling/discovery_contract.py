@@ -65,16 +65,10 @@ def validate_discovery_input_contract(
         )
     if missing_columns:
         missing_text = ", ".join(f"`{column}`" for column in sorted(set(missing_columns)))
-        raise ValueError(
-            f"{label} is missing discovery-contract metadata columns: {missing_text}."
-        )
+        raise ValueError(f"{label} is missing discovery-contract metadata columns: {missing_text}.")
 
     split_year_values = (
-        pd.to_numeric(scored["split_year"], errors="coerce")
-        .dropna()
-        .astype(int)
-        .unique()
-        .tolist()
+        pd.to_numeric(scored["split_year"], errors="coerce").dropna().astype(int).unique().tolist()
     )
     if split_year_values != [int(contract.split_year)]:
         raise ValueError(
@@ -84,7 +78,11 @@ def validate_discovery_input_contract(
 
     if contract.require_training_only_assignment:
         assignment_modes = (
-            scored["backbone_assignment_mode"].fillna("").astype(str).str.strip().replace("", np.nan)
+            scored["backbone_assignment_mode"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", np.nan)
         )
         invalid_modes = sorted(
             {

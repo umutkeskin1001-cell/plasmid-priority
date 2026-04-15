@@ -45,9 +45,8 @@ def _sync_file(source: Path, destination: Path) -> None:
     if destination.exists():
         source_stat = source.stat()
         destination_stat = destination.stat()
-        if (
-            source_stat.st_size == destination_stat.st_size
-            and int(source_stat.st_mtime) <= int(destination_stat.st_mtime)
+        if source_stat.st_size == destination_stat.st_size and int(source_stat.st_mtime) <= int(
+            destination_stat.st_mtime
         ):
             return
     shutil.copy2(source, destination)
@@ -167,7 +166,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         scored = read_tsv(paths["branch_scored_path"])
-        records = read_tsv(paths["branch_records_path"]) if paths["branch_records_path"].exists() else pd.DataFrame()
+        records = (
+            read_tsv(paths["branch_records_path"])
+            if paths["branch_records_path"].exists()
+            else pd.DataFrame()
+        )
         results = evaluate_geo_spread_branch(
             scored,
             model_names=model_names,

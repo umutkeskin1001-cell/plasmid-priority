@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest import mock
 
 import pandas as pd
+
 try:
     import duckdb
 except ImportError:  # pragma: no cover - fallback in non-venv environments

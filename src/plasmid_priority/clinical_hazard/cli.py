@@ -13,24 +13,33 @@ from plasmid_priority.clinical_hazard.calibration import (
     build_clinical_hazard_calibrated_prediction_table,
     build_clinical_hazard_calibration_summary,
 )
+from plasmid_priority.clinical_hazard.dataset import prepare_clinical_hazard_scored_table
 from plasmid_priority.clinical_hazard.evaluate import (
     build_clinical_hazard_model_summary,
     build_clinical_hazard_prediction_table,
     evaluate_clinical_hazard_branch,
 )
-from plasmid_priority.clinical_hazard.dataset import prepare_clinical_hazard_scored_table
 from plasmid_priority.clinical_hazard.provenance import build_clinical_hazard_run_provenance
 from plasmid_priority.clinical_hazard.report import (
     build_clinical_hazard_report_card,
     format_clinical_hazard_report_markdown,
 )
-from plasmid_priority.clinical_hazard.specs import load_clinical_hazard_config, resolve_clinical_hazard_model_names
+from plasmid_priority.clinical_hazard.specs import (
+    load_clinical_hazard_config,
+    resolve_clinical_hazard_model_names,
+)
 from plasmid_priority.config import build_context
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.shared.data_inventory import build_branch_inventory
 from plasmid_priority.shared.selection import select_branch_primary_model
 from plasmid_priority.utils.dataframe import read_tsv
-from plasmid_priority.utils.files import atomic_write_json, ensure_directory, load_signature_manifest, project_python_source_paths, write_signature_manifest
+from plasmid_priority.utils.files import (
+    atomic_write_json,
+    ensure_directory,
+    load_signature_manifest,
+    project_python_source_paths,
+    write_signature_manifest,
+)
 
 
 def _sync_file(source: Path, destination: Path) -> None:
@@ -40,7 +49,9 @@ def _sync_file(source: Path, destination: Path) -> None:
     if destination.exists():
         source_stat = source.stat()
         destination_stat = destination.stat()
-        if source_stat.st_size == destination_stat.st_size and int(source_stat.st_mtime) <= int(destination_stat.st_mtime):
+        if source_stat.st_size == destination_stat.st_size and int(source_stat.st_mtime) <= int(
+            destination_stat.st_mtime
+        ):
             return
     shutil.copy2(source, destination)
 
@@ -65,7 +76,9 @@ def _branch_paths(context_root: Path, data_root: Path) -> dict[str, Path]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the clinical hazard branch.")
-    parser.add_argument("--research-models", action="store_true", help="Also evaluate the research model.")
+    parser.add_argument(
+        "--research-models", action="store_true", help="Also evaluate the research model."
+    )
     parser.add_argument("--jobs", type=int, default=min(8, os.cpu_count() or 1))
     args = parser.parse_args(argv)
 
@@ -83,7 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     summary_path = paths["analysis_dir"] / "clinical_hazard_model_summary.tsv"
     predictions_path = paths["analysis_dir"] / "clinical_hazard_predictions.tsv"
     calibration_summary_path = paths["analysis_dir"] / "clinical_hazard_calibration_summary.tsv"
-    calibrated_predictions_path = paths["analysis_dir"] / "clinical_hazard_calibrated_predictions.tsv"
+    calibrated_predictions_path = (
+        paths["analysis_dir"] / "clinical_hazard_calibrated_predictions.tsv"
+    )
     provenance_path = paths["analysis_dir"] / "clinical_hazard_provenance.json"
     report_card_path = paths["analysis_dir"] / "clinical_hazard_report_card.tsv"
     report_markdown_path = paths["analysis_dir"] / "clinical_hazard_report.md"
@@ -97,7 +112,9 @@ def main(argv: list[str] | None = None) -> int:
         project_root,
         script_path=project_root / "scripts" / "run_clinical_hazard_branch.py",
     )
-    model_names = resolve_clinical_hazard_model_names(context.config, include_research=bool(args.research_models))
+    model_names = resolve_clinical_hazard_model_names(
+        context.config, include_research=bool(args.research_models)
+    )
     cache_metadata = {
         "model_names": list(model_names),
         "research_models": bool(args.research_models),
@@ -143,8 +160,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         scored = read_tsv(paths["branch_scored_path"])
-        records = read_tsv(paths["branch_records_path"]) if paths["branch_records_path"].exists() else pd.DataFrame()
-        pd_metadata = read_tsv(paths["branch_pd_metadata_path"]) if paths["branch_pd_metadata_path"].exists() else pd.DataFrame()
+        records = (
+            read_tsv(paths["branch_records_path"])
+            if paths["branch_records_path"].exists()
+            else pd.DataFrame()
+        )
+        pd_metadata = (
+            read_tsv(paths["branch_pd_metadata_path"])
+            if paths["branch_pd_metadata_path"].exists()
+            else pd.DataFrame()
+        )
         prepared_scored = prepare_clinical_hazard_scored_table(
             scored,
             config=context.config,
@@ -189,16 +214,30 @@ def main(argv: list[str] | None = None) -> int:
         )
         report_markdown = format_clinical_hazard_report_markdown(report_card, provenance=provenance)
         metrics_payload = {
-            "primary_model_name": recommended_primary_model_name or clinical_config.primary_model_name,
+            "primary_model_name": recommended_primary_model_name
+            or clinical_config.primary_model_name,
             "configured_primary_model_name": clinical_config.primary_model_name,
             "recommended_primary_model_name": recommended_primary_model_name,
             "model_names": list(model_names),
-            "selection_scorecard": selection_scorecard.to_dict(orient="records") if not selection_scorecard.empty else [],
-            **{name: {**result.metrics, "status": result.status, "error_message": result.error_message} for name, result in results.items()},
+            "selection_scorecard": selection_scorecard.to_dict(orient="records")
+            if not selection_scorecard.empty
+            else [],
+            **{
+                name: {
+                    **result.metrics,
+                    "status": result.status,
+                    "error_message": result.error_message,
+                }
+                for name, result in results.items()
+            },
         }
         used_inventory, unused_inventory, inventory_summary = build_branch_inventory(
             project_root,
-            used_paths=[paths["branch_scored_path"], paths["branch_records_path"], paths["branch_config_path"]],
+            used_paths=[
+                paths["branch_scored_path"],
+                paths["branch_records_path"],
+                paths["branch_config_path"],
+            ],
             data_root=context.data_dir,
         )
 

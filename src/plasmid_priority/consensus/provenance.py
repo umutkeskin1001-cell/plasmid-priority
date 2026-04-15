@@ -25,7 +25,9 @@ def build_consensus_run_provenance(
     calibrated_predictions: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     consensus_config = load_consensus_config(config)
-    feature_surface = {name: list(consensus_config.feature_sets.get(name, ())) for name in model_names}
+    feature_surface = {
+        name: list(consensus_config.feature_sets.get(name, ())) for name in model_names
+    }
     return build_branch_run_provenance(
         scored,
         branch_name="consensus",

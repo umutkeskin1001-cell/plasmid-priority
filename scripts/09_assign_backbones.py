@@ -16,7 +16,9 @@ from plasmid_priority.utils.files import ensure_directory
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Assign operational backbone IDs to plasmid records.")
+    parser = argparse.ArgumentParser(
+        description="Assign operational backbone IDs to plasmid records."
+    )
     parser.add_argument(
         "--all-records",
         action="store_true",

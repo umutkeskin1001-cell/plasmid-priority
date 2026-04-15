@@ -131,9 +131,9 @@ def build_report_overview_table(
     ]
     if not threshold_utility_summary.empty:
         utility_rows = threshold_utility_summary.loc[
-            threshold_utility_summary.get("model_name", pd.Series(dtype=str)).astype(str).isin(
-                {primary_model, governance_model, conservative_model}
-            )
+            threshold_utility_summary.get("model_name", pd.Series(dtype=str))
+            .astype(str)
+            .isin({primary_model, governance_model, conservative_model})
         ].copy()
         if not utility_rows.empty:
             utility_rows["panel_item"] = utility_rows["model_name"].astype(str) + "_utility"

@@ -51,9 +51,7 @@ class GeoSpreadCalibrationTests(unittest.TestCase):
             scored=self._scored(),
             config={
                 "geo_spread": {
-                    "fit_config": {
-                        "geo_parsimonious_priority": {"calibration": "isotonic"}
-                    }
+                    "fit_config": {"geo_parsimonious_priority": {"calibration": "isotonic"}}
                 }
             },
         )
@@ -62,9 +60,7 @@ class GeoSpreadCalibrationTests(unittest.TestCase):
             scored=self._scored(),
             config={
                 "geo_spread": {
-                    "fit_config": {
-                        "geo_parsimonious_priority": {"calibration": "isotonic"}
-                    }
+                    "fit_config": {"geo_parsimonious_priority": {"calibration": "isotonic"}}
                 }
             },
         )
@@ -73,9 +69,7 @@ class GeoSpreadCalibrationTests(unittest.TestCase):
             scored=self._scored(),
             config={
                 "geo_spread": {
-                    "fit_config": {
-                        "geo_parsimonious_priority": {"calibration": "isotonic"}
-                    }
+                    "fit_config": {"geo_parsimonious_priority": {"calibration": "isotonic"}}
                 }
             },
         )

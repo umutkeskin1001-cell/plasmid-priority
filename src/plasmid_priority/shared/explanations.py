@@ -24,8 +24,12 @@ def build_branch_review_reason_table(
         working[score_column] = working["prediction"]
     score = pd.to_numeric(working.get(score_column), errors="coerce")
     confidence = pd.to_numeric(working.get(confidence_column), errors="coerce")
-    ood_flag = working.get(ood_column, pd.Series(False, index=working.index)).fillna(False).astype(bool)
-    review_flag = working.get(review_column, pd.Series(False, index=working.index)).fillna(False).astype(bool)
+    ood_flag = (
+        working.get(ood_column, pd.Series(False, index=working.index)).fillna(False).astype(bool)
+    )
+    review_flag = (
+        working.get(review_column, pd.Series(False, index=working.index)).fillna(False).astype(bool)
+    )
     review_reason = np.where(
         ood_flag,
         "ood",

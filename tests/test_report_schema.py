@@ -122,51 +122,56 @@ class ReportSchemaTests(unittest.TestCase):
     def test_cross_table_consistency_model_selection_acceptance_audit(self) -> None:
         """Test that model selection summary and frozen scientific acceptance audit agree on model names."""
         model_selection = self._read_table("reports/core_tables/model_selection_summary.tsv")
-        acceptance_audit = self._read_table("reports/core_tables/frozen_scientific_acceptance_audit.tsv")
-        
+        acceptance_audit = self._read_table(
+            "reports/core_tables/frozen_scientific_acceptance_audit.tsv"
+        )
+
         # Get model names from both tables
         selection_models = set(model_selection["published_primary_model"].dropna().unique())
         acceptance_models = set(acceptance_audit["model_name"].dropna().unique())
-        
+
         # The primary model should appear in both
         if selection_models:
             self.assertTrue(
                 len(selection_models.intersection(acceptance_models)) > 0,
-                "Model selection and acceptance audit should share at least one model name"
+                "Model selection and acceptance audit should share at least one model name",
             )
 
     def test_cross_table_consistency_headline_acceptance_status(self) -> None:
         """Test that headline validation summary and frozen scientific acceptance audit agree on acceptance status."""
         headline_summary = self._read_table("reports/core_tables/headline_validation_summary.tsv")
-        acceptance_audit = self._read_table("reports/core_tables/frozen_scientific_acceptance_audit.tsv")
-        
+        acceptance_audit = self._read_table(
+            "reports/core_tables/frozen_scientific_acceptance_audit.tsv"
+        )
+
         # Get primary model from headline summary
-        primary_model_row = headline_summary.loc[headline_summary["summary_label"] == "discovery_primary"]
+        primary_model_row = headline_summary.loc[
+            headline_summary["summary_label"] == "discovery_primary"
+        ]
         if not primary_model_row.empty:
             primary_model = primary_model_row.iloc[0]["model_name"]
-            
+
             # Check that this model exists in acceptance audit
             audit_row = acceptance_audit.loc[acceptance_audit["model_name"] == primary_model]
             self.assertFalse(
-                audit_row.empty,
-                f"Primary model {primary_model} should appear in acceptance audit"
+                audit_row.empty, f"Primary model {primary_model} should appear in acceptance audit"
             )
 
     def test_cross_table_consistency_blocked_holdout_summary(self) -> None:
         """Test that blocked holdout summary contains models from model selection."""
         blocked_holdout = self._read_table("reports/core_tables/blocked_holdout_summary.tsv")
         model_selection = self._read_table("reports/core_tables/model_selection_summary.tsv")
-        
+
         # Get model names from both tables
         holdout_models = set(blocked_holdout["model_name"].dropna().unique())
         selection_models = set(model_selection["published_primary_model"].dropna().unique())
-        
+
         # At least some models should overlap
         if selection_models and holdout_models:
             overlap = selection_models.intersection(holdout_models)
             self.assertTrue(
                 len(overlap) > 0,
-                f"Model selection and blocked holdout should share models, got {len(overlap)} overlap"
+                f"Model selection and blocked holdout should share models, got {len(overlap)} overlap",
             )
 
 

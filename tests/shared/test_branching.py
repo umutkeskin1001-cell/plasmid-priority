@@ -25,7 +25,12 @@ class SharedBranchingTests(unittest.TestCase):
             }
         )
 
-        def label_builder(_scored: pd.DataFrame, _records: pd.DataFrame | None, split_year: int, horizon_years: int) -> pd.DataFrame:
+        def label_builder(
+            _scored: pd.DataFrame,
+            _records: pd.DataFrame | None,
+            split_year: int,
+            horizon_years: int,
+        ) -> pd.DataFrame:
             return pd.DataFrame(
                 {
                     "backbone_id": ["bb1"],

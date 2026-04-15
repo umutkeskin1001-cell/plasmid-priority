@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import numpy as np
 import pandas as pd
 
 from plasmid_priority.shared.contracts import validate_branch_feature_set
@@ -52,16 +51,22 @@ def classify_bio_transfer_feature(feature_name: str) -> str:
         raise KeyError(f"Unsupported bio transfer feature: {normalized}") from exc
 
 
-def validate_bio_transfer_feature_set(features: Sequence[str], *, label: str = "bio transfer feature set") -> None:
+def validate_bio_transfer_feature_set(
+    features: Sequence[str], *, label: str = "bio transfer feature set"
+) -> None:
     validate_branch_feature_set(features, label=label)
     normalized = [str(feature).strip() for feature in features if str(feature).strip()]
-    unsupported = sorted(feature for feature in normalized if feature not in BIO_TRANSFER_ALLOWED_FEATURES)
+    unsupported = sorted(
+        feature for feature in normalized if feature not in BIO_TRANSFER_ALLOWED_FEATURES
+    )
     if unsupported:
         joined = ", ".join(f"`{feature}`" for feature in unsupported)
         raise ValueError(f"{label} contains unsupported features: {joined}")
 
 
-def _numeric_series(frame: pd.DataFrame, candidates: Sequence[str], default: float = 0.0) -> pd.Series:
+def _numeric_series(
+    frame: pd.DataFrame, candidates: Sequence[str], default: float = 0.0
+) -> pd.Series:
     for column in candidates:
         if column in frame.columns:
             return pd.to_numeric(frame[column], errors="coerce").fillna(default)
@@ -114,20 +119,27 @@ def build_bio_transfer_features(frame: pd.DataFrame) -> pd.DataFrame:
     working["replicon_complexity_norm"] = _synthesise_support(
         working,
         "replicon_complexity_norm",
-        ("mean_n_replicon_types_norm", "plasmidfinder_complexity_norm", "replicon_architecture_norm"),
+        (
+            "mean_n_replicon_types_norm",
+            "plasmidfinder_complexity_norm",
+            "replicon_architecture_norm",
+        ),
     )
     working["host_range_breadth_norm"] = _synthesise_support(
         working,
         "host_range_breadth_norm",
-        ("H_external_host_range_norm", "H_external_host_range_support", "host_phylogenetic_dispersion_norm"),
+        (
+            "H_external_host_range_norm",
+            "H_external_host_range_support",
+            "host_phylogenetic_dispersion_norm",
+        ),
     )
-    working["host_breadth_mobility_synergy_norm"] = (
-        working["host_range_breadth_norm"].fillna(0.0) * working["mobility_support_norm"].fillna(0.0)
-    )
-    working["mobility_host_synergy_norm"] = (
-        _numeric_series(working, ("T_eff_norm",), default=0.0).fillna(0.0)
-        * working["host_range_breadth_norm"].fillna(0.0)
-    )
+    working["host_breadth_mobility_synergy_norm"] = working["host_range_breadth_norm"].fillna(
+        0.0
+    ) * working["mobility_support_norm"].fillna(0.0)
+    working["mobility_host_synergy_norm"] = _numeric_series(
+        working, ("T_eff_norm",), default=0.0
+    ).fillna(0.0) * working["host_range_breadth_norm"].fillna(0.0)
     working["T_H_obs_synergy_norm"] = _synthesise_support(
         working,
         "T_H_obs_synergy_norm",

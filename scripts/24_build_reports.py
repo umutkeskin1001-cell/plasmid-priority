@@ -47,9 +47,9 @@ from plasmid_priority.reporting import (
     build_model_family_summary,
     build_model_selection_scorecard,
     build_model_simplicity_summary,
-    build_multiverse_stability_table,
     build_module_f_enrichment_table,
     build_module_f_top_hits,
+    build_multiverse_stability_table,
     build_novelty_margin_summary,
     build_official_benchmark_panel,
     build_pathogen_group_comparison,
@@ -63,23 +63,49 @@ from plasmid_priority.reporting import (
     normalize_drug_class_token,
     validate_report_artifact,
 )
+from plasmid_priority.reporting.figures import generate_all_figures
 from plasmid_priority.reporting.narrative_utils import (
     benchmark_scope_note as _benchmark_scope_note,
+)
+from plasmid_priority.reporting.narrative_utils import (
     blocked_holdout_summary_text as _blocked_holdout_summary_text,
+)
+from plasmid_priority.reporting.narrative_utils import (
     blocked_holdout_summary_text_tr as _blocked_holdout_summary_text_tr,
+)
+from plasmid_priority.reporting.narrative_utils import (
     candidate_stability_summary_text as _candidate_stability_summary_text,
+)
+from plasmid_priority.reporting.narrative_utils import (
     country_missingness_summary_text as _country_missingness_summary_text,
+)
+from plasmid_priority.reporting.narrative_utils import (
     format_interval as _format_interval,
+)
+from plasmid_priority.reporting.narrative_utils import (
     format_pvalue as _format_pvalue,
+)
+from plasmid_priority.reporting.narrative_utils import (
     governance_watch_label as _governance_watch_label,
+)
+from plasmid_priority.reporting.narrative_utils import (
     pretty_report_model_label as _pretty_report_model_label,
+)
+from plasmid_priority.reporting.narrative_utils import (
     rolling_temporal_summary as _rolling_temporal_summary,
+)
+from plasmid_priority.reporting.narrative_utils import (
     select_confirmatory_row as _select_confirmatory_row,
+)
+from plasmid_priority.reporting.narrative_utils import (
     strict_acceptance_status as _strict_acceptance_status,
+)
+from plasmid_priority.reporting.narrative_utils import (
     summarize_false_negative_audit as _summarize_false_negative_audit,
+)
+from plasmid_priority.reporting.narrative_utils import (
     top_sign_stable_features as _top_sign_stable_features,
 )
-from plasmid_priority.reporting.figures import generate_all_figures
 from plasmid_priority.utils import benchmark_runtime
 from plasmid_priority.utils.dataframe import coalescing_left_merge, read_parquet, read_tsv
 from plasmid_priority.utils.files import (
@@ -103,7 +129,9 @@ def _metrics_to_frame(metrics_path: Path) -> pd.DataFrame:
             "status": str(metrics.get("status", "ok") or "ok"),
             "error_message": metrics.get("error_message"),
         }
-        row.update({key: value for key, value in metrics.items() if key not in {"status", "error_message"}})
+        row.update(
+            {key: value for key, value in metrics.items() if key not in {"status", "error_message"}}
+        )
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -441,8 +469,8 @@ def _build_report_model_metrics(
             ]
         )
     }
-    report_metrics["_display_order"] = report_metrics["model_name"].astype(str).map(
-        lambda value: display_order.get(value, 999)
+    report_metrics["_display_order"] = (
+        report_metrics["model_name"].astype(str).map(lambda value: display_order.get(value, 999))
     )
     report_metrics = report_metrics.sort_values(
         ["_display_order", "roc_auc", "model_name"], ascending=[True, False, True], kind="mergesort"
@@ -1008,14 +1036,23 @@ def _build_candidate_brief_table(
         model_selection_summary if model_selection_summary is not None else pd.DataFrame()
     )
     decision_yield = decision_yield if decision_yield is not None else pd.DataFrame()
-    selection_row = model_selection_summary.iloc[0] if not model_selection_summary.empty else pd.Series(dtype=object)
+    selection_row = (
+        model_selection_summary.iloc[0]
+        if not model_selection_summary.empty
+        else pd.Series(dtype=object)
+    )
 
     def _decision_yield_lookup(prefix: str, top_k: int) -> tuple[float, float]:
         if decision_yield.empty or "model_name" not in decision_yield.columns:
             return (np.nan, np.nan)
         match = decision_yield.loc[
             decision_yield["model_name"].astype(str).eq(str(prefix))
-            & pd.to_numeric(decision_yield.get("top_k", pd.Series(np.nan, index=decision_yield.index)), errors="coerce").astype("Int64").eq(int(top_k))
+            & pd.to_numeric(
+                decision_yield.get("top_k", pd.Series(np.nan, index=decision_yield.index)),
+                errors="coerce",
+            )
+            .astype("Int64")
+            .eq(int(top_k))
         ].head(1)
         if match.empty:
             return (np.nan, np.nan)
@@ -1027,7 +1064,9 @@ def _build_candidate_brief_table(
 
     official_primary_model = str(selection_row.get("published_primary_model", "") or "").strip()
     official_governance_model = str(selection_row.get("governance_primary_model", "") or "").strip()
-    official_conservative_model = str(selection_row.get("conservative_model_name", "") or "").strip()
+    official_conservative_model = str(
+        selection_row.get("conservative_model_name", "") or ""
+    ).strip()
 
     rows: list[dict[str, object]] = []
     # Preserve first-seen order while guaranteeing unique categorical categories.
@@ -1186,12 +1225,8 @@ def _build_candidate_brief_table(
             "review": "inceleme",
             "abstain": "cekimser",
         }
-        uncertainty_review_note_en = (
-            f" Uncertainty review tier: {uncertainty_review_labels_en.get(uncertainty_review_tier, uncertainty_review_tier)}."
-        )
-        uncertainty_review_note_tr = (
-            f" Belirsizlik inceleme seviyesi: {uncertainty_review_labels_tr.get(uncertainty_review_tier, uncertainty_review_tier)}."
-        )
+        uncertainty_review_note_en = f" Uncertainty review tier: {uncertainty_review_labels_en.get(uncertainty_review_tier, uncertainty_review_tier)}."
+        uncertainty_review_note_tr = f" Belirsizlik inceleme seviyesi: {uncertainty_review_labels_tr.get(uncertainty_review_tier, uncertainty_review_tier)}."
         confidence_note_en = (
             f" Confidence score: {float(candidate_confidence_score):.2f}."
             if pd.notna(candidate_confidence_score)
@@ -1236,7 +1271,9 @@ def _build_candidate_brief_table(
                 decision_yield_bits.append(
                     f"conservative top-10 precision {float(conservative_top10_precision):.2f}"
                 )
-            decision_yield_note_en = " Official benchmark yield: " + "; ".join(decision_yield_bits) + "."
+            decision_yield_note_en = (
+                " Official benchmark yield: " + "; ".join(decision_yield_bits) + "."
+            )
         decision_yield_note_tr = ""
         if pd.notna(primary_top10_precision) or pd.notna(governance_top10_precision):
             decision_yield_bits_tr: list[str] = []
@@ -1256,7 +1293,9 @@ def _build_candidate_brief_table(
                 decision_yield_bits_tr.append(
                     f"konservatif top-10 isabet {float(conservative_top10_precision):.2f}"
                 )
-            decision_yield_note_tr = " Resmi benchmark verimi: " + "; ".join(decision_yield_bits_tr) + "."
+            decision_yield_note_tr = (
+                " Resmi benchmark verimi: " + "; ".join(decision_yield_bits_tr) + "."
+            )
         if pd.notna(multiverse_stability_score):
             stability_note_en = (
                 f" Rank stability: {multiverse_stability_tier or 'multiverse'} "
@@ -1349,9 +1388,7 @@ def _build_candidate_brief_table(
                     errors="coerce",
                 ).iloc[0],
                 "official_governance_optimal_decision_threshold": pd.to_numeric(
-                    pd.Series(
-                        [row.get("official_governance_optimal_decision_threshold", np.nan)]
-                    ),
+                    pd.Series([row.get("official_governance_optimal_decision_threshold", np.nan)]),
                     errors="coerce",
                 ).iloc[0],
                 "official_conservative_top_10_precision": conservative_top10_precision,
@@ -1880,15 +1917,12 @@ def _build_official_benchmark_context(
 
     primary_top10_precision, primary_top10_recall = _yield_metrics(primary_model_name, 10)
     primary_top25_precision, primary_top25_recall = _yield_metrics(primary_model_name, 25)
-    governance_top10_precision, governance_top10_recall = _yield_metrics(
-        governance_model_name, 10
-    )
-    governance_top25_precision, governance_top25_recall = _yield_metrics(
-        governance_model_name, 25
-    )
+    governance_top10_precision, governance_top10_recall = _yield_metrics(governance_model_name, 10)
+    governance_top25_precision, governance_top25_recall = _yield_metrics(governance_model_name, 25)
     conservative_top10_precision, conservative_top10_recall = _yield_metrics(
         conservative_model_name, 10
     )
+
     def _selection_value(column: str) -> float:
         value = selection_row.get(column, np.nan)
         return float(pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0])
@@ -2118,20 +2152,6 @@ def _build_headline_validation_summary(
         else pd.Series(dtype=object)
     )
     single_model_name = str(single_model_decision_row.get("official_model_name", "") or "").strip()
-    primary_status_row = model_metrics.loc[
-        model_metrics["model_name"].astype(str).eq(str(primary_model_name))
-    ].head(1)
-    primary_status = (
-        _strict_acceptance_status(primary_status_row.iloc[0])
-        if not primary_status_row.empty
-        else "not_scored"
-    )
-    benchmark_scope_note = _benchmark_scope_note(primary_status)
-    discovery_primary_label = (
-        "Discovery primary benchmark"
-        if primary_status == "pass"
-        else "Discovery primary benchmark candidate"
-    )
     if single_model_name:
         summary_specs.append(("single_model_pareto_official", single_model_name))
     for summary_label, model_name in summary_specs:
@@ -2145,7 +2165,10 @@ def _build_headline_validation_summary(
             else pd.Series(dtype=object)
         )
         single_model_finalist_row = pd.Series(dtype=object)
-        if summary_label == "single_model_pareto_official" and not single_model_pareto_finalists.empty:
+        if (
+            summary_label == "single_model_pareto_official"
+            and not single_model_pareto_finalists.empty
+        ):
             finalist_match = single_model_pareto_finalists.loc[
                 single_model_pareto_finalists.get("model_name", pd.Series(dtype=str))
                 .astype(str)
@@ -2180,7 +2203,9 @@ def _build_headline_validation_summary(
                     metric_row.get("average_precision_ci_upper"),
                 ),
                 "brier_score": float(
-                    single_model_finalist_row.get("brier_score", metric_row.get("brier_score", np.nan))
+                    single_model_finalist_row.get(
+                        "brier_score", metric_row.get("brier_score", np.nan)
+                    )
                 ),
                 "brier_skill_score": float(
                     single_model_finalist_row.get(
@@ -2270,7 +2295,9 @@ def _build_headline_validation_summary(
                 if pd.notna(metric_row.get("n_positive"))
                 else 0,
                 "decision_reason": str(single_model_row.get("decision_reason", "")),
-                "selected_from_n_finalists": int(single_model_row.get("selected_from_n_finalists", 0))
+                "selected_from_n_finalists": int(
+                    single_model_row.get("selected_from_n_finalists", 0)
+                )
                 if pd.notna(single_model_row.get("selected_from_n_finalists"))
                 else 0,
                 "failure_severity": float(single_model_row.get("failure_severity", np.nan)),
@@ -2303,9 +2330,7 @@ def _write_headline_validation_summary(
         blocked_holdout_summary if blocked_holdout_summary is not None else pd.DataFrame()
     )
     country_missingness_bounds = (
-        country_missingness_bounds
-        if country_missingness_bounds is not None
-        else pd.DataFrame()
+        country_missingness_bounds if country_missingness_bounds is not None else pd.DataFrame()
     )
     country_missingness_sensitivity = (
         country_missingness_sensitivity
@@ -2313,9 +2338,7 @@ def _write_headline_validation_summary(
         else pd.DataFrame()
     )
     rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
-    variant_consistency = (
-        variant_consistency if variant_consistency is not None else pd.DataFrame()
-    )
+    variant_consistency = variant_consistency if variant_consistency is not None else pd.DataFrame()
     primary_status_row = summary_table.loc[
         summary_table["summary_label"].astype(str).eq("discovery_primary")
     ].head(1)
@@ -2553,9 +2576,7 @@ def _attach_single_model_decision_summary(
     working.loc[:, "single_model_official_failure_severity"] = float(
         decision_row.get("failure_severity", np.nan)
     )
-    working.loc[:, "single_model_official_roc_auc"] = float(
-        decision_row.get("roc_auc", np.nan)
-    )
+    working.loc[:, "single_model_official_roc_auc"] = float(decision_row.get("roc_auc", np.nan))
     working.loc[:, "single_model_official_average_precision"] = float(
         decision_row.get("average_precision", np.nan)
     )
@@ -2572,7 +2593,9 @@ def _attach_single_model_decision_summary(
         pd.to_numeric(
             pd.Series([decision_row.get("selected_from_n_finalists", np.nan)]),
             errors="coerce",
-        ).fillna(0).iloc[0]
+        )
+        .fillna(0)
+        .iloc[0]
     )
     working.loc[:, "single_model_official_matches_published_primary"] = bool(
         str(decision_row.get("official_model_name", "") or "").strip()
@@ -2619,9 +2642,7 @@ def _write_executive_summary(
         blocked_holdout_summary if blocked_holdout_summary is not None else pd.DataFrame()
     )
     country_missingness_bounds = (
-        country_missingness_bounds
-        if country_missingness_bounds is not None
-        else pd.DataFrame()
+        country_missingness_bounds if country_missingness_bounds is not None else pd.DataFrame()
     )
     country_missingness_sensitivity = (
         country_missingness_sensitivity
@@ -2629,9 +2650,7 @@ def _write_executive_summary(
         else pd.DataFrame()
     )
     rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
-    variant_consistency = (
-        variant_consistency if variant_consistency is not None else pd.DataFrame()
-    )
+    variant_consistency = variant_consistency if variant_consistency is not None else pd.DataFrame()
     false_negative_count, top_drivers = _summarize_false_negative_audit(false_negative_audit)
     blocked_holdout_text = _blocked_holdout_summary_text(
         blocked_holdout_summary,
@@ -2947,9 +2966,7 @@ def _write_turkish_summary(
         blocked_holdout_summary if blocked_holdout_summary is not None else pd.DataFrame()
     )
     country_missingness_bounds = (
-        country_missingness_bounds
-        if country_missingness_bounds is not None
-        else pd.DataFrame()
+        country_missingness_bounds if country_missingness_bounds is not None else pd.DataFrame()
     )
     country_missingness_sensitivity = (
         country_missingness_sensitivity
@@ -2957,9 +2974,7 @@ def _write_turkish_summary(
         else pd.DataFrame()
     )
     rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
-    variant_consistency = (
-        variant_consistency if variant_consistency is not None else pd.DataFrame()
-    )
+    variant_consistency = variant_consistency if variant_consistency is not None else pd.DataFrame()
     primary = model_metrics.loc[
         model_metrics["model_name"].astype(str) == str(primary_model_name)
     ].iloc[0]
@@ -3833,9 +3848,7 @@ def _write_jury_brief(
         blocked_holdout_summary if blocked_holdout_summary is not None else pd.DataFrame()
     )
     country_missingness_bounds = (
-        country_missingness_bounds
-        if country_missingness_bounds is not None
-        else pd.DataFrame()
+        country_missingness_bounds if country_missingness_bounds is not None else pd.DataFrame()
     )
     country_missingness_sensitivity = (
         country_missingness_sensitivity
@@ -3843,9 +3856,7 @@ def _write_jury_brief(
         else pd.DataFrame()
     )
     rank_stability = rank_stability if rank_stability is not None else pd.DataFrame()
-    variant_consistency = (
-        variant_consistency if variant_consistency is not None else pd.DataFrame()
-    )
+    variant_consistency = variant_consistency if variant_consistency is not None else pd.DataFrame()
     primary = model_metrics.loc[
         model_metrics["model_name"].astype(str) == str(primary_model_name)
     ].iloc[0]
@@ -3853,9 +3864,7 @@ def _write_jury_brief(
         model_metrics["model_name"].astype(str) == str(conservative_model_name)
     ].iloc[0]
     baseline = model_metrics.loc[model_metrics["model_name"].astype(str) == "baseline_both"].iloc[0]
-    source = model_metrics.loc[
-        model_metrics["model_name"].astype(str) == "source_only"
-    ].head(1)
+    source = model_metrics.loc[model_metrics["model_name"].astype(str) == "source_only"].head(1)
     source = source.iloc[0] if not source.empty else pd.Series(dtype=object)
     selection_row = (
         model_selection_summary.iloc[0]
@@ -4842,17 +4851,13 @@ def main() -> int:
         context.data_dir / "analysis/matched_stratum_propensity_audit.tsv"
     )
     nonlinear_deconfounding_path = context.data_dir / "analysis/nonlinear_deconfounding_audit.tsv"
-    operational_risk_dictionary_path = (
-        context.data_dir / "analysis/operational_risk_dictionary.tsv"
-    )
+    operational_risk_dictionary_path = context.data_dir / "analysis/operational_risk_dictionary.tsv"
     country_upload_propensity_path = context.data_dir / "analysis/country_upload_propensity.tsv"
     macro_region_jump_path = context.data_dir / "analysis/macro_region_jump_outcome.tsv"
     secondary_outcome_performance_path = (
         context.data_dir / "analysis/secondary_outcome_performance.tsv"
     )
-    weighted_country_outcome_path = (
-        context.data_dir / "analysis/weighted_country_outcome_audit.tsv"
-    )
+    weighted_country_outcome_path = context.data_dir / "analysis/weighted_country_outcome_audit.tsv"
     count_outcome_audit_path = context.data_dir / "analysis/new_country_count_audit.tsv"
     metadata_quality_summary_path = context.data_dir / "analysis/metadata_quality_summary.tsv"
     event_timing_outcomes_path = context.data_dir / "analysis/event_timing_outcomes.tsv"
@@ -4886,9 +4891,7 @@ def main() -> int:
     prospective_freeze_path = context.data_dir / "analysis/prospective_candidate_freeze.tsv"
     annual_freeze_summary_path = context.data_dir / "analysis/annual_candidate_freeze_summary.tsv"
     predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
-    single_model_pareto_screen_path = (
-        context.data_dir / "analysis/single_model_pareto_screen.tsv"
-    )
+    single_model_pareto_screen_path = context.data_dir / "analysis/single_model_pareto_screen.tsv"
     single_model_pareto_finalists_path = (
         context.data_dir / "analysis/single_model_pareto_finalists.tsv"
     )
@@ -5112,7 +5115,9 @@ def main() -> int:
             run.record_output(final_tables_dir / "single_model_official_decision.tsv")
             run.record_output(final_tables_dir / "permutation_null_distribution.tsv")
             run.record_output(final_tables_dir / "permutation_null_summary.tsv")
-            run.record_output(final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv")
+            run.record_output(
+                final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv"
+            )
             run.record_output(final_tables_dir / "selection_adjusted_permutation_null_summary.tsv")
             run.record_output(final_tables_dir / "rolling_temporal_validation.tsv")
             run.record_output(final_tables_dir / "rolling_assignment_diagnostics.tsv")
@@ -5233,7 +5238,9 @@ def main() -> int:
                     continue
                 seen_contextual_models.add(model_name)
                 # Read full-fit predictions from upstream artifact instead of computing them
-                prediction_path = context.data_dir / "analysis" / f"{model_name}_full_fit_predictions.tsv"
+                prediction_path = (
+                    context.data_dir / "analysis" / f"{model_name}_full_fit_predictions.tsv"
+                )
                 if prediction_path.exists():
                     contextual_prediction_frames[output_column] = read_tsv(prediction_path).rename(
                         columns={
@@ -5246,10 +5253,16 @@ def main() -> int:
                     )
                 else:
                     # Fallback to empty dataframe if file doesn't exist
-                    contextual_prediction_frames[output_column] = pd.DataFrame(columns=[
-                        "backbone_id", output_column, f"{output_column}_posterior_mean",
-                        f"{output_column}_std", f"{output_column}_ci_lower", f"{output_column}_ci_upper"
-                    ])
+                    contextual_prediction_frames[output_column] = pd.DataFrame(
+                        columns=[
+                            "backbone_id",
+                            output_column,
+                            f"{output_column}_posterior_mean",
+                            f"{output_column}_std",
+                            f"{output_column}_ci_lower",
+                            f"{output_column}_ci_upper",
+                        ]
+                    )
             family_summary = read_tsv(family_summary_path)
             if (
                 family_summary.empty
@@ -5353,9 +5366,9 @@ def main() -> int:
             single_model_official_decision = _read_if_exists(single_model_official_decision_path)
             if annual_freeze_summary.empty and not rolling_temporal.empty:
                 rolling_ok = rolling_temporal.loc[
-                    rolling_temporal.get("status", pd.Series("", index=rolling_temporal.index)).astype(
-                        str
-                    )
+                    rolling_temporal.get(
+                        "status", pd.Series("", index=rolling_temporal.index)
+                    ).astype(str)
                     == "ok"
                 ].copy()
                 if not rolling_ok.empty:
@@ -5416,14 +5429,18 @@ def main() -> int:
             top_bio = _add_visibility_alias(top_bio)
             top_bio_backlog = _add_visibility_alias(top_bio_backlog)
             top_primary = _add_visibility_alias(top_primary)
-            top_primary.to_csv(final_tables_dir / "top_primary_candidates.tsv", sep="\t", index=False)
+            top_primary.to_csv(
+                final_tables_dir / "top_primary_candidates.tsv", sep="\t", index=False
+            )
             model_metrics.to_csv(final_tables_dir / "model_metrics.tsv", sep="\t", index=False)
             source_validation.to_csv(
                 final_tables_dir / "source_stratified_consistency.tsv", sep="\t", index=False
             )
             calibration.to_csv(final_tables_dir / "calibration_table.tsv", sep="\t", index=False)
             family_summary.to_csv(family_summary_path, sep="\t", index=False)
-            family_summary.to_csv(final_tables_dir / "model_family_summary.tsv", sep="\t", index=False)
+            family_summary.to_csv(
+                final_tables_dir / "model_family_summary.tsv", sep="\t", index=False
+            )
             subgroup_performance.to_csv(
                 final_tables_dir / "model_subgroup_performance.tsv", sep="\t", index=False
             )
@@ -5464,10 +5481,14 @@ def main() -> int:
                 final_tables_dir / "permutation_null_summary.tsv", sep="\t", index=False
             )
             selection_adjusted_permutation_detail.to_csv(
-                final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv", sep="\t", index=False
+                final_tables_dir / "selection_adjusted_permutation_null_distribution.tsv",
+                sep="\t",
+                index=False,
             )
             selection_adjusted_permutation_summary.to_csv(
-                final_tables_dir / "selection_adjusted_permutation_null_summary.tsv", sep="\t", index=False
+                final_tables_dir / "selection_adjusted_permutation_null_summary.tsv",
+                sep="\t",
+                index=False,
             )
             negative_control.to_csv(
                 final_tables_dir / "negative_control_audit.tsv", sep="\t", index=False
@@ -5493,7 +5514,9 @@ def main() -> int:
             country_quality.to_csv(
                 final_tables_dir / "country_quality_summary.tsv", sep="\t", index=False
             )
-            purity_atlas.to_csv(final_tables_dir / "backbone_purity_atlas.tsv", sep="\t", index=False)
+            purity_atlas.to_csv(
+                final_tables_dir / "backbone_purity_atlas.tsv", sep="\t", index=False
+            )
             assignment_confidence.to_csv(
                 final_tables_dir / "assignment_confidence_summary.tsv", sep="\t", index=False
             )
@@ -5582,7 +5605,9 @@ def main() -> int:
             module_f_enrichment.to_csv(
                 final_tables_dir / "module_f_enrichment.tsv", sep="\t", index=False
             )
-            module_f_top_hits.to_csv(final_tables_dir / "module_f_top_hits.tsv", sep="\t", index=False)
+            module_f_top_hits.to_csv(
+                final_tables_dir / "module_f_top_hits.tsv", sep="\t", index=False
+            )
             rolling_temporal.to_csv(
                 final_tables_dir / "rolling_temporal_validation.tsv", sep="\t", index=False
             )
@@ -5595,7 +5620,9 @@ def main() -> int:
             variant_consistency.to_csv(
                 final_tables_dir / "candidate_variant_consistency.tsv", sep="\t", index=False
             )
-            multiverse_stability = build_multiverse_stability_table(rank_stability, variant_consistency)
+            multiverse_stability = build_multiverse_stability_table(
+                rank_stability, variant_consistency
+            )
             multiverse_stability.to_csv(
                 final_tables_dir / "candidate_multiverse_stability.tsv", sep="\t", index=False
             )
@@ -5689,9 +5716,7 @@ def main() -> int:
             amr_uncertainty.to_csv(
                 final_tables_dir / "amr_uncertainty_summary.tsv", sep="\t", index=False
             )
-            mash_graph.to_csv(
-                final_tables_dir / "mash_similarity_graph.tsv", sep="\t", index=False
-            )
+            mash_graph.to_csv(final_tables_dir / "mash_similarity_graph.tsv", sep="\t", index=False)
             counterfactual_shortlist.to_csv(
                 final_tables_dir / "counterfactual_shortlist_comparison.tsv", sep="\t", index=False
             )
@@ -5780,7 +5805,9 @@ def main() -> int:
                 run.record_output(final_tables_dir / "pathogen_detection_group_summary.tsv")
             if not module_c_clinical.empty:
                 module_c_clinical.to_csv(
-                    final_tables_dir / "pathogen_detection_clinical_support.tsv", sep="\t", index=False
+                    final_tables_dir / "pathogen_detection_clinical_support.tsv",
+                    sep="\t",
+                    index=False,
                 )
                 run.record_output(final_tables_dir / "pathogen_detection_clinical_support.tsv")
             if not module_c_clinical_group.empty:
@@ -5789,7 +5816,9 @@ def main() -> int:
                     sep="\t",
                     index=False,
                 )
-                run.record_output(final_tables_dir / "pathogen_detection_clinical_group_summary.tsv")
+                run.record_output(
+                    final_tables_dir / "pathogen_detection_clinical_group_summary.tsv"
+                )
             if not module_c_environmental.empty:
                 module_c_environmental.to_csv(
                     final_tables_dir / "pathogen_detection_environmental_support.tsv",
@@ -5853,18 +5882,18 @@ def main() -> int:
                             amrfinder_coverage.loc[
                                 amrfinder_coverage["priority_group"] == "high", "n_sequences"
                             ].sum()
-                    )
-                    if not amrfinder_coverage.empty
-                    else 0,
-                    "low_group_sequences": int(
-                        amrfinder_coverage.loc[
-                            amrfinder_coverage["priority_group"] == "low", "n_sequences"
-                        ].sum()
-                    )
-                    if not amrfinder_coverage.empty
-                    else 0,
-                }
-            ]
+                        )
+                        if not amrfinder_coverage.empty
+                        else 0,
+                        "low_group_sequences": int(
+                            amrfinder_coverage.loc[
+                                amrfinder_coverage["priority_group"] == "low", "n_sequences"
+                            ].sum()
+                        )
+                        if not amrfinder_coverage.empty
+                        else 0,
+                    }
+                ]
             )
             amrfinder_summary_table.to_csv(
                 final_tables_dir / "amrfinder_coverage_summary.tsv", sep="\t", index=False
@@ -5889,15 +5918,19 @@ def main() -> int:
                 )
                 run.record_output(final_tables_dir / "who_mia_reference_catalog.tsv")
             if not card_detail.empty:
-                card_detail.to_csv(final_tables_dir / "card_gene_support.tsv", sep="\t", index=False)
+                card_detail.to_csv(
+                    final_tables_dir / "card_gene_support.tsv", sep="\t", index=False
+                )
                 run.record_output(final_tables_dir / "card_gene_support.tsv")
             if not card_summary.empty:
-                card_summary.to_csv(final_tables_dir / "card_group_summary.tsv", sep="\t", index=False)
+                card_summary.to_csv(
+                    final_tables_dir / "card_group_summary.tsv", sep="\t", index=False
+                )
                 run.record_output(final_tables_dir / "card_group_summary.tsv")
             if not card_family.empty:
                 card_family.to_csv(
-                final_tables_dir / "card_gene_family_comparison.tsv", sep="\t", index=False
-            )
+                    final_tables_dir / "card_gene_family_comparison.tsv", sep="\t", index=False
+                )
             run.record_output(final_tables_dir / "card_gene_family_comparison.tsv")
             if not card_mechanism.empty:
                 card_mechanism.to_csv(
@@ -5911,7 +5944,9 @@ def main() -> int:
                 run.record_output(final_tables_dir / "mobsuite_host_range_support.tsv")
             if not mobsuite_summary.empty:
                 mobsuite_summary.to_csv(
-                    final_tables_dir / "mobsuite_host_range_group_summary.tsv", sep="\t", index=False
+                    final_tables_dir / "mobsuite_host_range_group_summary.tsv",
+                    sep="\t",
+                    index=False,
                 )
                 run.record_output(final_tables_dir / "mobsuite_host_range_group_summary.tsv")
             if amrfinder_reportable:
@@ -5947,14 +5982,14 @@ def main() -> int:
                         stale_path.unlink()
 
             pathogen_detail_frames = [
-            frame
-            for frame in (module_c, module_c_clinical, module_c_environmental)
-            if not frame.empty
+                frame
+                for frame in (module_c, module_c_clinical, module_c_environmental)
+                if not frame.empty
             ]
             pathogen_group_comparison = build_pathogen_group_comparison(
-            pd.concat(pathogen_detail_frames, ignore_index=True)
-            if pathogen_detail_frames
-            else pd.DataFrame()
+                pd.concat(pathogen_detail_frames, ignore_index=True)
+                if pathogen_detail_frames
+                else pd.DataFrame()
             )
             pathogen_group_comparison.to_csv(
                 final_tables_dir / "pathogen_detection_group_comparison.tsv", sep="\t", index=False
@@ -6008,7 +6043,9 @@ def main() -> int:
                 .sort_values("priority_index", ascending=False)
                 .reset_index(drop=True)
             )
-            candidate_context = candidate_context.loc[candidate_context["spread_label"].notna()].copy()
+            candidate_context = candidate_context.loc[
+                candidate_context["spread_label"].notna()
+            ].copy()
             candidate_stability = candidate_context.copy()
             if not rank_stability.empty:
                 candidate_stability = coalescing_left_merge(
@@ -6063,7 +6100,8 @@ def main() -> int:
                 )
             if primary_model_name in set(predictions["model_name"].astype(str)):
                 primary_predictions = predictions.loc[
-                    predictions["model_name"] == primary_model_name, ["backbone_id", "oof_prediction"]
+                    predictions["model_name"] == primary_model_name,
+                    ["backbone_id", "oof_prediction"],
                 ]
             primary_predictions = primary_predictions.rename(
                 columns={"oof_prediction": "primary_model_oof_prediction"}
@@ -6106,11 +6144,11 @@ def main() -> int:
                         [
                             "backbone_id",
                             "log1p_member_count_train",
-                        "log1p_n_countries_train",
-                        "refseq_share_train",
-                    ]
-                ].copy()
-            )
+                            "log1p_n_countries_train",
+                            "refseq_share_train",
+                        ]
+                    ].copy()
+                )
             eligible_backbones = predictions.loc[
                 predictions["model_name"] == primary_model_name,
                 ["backbone_id"],
@@ -6140,17 +6178,17 @@ def main() -> int:
                         [
                             column
                             for column in [
-                            "backbone_id",
-                            "metadata_quality_score",
-                            "metadata_quality_tier",
-                            "country_coverage_fraction",
-                            "duplicate_fraction",
+                                "backbone_id",
+                                "metadata_quality_score",
+                                "metadata_quality_tier",
+                                "country_coverage_fraction",
+                                "duplicate_fraction",
+                            ]
+                            if column in metadata_quality_summary.columns
                         ]
-                        if column in metadata_quality_summary.columns
-                    ]
-                ],
-                on="backbone_id",
-            )
+                    ],
+                    on="backbone_id",
+                )
             if not macro_region_jump.empty:
                 candidate_stability = coalescing_left_merge(
                     candidate_stability,
@@ -6158,21 +6196,21 @@ def main() -> int:
                         [
                             column
                             for column in [
-                            "backbone_id",
-                            "n_new_macro_regions",
-                            "macro_region_jump_label",
-                            "n_new_host_families",
-                            "host_family_jump_label",
-                            "n_new_host_orders",
-                            "host_order_jump_label",
-                            "weighted_new_country_burden",
-                            "rarity_weighted_new_country_burden",
+                                "backbone_id",
+                                "n_new_macro_regions",
+                                "macro_region_jump_label",
+                                "n_new_host_families",
+                                "host_family_jump_label",
+                                "n_new_host_orders",
+                                "host_order_jump_label",
+                                "weighted_new_country_burden",
+                                "rarity_weighted_new_country_burden",
+                            ]
+                            if column in macro_region_jump.columns
                         ]
-                        if column in macro_region_jump.columns
-                    ]
-                ],
-                on="backbone_id",
-            )
+                    ],
+                    on="backbone_id",
+                )
             if not primary_operational_risk.empty:
                 candidate_stability = coalescing_left_merge(
                     candidate_stability,
@@ -6205,7 +6243,7 @@ def main() -> int:
                 candidate_stability["priority_index"].notna()
                 & candidate_stability["coherence_score"].fillna(0.0).ge(0.5)
                 & candidate_stability["bootstrap_top_k_frequency"].fillna(0.0).ge(0.7)
-            & candidate_stability["variant_top_k_frequency"].fillna(0.0).ge(0.6)
+                & candidate_stability["variant_top_k_frequency"].fillna(0.0).ge(0.6)
             )
             consensus_candidates = build_consensus_candidate_ranking(
                 candidate_stability,
@@ -6222,8 +6260,8 @@ def main() -> int:
                         ["backbone_id", "oof_prediction"],
                     ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
                     on="backbone_id",
-                how="left",
-            )
+                    how="left",
+                )
             h_feature_diagnostics = build_h_feature_diagnostics(
                 scored_for_h,
                 model_metrics=model_metrics,
@@ -6314,7 +6352,9 @@ def main() -> int:
             candidate_dossiers.to_csv(
                 final_tables_dir / "candidate_dossiers.tsv", sep="\t", index=False
             )
-            candidate_risk.to_csv(final_tables_dir / "candidate_risk_flags.tsv", sep="\t", index=False)
+            candidate_risk.to_csv(
+                final_tables_dir / "candidate_risk_flags.tsv", sep="\t", index=False
+            )
             novelty_watchlist = scored.copy()
             if primary_model_name in set(predictions["model_name"].astype(str)):
                 novelty_watchlist = novelty_watchlist.merge(
@@ -6323,8 +6363,8 @@ def main() -> int:
                         ["backbone_id", "oof_prediction"],
                     ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
                     on="backbone_id",
-                how="left",
-            )
+                    how="left",
+                )
             if "baseline_both" in set(predictions["model_name"].astype(str)):
                 novelty_watchlist = novelty_watchlist.merge(
                     predictions.loc[
@@ -6333,7 +6373,7 @@ def main() -> int:
                     ].rename(columns={"oof_prediction": "baseline_both_oof_prediction"}),
                     on="backbone_id",
                     how="left",
-            )
+                )
             if not knownness_meta_eligible.empty:
                 novelty_watchlist = novelty_watchlist.merge(
                     knownness_meta_eligible[
@@ -6341,7 +6381,7 @@ def main() -> int:
                     ].drop_duplicates("backbone_id"),
                     on="backbone_id",
                     how="left",
-            )
+                )
             if not novelty_specialist_predictions.empty:
                 novelty_watchlist = novelty_watchlist.merge(
                     novelty_specialist_predictions[
@@ -6356,41 +6396,42 @@ def main() -> int:
                             if column in novelty_specialist_predictions.columns
                         ]
                     ].drop_duplicates("backbone_id"),
-                on="backbone_id",
-                how="left",
-            )
+                    on="backbone_id",
+                    how="left",
+                )
             if not primary_operational_risk.empty:
                 novelty_watchlist = coalescing_left_merge(
                     novelty_watchlist,
                     primary_operational_risk,
                     on="backbone_id",
-            )
+                )
             if not who_detail.empty:
                 novelty_watchlist = novelty_watchlist.merge(
                     who_detail[["backbone_id", "who_mia_any_support"]],
                     on="backbone_id",
                     how="left",
-            )
+                )
             if not card_detail.empty:
                 novelty_watchlist = novelty_watchlist.merge(
                     card_detail[["backbone_id", "card_any_support"]],
-                on="backbone_id",
-                how="left",
-            )
+                    on="backbone_id",
+                    how="left",
+                )
             if not mobsuite_detail.empty:
                 novelty_watchlist = novelty_watchlist.merge(
                     mobsuite_detail[["backbone_id", "mobsuite_any_literature_support"]],
                     on="backbone_id",
                     how="left",
-            )
+                )
             if not module_c.empty:
                 novelty_watchlist = novelty_watchlist.merge(
                     module_c.loc[
-                        module_c["pathogen_dataset"] == "combined", ["backbone_id", "pd_any_support"]
+                        module_c["pathogen_dataset"] == "combined",
+                        ["backbone_id", "pd_any_support"],
                     ],
                     on="backbone_id",
                     how="left",
-            )
+                )
             for column in (
                 "who_mia_any_support",
                 "card_any_support",
@@ -6460,8 +6501,13 @@ def main() -> int:
                     if candidate in novelty_watchlist.columns:
                         novelty_watchlist["knownness_half"] = novelty_watchlist[candidate]
                         break
-            if "knownness_half" not in novelty_watchlist.columns and "knownness_score" in novelty_watchlist.columns:
-                knownness_values = pd.to_numeric(novelty_watchlist["knownness_score"], errors="coerce")
+            if (
+                "knownness_half" not in novelty_watchlist.columns
+                and "knownness_score" in novelty_watchlist.columns
+            ):
+                knownness_values = pd.to_numeric(
+                    novelty_watchlist["knownness_score"], errors="coerce"
+                )
                 valid_knownness = knownness_values.notna()
                 if valid_knownness.any():
                     median_knownness = float(knownness_values.loc[valid_knownness].median())
@@ -6483,7 +6529,10 @@ def main() -> int:
                 novelty_watchlist["novelty_margin_vs_baseline"].fillna(0.0).gt(0)
                 & (
                     novelty_watchlist["member_count_train"].fillna(0).astype(int).ge(2)
-                    | novelty_watchlist["external_support_modalities_count"].fillna(0).astype(int).gt(0)
+                    | novelty_watchlist["external_support_modalities_count"]
+                    .fillna(0)
+                    .astype(int)
+                    .gt(0)
                 )
             ].copy()
             novelty_watchlist = novelty_watchlist.sort_values(
@@ -6516,8 +6565,13 @@ def main() -> int:
                         if candidate in novelty_watchlist.columns:
                             novelty_watchlist["knownness_half"] = novelty_watchlist[candidate]
                             break
-            if "knownness_half" not in novelty_watchlist.columns and "knownness_score" in novelty_watchlist.columns:
-                knownness_values = pd.to_numeric(novelty_watchlist["knownness_score"], errors="coerce")
+            if (
+                "knownness_half" not in novelty_watchlist.columns
+                and "knownness_score" in novelty_watchlist.columns
+            ):
+                knownness_values = pd.to_numeric(
+                    novelty_watchlist["knownness_score"], errors="coerce"
+                )
                 valid_knownness = knownness_values.notna()
                 if valid_knownness.any():
                     median_knownness = float(knownness_values.loc[valid_knownness].median())
@@ -6530,7 +6584,9 @@ def main() -> int:
                     novelty_watchlist["knownness_half"] = "lower_half"
             if "knownness_half" not in novelty_watchlist.columns:
                 novelty_watchlist["knownness_half"] = "lower_half"
-            novelty_watchlist.to_csv(final_tables_dir / "novelty_watchlist.tsv", sep="\t", index=False)
+            novelty_watchlist.to_csv(
+                final_tables_dir / "novelty_watchlist.tsv", sep="\t", index=False
+            )
 
             novelty_frontier = scored.loc[scored["spread_label"].notna()].copy()
             if primary_model_name in set(predictions["model_name"].astype(str)):
@@ -6540,8 +6596,8 @@ def main() -> int:
                         ["backbone_id", "oof_prediction"],
                     ].rename(columns={"oof_prediction": "primary_model_oof_prediction"}),
                     on="backbone_id",
-                how="left",
-            )
+                    how="left",
+                )
             if "baseline_both" in set(predictions["model_name"].astype(str)):
                 novelty_frontier = novelty_frontier.merge(
                     predictions.loc[
@@ -6550,7 +6606,7 @@ def main() -> int:
                     ].rename(columns={"oof_prediction": "baseline_both_oof_prediction"}),
                     on="backbone_id",
                     how="left",
-            )
+                )
             if not knownness_meta_eligible.empty:
                 novelty_frontier = novelty_frontier.merge(
                     knownness_meta_eligible[
@@ -6558,7 +6614,7 @@ def main() -> int:
                     ].drop_duplicates("backbone_id"),
                     on="backbone_id",
                     how="left",
-            )
+                )
             if not novelty_specialist_predictions.empty:
                 novelty_frontier = novelty_frontier.merge(
                     novelty_specialist_predictions[
@@ -6574,7 +6630,7 @@ def main() -> int:
                     ].drop_duplicates("backbone_id"),
                     on="backbone_id",
                     how="left",
-            )
+                )
             novelty_frontier["novelty_margin_vs_baseline"] = np.nan
             novelty_frontier_margin_mask = (
                 novelty_frontier["primary_model_oof_prediction"].notna()
@@ -7061,7 +7117,9 @@ def main() -> int:
                     else:
                         report_model_metrics[column] = report_model_metrics[scorecard_column]
                     report_model_metrics = report_model_metrics.drop(columns=scorecard_column)
-            report_model_metrics.to_csv(final_tables_dir / "model_metrics.tsv", sep="\t", index=False)
+            report_model_metrics.to_csv(
+                final_tables_dir / "model_metrics.tsv", sep="\t", index=False
+            )
             headline_validation_summary = _build_headline_validation_summary(
                 report_model_metrics,
                 primary_model_name=primary_model_name,
@@ -7258,7 +7316,11 @@ def main() -> int:
             validate_report_artifact(
                 threshold_utility_summary,
                 artifact_name="threshold_utility_summary",
-                required_columns=("model_name", "optimal_threshold", "optimal_threshold_utility_per_sample"),
+                required_columns=(
+                    "model_name",
+                    "optimal_threshold",
+                    "optimal_threshold_utility_per_sample",
+                ),
                 unique_key="model_name",
                 probability_columns=("optimal_threshold",),
             )

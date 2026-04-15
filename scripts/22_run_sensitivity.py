@@ -198,7 +198,9 @@ def _prepare_scored_components(
         if training_only_backbones:
             records = assign_backbone_ids_training_only(records, split_year=split_year)
         if force_fallback_backbones:
-            records = assign_backbone_ids(records.assign(primary_cluster_id=""), backbone_assignment_mode="all_records")
+            records = assign_backbone_ids(
+                records.assign(primary_cluster_id=""), backbone_assignment_mode="all_records"
+            )
         if assigned_records_cache is not None:
             assigned_records_cache[assignment_key] = records.copy()
 

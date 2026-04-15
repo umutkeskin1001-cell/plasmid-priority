@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """Train meta-sovereign ensemble using existing predictions."""
 
-import sys
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
-from sklearn.isotonic import IsotonicRegression
 
 from plasmid_priority.config import build_context
+
 # Metrics
-from plasmid_priority.validation.metrics import roc_auc_score, average_precision, brier_score
+from plasmid_priority.validation.metrics import average_precision, brier_score, roc_auc_score
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 print("=" * 80)
 print("🎯 META-SOVEREIGN ENSEMBLE - MODEL EĞİTİMİ")
@@ -67,12 +70,12 @@ if valid_mask.sum() < 100:
 y = y[valid_mask]
 X = df.loc[valid_mask, pred_cols].fillna(0.5).values  # Fill missing with 0.5
 
-print(f"\n[2/5] Data prepared")
+print("\n[2/5] Data prepared")
 print(f"  Samples: {len(y):,}")
 print(f"  Positive rate: {y.mean():.3f}")
 print(f"  Features (base model preds): {len(pred_cols)}")
 
-print(f"\n[3/5] Base model performances:")
+print("\n[3/5] Base model performances:")
 base_aucs = {}
 for i, col in enumerate(pred_cols):
     auc = roc_auc_score(y, X[:, i])
@@ -84,14 +87,14 @@ sorted_models = sorted(base_aucs.items(), key=lambda x: x[1], reverse=True)
 top_models = [m[0] for m in sorted_models[:5]]
 top_indices = [pred_cols.index(m) for m in top_models]
 
-print(f"\n  Top 5 models selected for ensemble:")
+print("\n  Top 5 models selected for ensemble:")
 for m in top_models:
     print(f"    - {m}: {base_aucs[m]:.4f}")
 
 X_top = X[:, top_indices]
 
 # Cross-validation training
-print(f"\n[4/5] Training ensemble (5-fold CV)")
+print("\n[4/5] Training ensemble (5-fold CV)")
 skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
 oof_preds = np.zeros(len(y))
@@ -100,21 +103,21 @@ fold_aucs = []
 for fold, (train_idx, val_idx) in enumerate(skf.split(X_top, y)):
     X_train, X_val = X_top[train_idx], X_top[val_idx]
     y_train, y_val = y[train_idx], y[val_idx]
-    
+
     # Meta-learner: logistic regression
-    meta = LogisticRegression(C=1.0, max_iter=1000, solver='lbfgs')
+    meta = LogisticRegression(C=1.0, max_iter=1000, solver="lbfgs")
     meta.fit(X_train, y_train)
-    
+
     # Predict
     preds = meta.predict_proba(X_val)[:, 1]
     oof_preds[val_idx] = preds
-    
+
     # Compute AUC
     auc = roc_auc_score(y_val, preds)
     fold_aucs.append(auc)
-    print(f"  Fold {fold+1}: AUC={auc:.4f}")
+    print(f"  Fold {fold + 1}: AUC={auc:.4f}")
 
-print(f"\n[5/5] Results")
+print("\n[5/5] Results")
 print("-" * 80)
 
 final_auc = roc_auc_score(y, oof_preds)
@@ -128,7 +131,7 @@ cal_preds = iso_cal.predict(oof_preds.reshape(-1, 1))
 cal_auc = roc_auc_score(y, cal_preds)
 
 print(f"  Mean CV AUC:     {np.mean(fold_aucs):.4f} (±{np.std(fold_aucs):.4f})")
-print(f"")
+print("")
 print(f"  OOF ROC AUC:     {final_auc:.4f}")
 print(f"  OOF AP:          {final_ap:.4f}")
 print(f"  OOF Brier:       {final_brier:.4f}")
@@ -138,17 +141,17 @@ print(f"  Calibrated AUC:  {cal_auc:.4f}")
 best_base = max(base_aucs.values())
 improvement = final_auc - best_base
 
-print(f"\n  Comparison:")
+print("\n  Comparison:")
 print(f"    Best base model:   {best_base:.4f}")
 print(f"    Ensemble:          {final_auc:.4f}")
 print(f"    Improvement:       {improvement:+.4f}")
 
 if final_auc >= 0.83:
-    print(f"\n  ✅ 83+ AUC HEDEFİ ULAŞILDI! 🎉")
+    print("\n  ✅ 83+ AUC HEDEFİ ULAŞILDI! 🎉")
 elif improvement > 0:
-    print(f"\n  ✅ En iyi modeli geçti!")
+    print("\n  ✅ En iyi modeli geçti!")
 else:
-    print(f"\n  ⚠️  En iyi modelin altında")
+    print("\n  ⚠️  En iyi modelin altında")
 
 # Save results
 results = {
@@ -177,11 +180,13 @@ with open(output_file, "w") as f:
 print(f"\n💾 Results saved: {output_file}")
 
 # Save predictions
-pred_df = pd.DataFrame({
-    "y_true": y,
-    "y_pred": oof_preds,
-    "y_pred_calibrated": cal_preds,
-})
+pred_df = pd.DataFrame(
+    {
+        "y_true": y,
+        "y_pred": oof_preds,
+        "y_pred_calibrated": cal_preds,
+    }
+)
 
 pred_file = output_dir / "meta_sovereign_ensemble_predictions.tsv"
 pred_df.to_csv(pred_file, sep="\t", index=False)

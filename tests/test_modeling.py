@@ -709,7 +709,9 @@ class ModelingTests(unittest.TestCase):
         self.assertTrue(result.predictions["oof_prediction"].between(0.0, 1.0).all())
         self.assertTrue(result.predictions["nonlinear_base_prediction"].between(0.0, 1.0).all())
         self.assertEqual(str(result.predictions["nonlinear_backend_resolved"].iloc[0]), "hist_gbm")
-        self.assertIn("fallback", str(result.predictions["nonlinear_backend_resolution_status"].iloc[0]))
+        self.assertIn(
+            "fallback", str(result.predictions["nonlinear_backend_resolution_status"].iloc[0])
+        )
         self.assertIn("mean_agreement_score", result.metrics)
         self.assertIn("review_fraction", result.metrics)
 

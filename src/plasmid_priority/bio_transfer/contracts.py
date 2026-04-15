@@ -8,7 +8,10 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from plasmid_priority.bio_transfer.specs import BioTransferBenchmarkSpec, load_bio_transfer_config
-from plasmid_priority.shared.contracts import build_branch_input_contract, validate_branch_input_contract
+from plasmid_priority.shared.contracts import (
+    build_branch_input_contract,
+    validate_branch_input_contract,
+)
 
 
 class BioTransferInputContract(BaseModel):

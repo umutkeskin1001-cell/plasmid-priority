@@ -26,8 +26,12 @@ class RunModeTests(unittest.TestCase):
             data_root = Path(tmp_dir)
             completed = mock.Mock(returncode=0)
             with (
-                mock.patch.object(run_mode_script, "prompt_for_data_root", return_value=str(data_root)),
-                mock.patch.object(run_mode_script.subprocess, "run", return_value=completed) as run_mock,
+                mock.patch.object(
+                    run_mode_script, "prompt_for_data_root", return_value=str(data_root)
+                ),
+                mock.patch.object(
+                    run_mode_script.subprocess, "run", return_value=completed
+                ) as run_mock,
             ):
                 result = run_mode_script.main(["full-local", "--dry-run"])
             self.assertEqual(result, 0)
@@ -46,7 +50,9 @@ class RunModeTests(unittest.TestCase):
         completed = mock.Mock(returncode=0)
         cache_root = Path("/tmp/test-home/.cache/plasmid-priority/fast-local/data")
         with (
-            mock.patch.object(run_mode_script.subprocess, "run", return_value=completed) as run_mock,
+            mock.patch.object(
+                run_mode_script.subprocess, "run", return_value=completed
+            ) as run_mock,
             mock.patch.object(run_mode_script, "resolve_mode_data_root", return_value=cache_root),
             mock.patch.object(run_mode_script, "profile_has_content", return_value=True),
         ):
@@ -86,7 +92,9 @@ class RunModeTests(unittest.TestCase):
 
     def test_fast_local_requires_seeded_cache_without_source_data_root(self) -> None:
         with (
-            mock.patch.object(run_mode_script, "resolve_mode_data_root", return_value=Path("/tmp/cache-data")),
+            mock.patch.object(
+                run_mode_script, "resolve_mode_data_root", return_value=Path("/tmp/cache-data")
+            ),
             mock.patch.object(run_mode_script, "profile_has_content", return_value=False),
         ):
             with self.assertRaises(FileNotFoundError):

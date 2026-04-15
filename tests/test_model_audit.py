@@ -1019,9 +1019,7 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("scientific_acceptance_status", protocol.columns)
         self.assertIn("benchmark_track", protocol.columns)
         self.assertIn("published_primary_top_10_precision", protocol.columns)
-        self.assertIn(
-            "published_primary_blocked_holdout_best_calibration_method", protocol.columns
-        )
+        self.assertIn("published_primary_blocked_holdout_best_calibration_method", protocol.columns)
         self.assertIn("governance_primary_top_10_precision", protocol.columns)
         self.assertEqual(str(primary_row["benchmark_guardrail_status"]), "passes_strict_acceptance")
         self.assertEqual(str(governance_row["benchmark_track"]), "governance")
@@ -1034,7 +1032,9 @@ class ModelAuditTests(unittest.TestCase):
             "platt",
         )
         self.assertEqual(
-            float(primary_row["published_primary_blocked_holdout_best_calibration_gain_vs_raw_brier"]),
+            float(
+                primary_row["published_primary_blocked_holdout_best_calibration_gain_vs_raw_brier"]
+            ),
             0.02,
         )
         self.assertEqual(float(governance_row["governance_primary_top_10_precision"]), 0.52)
@@ -1443,7 +1443,9 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("calibration_metric_family", calibration.columns)
         self.assertIn("calibration_metric_semantics", calibration.columns)
         self.assertEqual(set(calibration["evaluation_split"]), {"oof"})
-        self.assertEqual(set(calibration["calibration_method"]), {"raw", "platt", "isotonic", "beta"})
+        self.assertEqual(
+            set(calibration["calibration_method"]), {"raw", "platt", "isotonic", "beta"}
+        )
         self.assertEqual(
             set(calibration["calibration_metric_family"]),
             {"fixed_bin_probability_calibration"},
@@ -1474,7 +1476,9 @@ class ModelAuditTests(unittest.TestCase):
         )
         self.assertFalse(calibration.empty)
         self.assertEqual(set(calibration["evaluation_split"]), {"blocked_holdout"})
-        self.assertEqual(set(calibration["calibration_method"]), {"raw", "platt", "isotonic", "beta"})
+        self.assertEqual(
+            set(calibration["calibration_method"]), {"raw", "platt", "isotonic", "beta"}
+        )
         summary = build_blocked_holdout_calibration_summary(calibration)
         self.assertFalse(summary.empty)
         self.assertEqual(set(summary["evaluation_split"]), {"blocked_holdout"})
@@ -1817,7 +1821,11 @@ class ModelAuditTests(unittest.TestCase):
         self.assertTrue(summary["pooled_overlap_summary"].all())
         self.assertEqual(set(summary["model_name"]), {"enhanced_priority", "baseline_both"})
         self.assertEqual(
-            set(summary.loc[summary["model_name"] == "enhanced_priority", "blocked_holdout_group_columns"]),
+            set(
+                summary.loc[
+                    summary["model_name"] == "enhanced_priority", "blocked_holdout_group_columns"
+                ]
+            ),
             {"dominant_source", "dominant_region_train"},
         )
         source = summary.loc[
@@ -1871,19 +1879,25 @@ class ModelAuditTests(unittest.TestCase):
             ]
         )
         summary = build_blocked_holdout_summary(group_holdout)
-        
+
         # Verify pooled_overlap_summary flag is present and True
         self.assertIn("pooled_overlap_summary", summary.columns)
         self.assertTrue(summary["pooled_overlap_summary"].all())
-        
+
         # Verify that separate axes (source and region) are reported
         self.assertEqual(len(summary), 2)  # One for source, one for region
-        
+
         # The pooled n_backbones may exceed a single disjoint cohort
         # This is expected and allowed when pooled_overlap_summary is True
-        source_n = summary.loc[summary["blocked_holdout_group_columns"] == "dominant_source", "blocked_holdout_n_backbones"].iloc[0]
-        region_n = summary.loc[summary["blocked_holdout_group_columns"] == "dominant_region_train", "blocked_holdout_n_backbones"].iloc[0]
-        
+        source_n = summary.loc[
+            summary["blocked_holdout_group_columns"] == "dominant_source",
+            "blocked_holdout_n_backbones",
+        ].iloc[0]
+        region_n = summary.loc[
+            summary["blocked_holdout_group_columns"] == "dominant_region_train",
+            "blocked_holdout_n_backbones",
+        ].iloc[0]
+
         # These counts are from different axes and may overlap
         # The pooled_overlap_summary flag signals this to prevent misinterpretation
         self.assertGreater(source_n, 0)
@@ -2153,7 +2167,9 @@ class ModelAuditTests(unittest.TestCase):
             float(dossier.loc[dossier["backbone_id"] == "bb1", "risk_uncertainty"].iloc[0]),
         )
         self.assertGreater(
-            float(dossier.loc[dossier["backbone_id"] == "bb1", "candidate_confidence_score"].iloc[0]),
+            float(
+                dossier.loc[dossier["backbone_id"] == "bb1", "candidate_confidence_score"].iloc[0]
+            ),
             0.80,
         )
         self.assertEqual(
@@ -2186,10 +2202,16 @@ class ModelAuditTests(unittest.TestCase):
         self.assertIn("graph_novelty_risk", risk.columns)
         self.assertIn("amr_uncertainty_risk", risk.columns)
         self.assertIn("low_candidate_confidence_risk", risk.columns)
-        self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "low_assignment_confidence_risk"].iloc[0]))
+        self.assertTrue(
+            bool(risk.loc[risk["backbone_id"] == "bb2", "low_assignment_confidence_risk"].iloc[0])
+        )
         self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "graph_novelty_risk"].iloc[0]))
-        self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "amr_uncertainty_risk"].iloc[0]))
-        self.assertTrue(bool(risk.loc[risk["backbone_id"] == "bb2", "low_candidate_confidence_risk"].iloc[0]))
+        self.assertTrue(
+            bool(risk.loc[risk["backbone_id"] == "bb2", "amr_uncertainty_risk"].iloc[0])
+        )
+        self.assertTrue(
+            bool(risk.loc[risk["backbone_id"] == "bb2", "low_candidate_confidence_risk"].iloc[0])
+        )
 
     def test_build_consensus_candidate_ranking_prefers_cross_model_agreement(self) -> None:
         candidate_context = pd.DataFrame(
@@ -2290,11 +2312,17 @@ class ModelAuditTests(unittest.TestCase):
             2,
         )
         self.assertGreater(
-            float(portfolio.loc[portfolio["backbone_id"] == "bb1", "candidate_confidence_score"].iloc[0]),
+            float(
+                portfolio.loc[portfolio["backbone_id"] == "bb1", "candidate_confidence_score"].iloc[
+                    0
+                ]
+            ),
             0.80,
         )
         self.assertEqual(
-            str(portfolio.loc[portfolio["backbone_id"] == "bb1", "uncertainty_review_tier"].iloc[0]),
+            str(
+                portfolio.loc[portfolio["backbone_id"] == "bb1", "uncertainty_review_tier"].iloc[0]
+            ),
             "clear",
         )
         self.assertIn("assignment_confidence_score", portfolio.columns)

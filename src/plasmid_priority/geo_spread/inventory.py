@@ -14,7 +14,9 @@ def _iter_project_files(root: Path) -> list[Path]:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        if any(part in {".git", ".pytest_cache", "__pycache__", ".mypy_cache"} for part in path.parts):
+        if any(
+            part in {".git", ".pytest_cache", "__pycache__", ".mypy_cache"} for part in path.parts
+        ):
             continue
         files.append(path.relative_to(root))
     return sorted(files)
@@ -23,7 +25,9 @@ def _iter_project_files(root: Path) -> list[Path]:
 def _python_module_map(root: Path) -> dict[str, Path]:
     mapping: dict[str, Path] = {}
     for path in root.rglob("*.py"):
-        if any(part in {".git", ".pytest_cache", "__pycache__", ".mypy_cache"} for part in path.parts):
+        if any(
+            part in {".git", ".pytest_cache", "__pycache__", ".mypy_cache"} for part in path.parts
+        ):
             continue
         rel = path.relative_to(root)
         module = ".".join(rel.with_suffix("").parts)
@@ -130,6 +134,8 @@ def build_geo_spread_inventory(
         "unused_file_count": int(len(unused_rows)),
         "used_data_file_count": int(sum(row["category"] == "data" for row in used_rows)),
         "unused_data_file_count": int(sum(row["category"] == "data" for row in unused_rows)),
-        "branch_data_root": str(branch_data_root.relative_to(root)) if branch_data_root.exists() else str(branch_data_root),
+        "branch_data_root": str(branch_data_root.relative_to(root))
+        if branch_data_root.exists()
+        else str(branch_data_root),
     }
     return pd.DataFrame(used_rows), pd.DataFrame(unused_rows), summary

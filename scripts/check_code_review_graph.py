@@ -50,8 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"code-review-graph counts -> nodes={nodes}, edges={edges}, files={files}")
     if nodes == 0 and edges == 0 and files == 0:
         raise RuntimeError(
-            "Detected false-zero graph state (nodes=0, edges=0, files=0). "
-            "Treating as hard failure."
+            "Detected false-zero graph state (nodes=0, edges=0, files=0). Treating as hard failure."
         )
     return 0
 

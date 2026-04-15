@@ -4,7 +4,10 @@ import unittest
 
 import pandas as pd
 
-from plasmid_priority.geo_spread import build_geo_spread_report_card, format_geo_spread_report_markdown
+from plasmid_priority.geo_spread import (
+    build_geo_spread_report_card,
+    format_geo_spread_report_markdown,
+)
 from plasmid_priority.modeling.module_a import ModelResult
 
 

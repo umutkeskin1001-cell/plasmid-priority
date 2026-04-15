@@ -77,11 +77,15 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(models["conservative_model_name"], "parsimonious_priority")
         self.assertEqual(models["governance_model_name"], "phylo_support_fusion_priority")
         self.assertEqual(models["governance_model_fallback"], "support_synergy_priority")
-        self.assertEqual(models["fit_config"]["regime_stability_priority"]["preprocess_alpha"], "auto")
+        self.assertEqual(
+            models["fit_config"]["regime_stability_priority"]["preprocess_alpha"], "auto"
+        )
         self.assertEqual(context.pipeline_settings.host_evenness_bias_power, 0.5)
         self.assertAlmostEqual(context.pipeline_settings.host_phylo_breadth_weight, 0.65)
         self.assertAlmostEqual(context.pipeline_settings.host_phylo_dispersion_weight, 0.35)
-        self.assertTrue(bool(models["fit_config"]["regime_stability_priority"]["preprocess_alpha_grouped"]))
+        self.assertTrue(
+            bool(models["fit_config"]["regime_stability_priority"]["preprocess_alpha_grouped"])
+        )
 
     def test_context_uses_explicit_external_data_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -126,7 +130,9 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
-            (root / "config.yaml").write_text("models:\n  primary_model_name: test\n", encoding="utf-8")
+            (root / "config.yaml").write_text(
+                "models:\n  primary_model_name: test\n", encoding="utf-8"
+            )
             (root / "data/manifests").mkdir(parents=True)
             (root / "data/manifests/data_contract.json").write_text(
                 json.dumps(

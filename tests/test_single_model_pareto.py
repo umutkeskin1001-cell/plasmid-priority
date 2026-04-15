@@ -75,7 +75,10 @@ class SingleModelParetoTests(unittest.TestCase):
                 "backbone_id": [f"bb_{i}" for i in range(40)],
                 "spread_label": [1, 0] * 20,
                 "dominant_source": ["refseq_leaning"] * 20 + ["insd_leaning"] * 20,
-                "dominant_region_train": ["region_a"] * 10 + ["region_b"] * 10 + ["region_a"] * 10 + ["region_b"] * 10,
+                "dominant_region_train": ["region_a"] * 10
+                + ["region_b"] * 10
+                + ["region_a"] * 10
+                + ["region_b"] * 10,
                 "log1p_member_count_train": [0.0, 0.2, 0.4, 0.6] * 10,
                 "log1p_n_countries_train": [0.1, 0.3, 0.5, 0.7] * 10,
                 "refseq_share_train": [0.2, 0.4, 0.6, 0.8] * 10,
@@ -111,7 +114,9 @@ class SingleModelParetoTests(unittest.TestCase):
             "weighted_objective_score",
         }
         self.assertTrue(expected_columns.issubset(set(screen.columns)))
-        self.assertEqual(set(screen["model_name"].astype(str)), set(family["model_name"].astype(str)))
+        self.assertEqual(
+            set(screen["model_name"].astype(str)), set(family["model_name"].astype(str))
+        )
         self.assertTrue(screen["screen_fit_seconds"].ge(0.0).all())
         self.assertTrue(screen["weighted_objective_score"].notna().all())
 
@@ -136,7 +141,10 @@ class SingleModelParetoTests(unittest.TestCase):
         ranked = rank_single_model_candidates(candidates)
 
         self.assertEqual(str(ranked.iloc[0]["model_name"]), "a")
-        self.assertGreater(float(ranked.iloc[0]["weighted_objective_score"]), float(ranked.iloc[1]["weighted_objective_score"]))
+        self.assertGreater(
+            float(ranked.iloc[0]["weighted_objective_score"]),
+            float(ranked.iloc[1]["weighted_objective_score"]),
+        )
 
     def test_failure_severity_penalizes_multi_guardrail_failures_and_worse_gaps(self) -> None:
         scorecard = pd.DataFrame(
@@ -188,9 +196,7 @@ class SingleModelParetoTests(unittest.TestCase):
         enriched = add_failure_severity(scorecard)
 
         mild = float(enriched.loc[enriched["model_name"] == "mild", "failure_severity"].iloc[0])
-        severe = float(
-            enriched.loc[enriched["model_name"] == "severe", "failure_severity"].iloc[0]
-        )
+        severe = float(enriched.loc[enriched["model_name"] == "severe", "failure_severity"].iloc[0])
 
         self.assertLess(mild, severe)
 
@@ -225,7 +231,9 @@ class SingleModelParetoTests(unittest.TestCase):
 
         self.assertEqual(list(ranked["model_name"]), ["zeta", "alpha", "beta"])
 
-    def test_build_pareto_shortlist_is_deterministic_and_excludes_dominated_candidates(self) -> None:
+    def test_build_pareto_shortlist_is_deterministic_and_excludes_dominated_candidates(
+        self,
+    ) -> None:
         candidates = pd.DataFrame(
             [
                 {

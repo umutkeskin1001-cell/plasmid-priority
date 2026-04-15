@@ -28,10 +28,12 @@ class TestAuditMissingness:
 
     def test_no_missing_values(self):
         """Audit should report no missing values for complete data."""
-        df = pd.DataFrame({
-            "a": [1, 2, 3],
-            "b": ["x", "y", "z"],
-        })
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3],
+                "b": ["x", "y", "z"],
+            }
+        )
         result = audit_missingness(df, "complete_test")
 
         assert result["status"] == "ok"
@@ -45,10 +47,12 @@ class TestAuditMissingness:
 
     def test_high_missingness_detection(self):
         """Audit should flag columns with high missingness."""
-        df = pd.DataFrame({
-            "complete": [1, 2, 3, 4],
-            "mostly_missing": [1, np.nan, np.nan, np.nan],
-        })
+        df = pd.DataFrame(
+            {
+                "complete": [1, 2, 3, 4],
+                "mostly_missing": [1, np.nan, np.nan, np.nan],
+            }
+        )
         result = audit_missingness(df, "partial_test", high_missingness_threshold=0.5)
 
         assert result["status"] == "concern"
@@ -61,11 +65,13 @@ class TestAuditMissingness:
 
     def test_sorted_by_missingness(self):
         """Results should be sorted by missing fraction descending."""
-        df = pd.DataFrame({
-            "some_missing": [1, 2, np.nan],
-            "all_present": [1, 2, 3],
-            "all_missing": [np.nan, np.nan, np.nan],
-        })
+        df = pd.DataFrame(
+            {
+                "some_missing": [1, 2, np.nan],
+                "all_present": [1, 2, 3],
+                "all_missing": [np.nan, np.nan, np.nan],
+            }
+        )
         result = audit_missingness(df, "sorted_test")
 
         fractions = [c["missing_fraction"] for c in result["columns"]]
@@ -75,10 +81,12 @@ class TestAuditMissingness:
 
     def test_split_column_analysis(self):
         """Audit should break down missingness by split column."""
-        df = pd.DataFrame({
-            "value": [1, np.nan, 3, np.nan],
-            "split": ["train", "train", "test", "test"],
-        })
+        df = pd.DataFrame(
+            {
+                "value": [1, np.nan, 3, np.nan],
+                "split": ["train", "train", "test", "test"],
+            }
+        )
         result = audit_missingness(df, "split_test", split_column="split")
 
         value_col = next(c for c in result["columns"] if c["column"] == "value")
@@ -92,10 +100,12 @@ class TestFormatMissingnessReport:
 
     def test_report_contains_key_info(self):
         """Report should contain table name and status."""
-        df = pd.DataFrame({
-            "col1": [1, 2, np.nan],
-            "col2": ["a", "b", "c"],
-        })
+        df = pd.DataFrame(
+            {
+                "col1": [1, 2, np.nan],
+                "col2": ["a", "b", "c"],
+            }
+        )
         audit = audit_missingness(df, "test_table")
         report = format_missingness_report(audit)
 
@@ -110,10 +120,12 @@ class TestAuditBackboneTables:
 
     def test_backbone_table_only(self):
         """Audit should work with just backbone table."""
-        backbone = pd.DataFrame({
-            "backbone_id": ["A", "B", "C"],
-            "member_count_train": [1, 2, np.nan],
-        })
+        backbone = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B", "C"],
+                "member_count_train": [1, 2, np.nan],
+            }
+        )
         result = audit_backbone_tables(backbone_table=backbone)
 
         assert "backbone_table" in result
@@ -122,11 +134,13 @@ class TestAuditBackboneTables:
 
     def test_scored_table_only(self):
         """Audit should work with just scored backbone table."""
-        scored = pd.DataFrame({
-            "backbone_id": ["A", "B", "C"],
-            "spread_label": [1.0, 0.0, np.nan],
-            "priority_index": [0.5, np.nan, 0.3],
-        })
+        scored = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B", "C"],
+                "spread_label": [1.0, 0.0, np.nan],
+                "priority_index": [0.5, np.nan, 0.3],
+            }
+        )
         result = audit_backbone_tables(scored_backbone_table=scored)
 
         assert "scored_backbone_table" in result
@@ -134,14 +148,18 @@ class TestAuditBackboneTables:
 
     def test_both_tables(self):
         """Audit should work with both tables."""
-        backbone = pd.DataFrame({
-            "backbone_id": ["A", "B", "C"],
-            "member_count_train": [1, 2, 3],
-        })
-        scored = pd.DataFrame({
-            "backbone_id": ["A", "B", "C"],
-            "spread_label": [1.0, 0.0, np.nan],
-        })
+        backbone = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B", "C"],
+                "member_count_train": [1, 2, 3],
+            }
+        )
+        scored = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B", "C"],
+                "spread_label": [1.0, 0.0, np.nan],
+            }
+        )
         result = audit_backbone_tables(
             backbone_table=backbone,
             scored_backbone_table=scored,
@@ -153,11 +171,13 @@ class TestAuditBackboneTables:
 
     def test_eligibility_split_for_scored(self):
         """Scored table should automatically get eligibility split."""
-        scored = pd.DataFrame({
-            "backbone_id": ["A", "B", "C", "D"],
-            "spread_label": [1.0, 0.0, np.nan, np.nan],
-            "priority_index": [0.5, 0.6, 0.3, np.nan],
-        })
+        scored = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B", "C", "D"],
+                "spread_label": [1.0, 0.0, np.nan, np.nan],
+                "priority_index": [0.5, 0.6, 0.3, np.nan],
+            }
+        )
         result = audit_backbone_tables(scored_backbone_table=scored)
 
         scored_audit = result["scored_backbone_table"]
@@ -170,10 +190,12 @@ class TestAuditBackboneTables:
 
     def test_concern_status_aggregation(self):
         """Overall status should be concern if any table has concern."""
-        backbone = pd.DataFrame({
-            "backbone_id": ["A", "B"],
-            "mostly_missing": [np.nan, np.nan],
-        })
+        backbone = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B"],
+                "mostly_missing": [np.nan, np.nan],
+            }
+        )
         result = audit_backbone_tables(
             backbone_table=backbone,
             high_missingness_threshold=0.5,
@@ -188,10 +210,12 @@ class TestPrintBackboneAuditReport:
 
     def test_print_does_not_crash(self, capsys):
         """Printing should not crash with valid results."""
-        backbone = pd.DataFrame({
-            "backbone_id": ["A", "B"],
-            "value": [1, 2],
-        })
+        backbone = pd.DataFrame(
+            {
+                "backbone_id": ["A", "B"],
+                "value": [1, 2],
+            }
+        )
         result = audit_backbone_tables(backbone_table=backbone)
 
         print_backbone_audit_report(result)

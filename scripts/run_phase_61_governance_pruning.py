@@ -95,9 +95,7 @@ def run_preflight_checks(scored: pd.DataFrame) -> None:
     for model_name in GOVERNANCE_PHASE_61_MODELS:
         track = get_model_track(model_name)
         if track != "governance":
-            raise ValueError(
-                f"Model {model_name} has track '{track}' but expected 'governance'"
-            )
+            raise ValueError(f"Model {model_name} has track '{track}' but expected 'governance'")
 
     # 2. Feature column presence check
     all_required_columns = [
@@ -137,9 +135,7 @@ def compute_paired_delong_p(
     # Get OOF predictions for baseline
     baseline_columns = MODULE_A_FEATURE_SETS[baseline_name]
     baseline_eligible = (
-        _ensure_feature_columns(scored, baseline_columns)
-        .loc[scored["spread_label"].notna()]
-        .copy()
+        _ensure_feature_columns(scored, baseline_columns).loc[scored["spread_label"].notna()].copy()
     )
     baseline_eligible["spread_label"] = baseline_eligible["spread_label"].astype(int)
     baseline_fit_kwargs = _model_fit_kwargs(baseline_name)
@@ -343,7 +339,10 @@ def run_phase_61_batch(
     rolling_origin_gap: float | None = None
     rolling_origin_status = "not_evaluated"
     rolling_temporal_path = (
-        Path(__file__).resolve().parents[1] / "data" / "analysis" / "rolling_temporal_validation.tsv"
+        Path(__file__).resolve().parents[1]
+        / "data"
+        / "analysis"
+        / "rolling_temporal_validation.tsv"
     )
     if rolling_temporal_path.exists():
         # Would extract rolling-origin gap from artifact if available
@@ -486,35 +485,39 @@ def write_phase_61_artifacts(
     candidate = batch_output["candidate_metrics"]
 
     # Baseline row
-    summary_rows.append({
-        "model_name": baseline["model_name"],
-        "raw_auc": baseline["raw_auc"],
-        "auc_ci": baseline["auc_ci"],
-        "ece": baseline["ece"],
-        "comparison_p_name": "baseline_reference",
-        "comparison_p_value": None,
-        "delta_vs_baseline": 0.0,
-        "rolling_origin_status": "not_evaluated",
-        "rolling_origin_gap": None,
-        "gate_overall": None,
-        "classification": "BASELINE",
-    })
+    summary_rows.append(
+        {
+            "model_name": baseline["model_name"],
+            "raw_auc": baseline["raw_auc"],
+            "auc_ci": baseline["auc_ci"],
+            "ece": baseline["ece"],
+            "comparison_p_name": "baseline_reference",
+            "comparison_p_value": None,
+            "delta_vs_baseline": 0.0,
+            "rolling_origin_status": "not_evaluated",
+            "rolling_origin_gap": None,
+            "gate_overall": None,
+            "classification": "BASELINE",
+        }
+    )
 
     # Candidate row
     gates = batch_output["gate_evaluations"][GOVERNANCE_CANDIDATE]
-    summary_rows.append({
-        "model_name": candidate["model_name"],
-        "raw_auc": candidate["raw_auc"],
-        "auc_ci": candidate["auc_ci"],
-        "ece": candidate["ece"],
-        "comparison_p_name": "paired_delong_p",
-        "comparison_p_value": candidate["paired_delong_p"],
-        "delta_vs_baseline": candidate["delta_vs_baseline"],
-        "rolling_origin_status": candidate["rolling_origin_status"],
-        "rolling_origin_gap": candidate["rolling_origin_gap"],
-        "gate_overall": gates["overall"],
-        "classification": batch_output["candidate_classification"],
-    })
+    summary_rows.append(
+        {
+            "model_name": candidate["model_name"],
+            "raw_auc": candidate["raw_auc"],
+            "auc_ci": candidate["auc_ci"],
+            "ece": candidate["ece"],
+            "comparison_p_name": "paired_delong_p",
+            "comparison_p_value": candidate["paired_delong_p"],
+            "delta_vs_baseline": candidate["delta_vs_baseline"],
+            "rolling_origin_status": candidate["rolling_origin_status"],
+            "rolling_origin_gap": candidate["rolling_origin_gap"],
+            "gate_overall": gates["overall"],
+            "classification": batch_output["candidate_classification"],
+        }
+    )
 
     summary_table = pd.DataFrame(summary_rows)
     summary_path = reports_dir / "phase_61_per_model_summary.tsv"
@@ -524,13 +527,15 @@ def write_phase_61_artifacts(
     # D) reports/phase_61_gate_evaluation.tsv
     gate_rows = []
     for model_name, gates in batch_output["gate_evaluations"].items():
-        gate_rows.append({
-            "model_name": model_name,
-            "ece_pass": gates["ece_pass"],
-            "p_pass_or_status": gates["paired_delong_p_pass"],
-            "rolling_origin_pass_or_status": gates["rolling_origin_pass"],
-            "overall": gates["overall"],
-        })
+        gate_rows.append(
+            {
+                "model_name": model_name,
+                "ece_pass": gates["ece_pass"],
+                "p_pass_or_status": gates["paired_delong_p_pass"],
+                "rolling_origin_pass_or_status": gates["rolling_origin_pass"],
+                "overall": gates["overall"],
+            }
+        )
     gate_table = pd.DataFrame(gate_rows)
     gate_path = reports_dir / "phase_61_gate_evaluation.tsv"
     gate_table.to_csv(gate_path, sep="\t", index=False)

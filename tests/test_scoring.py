@@ -177,9 +177,7 @@ class ScoringTests(unittest.TestCase):
                 1.0,
             )
         )
-        self.assertAlmostEqual(
-            float(bb2["clinical_weapon_synergy_norm"]), expected_clinical_weapon
-        )
+        self.assertAlmostEqual(float(bb2["clinical_weapon_synergy_norm"]), expected_clinical_weapon)
         expected_endemic_resistance = float(
             np.clip(
                 float(bb2["A_recurrence_norm"]) * float(bb2["H_specialization_norm"]),

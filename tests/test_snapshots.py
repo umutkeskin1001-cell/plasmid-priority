@@ -17,7 +17,9 @@ class SnapshotTests(unittest.TestCase):
             (source_root / "analysis/module_a_metrics.json").write_text("{}", encoding="utf-8")
             (source_root / "scores/backbone_scored.tsv").write_text("x\n1\n", encoding="utf-8")
             (source_root / "silver/plasmid_backbones.tsv").write_text("x\n1\n", encoding="utf-8")
-            (source_root / "silver/plasmid_amr_consensus.tsv").write_text("x\n1\n", encoding="utf-8")
+            (source_root / "silver/plasmid_amr_consensus.tsv").write_text(
+                "x\n1\n", encoding="utf-8"
+            )
 
             copied = sync_profile_outputs(
                 source_root,
@@ -39,7 +41,9 @@ class SnapshotTests(unittest.TestCase):
             (source_root / "analysis/module_a_metrics.json").write_text("{}", encoding="utf-8")
             (source_root / "scores/backbone_scored.tsv").write_text("x\n1\n", encoding="utf-8")
             (source_root / "silver/plasmid_backbones.tsv").write_text("x\n1\n", encoding="utf-8")
-            (source_root / "silver/plasmid_amr_consensus.tsv").write_text("x\n1\n", encoding="utf-8")
+            (source_root / "silver/plasmid_amr_consensus.tsv").write_text(
+                "x\n1\n", encoding="utf-8"
+            )
 
             destination_root = Path(dst_tmp)
             stale_path = destination_root / "analysis/stale.tsv"

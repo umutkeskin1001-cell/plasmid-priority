@@ -10,13 +10,13 @@ from typing import Callable
 @contextmanager
 def benchmark_runtime(operation_name: str):
     """Context manager to benchmark runtime of an operation.
-    
+
     Args:
         operation_name: Name of the operation being benchmarked
-        
+
     Yields:
         None
-        
+
     Example:
         with benchmark_runtime("data_loading"):
             data = load_data()
@@ -32,15 +32,15 @@ def benchmark_runtime(operation_name: str):
 
 def measure_runtime(func: Callable, *args, **kwargs) -> tuple[object, float]:
     """Measure runtime of a function call.
-    
+
     Args:
         func: Function to measure
         *args: Positional arguments to pass to func
         **kwargs: Keyword arguments to pass to func
-        
+
     Returns:
         Tuple of (result, elapsed_seconds)
-        
+
     Example:
         result, runtime = measure_runtime(load_data, path="data.tsv")
     """

@@ -13,16 +13,12 @@ from plasmid_priority.config import build_context
 def _normalize_text_sequence(values: Sequence[str] | None) -> tuple[str, ...]:
     if not values:
         return ()
-    return tuple(
-        dict.fromkeys(
-            str(value).strip()
-            for value in values
-            if str(value).strip()
-        )
-    )
+    return tuple(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
 
 
-def _normalize_feature_sets(feature_sets: Mapping[str, Sequence[str]] | None, defaults: Mapping[str, Sequence[str]]) -> dict[str, tuple[str, ...]]:
+def _normalize_feature_sets(
+    feature_sets: Mapping[str, Sequence[str]] | None, defaults: Mapping[str, Sequence[str]]
+) -> dict[str, tuple[str, ...]]:
     if not feature_sets:
         return {name: _normalize_text_sequence(columns) for name, columns in defaults.items()}
     normalized: dict[str, tuple[str, ...]] = {}
@@ -35,7 +31,9 @@ def _normalize_fit_config(
     fit_config: Mapping[str, Mapping[str, Any]] | None,
     defaults: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    normalized: dict[str, dict[str, Any]] = {name: dict(payload) for name, payload in defaults.items()}
+    normalized: dict[str, dict[str, Any]] = {
+        name: dict(payload) for name, payload in defaults.items()
+    }
     if not fit_config:
         return normalized
     for model_name, payload in fit_config.items():
@@ -89,7 +87,9 @@ class BranchFitConfig(BaseModel):
     def _validate_model_type(cls, value: str) -> str:
         normalized = str(value).strip().lower()
         if normalized not in {"logistic", "hybrid_stacked", "pairwise_rank_logistic"}:
-            raise ValueError("model_type must be one of: logistic, hybrid_stacked, pairwise_rank_logistic")
+            raise ValueError(
+                "model_type must be one of: logistic, hybrid_stacked, pairwise_rank_logistic"
+            )
         return normalized
 
     @model_validator(mode="after")
@@ -268,9 +268,13 @@ def load_branch_config(
         payload.get("fit_config") if isinstance(payload.get("fit_config"), Mapping) else None,
         fit_config or {},
     )
-    selection_payload = payload.get("selection", {}) if isinstance(payload.get("selection"), Mapping) else {}
+    selection_payload = (
+        payload.get("selection", {}) if isinstance(payload.get("selection"), Mapping) else {}
+    )
     selection_base = dict(selection_defaults or {})
-    selection = BranchModelSelectionSpec.model_validate({**selection_base, **dict(selection_payload)})
+    selection = BranchModelSelectionSpec.model_validate(
+        {**selection_base, **dict(selection_payload)}
+    )
 
     def _resolve_names(key: str, defaults: Sequence[str]) -> tuple[str, ...]:
         raw = payload.get(key)
@@ -298,7 +302,10 @@ def load_branch_config(
         research_model_names=_resolve_names("research_model_names", research_model_names),
         ablation_model_names=_resolve_names("ablation_model_names", ablation_model_names),
         feature_sets=normalized_feature_sets,
-        fit_config={name: BranchFitConfig.model_validate(payload) for name, payload in normalized_fit_config.items()},
+        fit_config={
+            name: BranchFitConfig.model_validate(payload)
+            for name, payload in normalized_fit_config.items()
+        },
         selection=selection,
     )
 

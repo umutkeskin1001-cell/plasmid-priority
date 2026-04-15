@@ -42,10 +42,18 @@ def build_branch_inventory(
     for path in sorted(used_resolved | unused_resolved):
         if any(row["path"] == str(path) for row in rows):
             continue
-        rows.append(_path_info(path, used=path in used_resolved, kind="file" if path.is_file() else "directory"))
+        rows.append(
+            _path_info(
+                path, used=path in used_resolved, kind="file" if path.is_file() else "directory"
+            )
+        )
     frame = pd.DataFrame(rows)
     if frame.empty:
-        return pd.DataFrame(), pd.DataFrame(), {"used_count": 0, "unused_count": 0, "missing_count": 0}
+        return (
+            pd.DataFrame(),
+            pd.DataFrame(),
+            {"used_count": 0, "unused_count": 0, "missing_count": 0},
+        )
     used_frame = frame.loc[frame["used"].fillna(False)].copy().reset_index(drop=True)
     unused_frame = frame.loc[~frame["used"].fillna(False)].copy().reset_index(drop=True)
     summary = {

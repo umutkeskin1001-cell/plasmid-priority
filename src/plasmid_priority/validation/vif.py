@@ -29,11 +29,13 @@ def compute_vif_values(X: np.ndarray, feature_names: list[str]) -> pd.DataFrame:
     n_samples, n_features = X.shape
 
     if n_features < 2:
-        return pd.DataFrame({
-            "feature_name": feature_names[:n_features] if n_features == 1 else [],
-            "vif": [1.0] if n_features == 1 else [],
-            "concern_flag": ["low"] if n_features == 1 else [],
-        })
+        return pd.DataFrame(
+            {
+                "feature_name": feature_names[:n_features] if n_features == 1 else [],
+                "vif": [1.0] if n_features == 1 else [],
+                "concern_flag": ["low"] if n_features == 1 else [],
+            }
+        )
 
     # Center the data
     X_centered = X - X.mean(axis=0)
@@ -60,7 +62,7 @@ def compute_vif_values(X: np.ndarray, feature_names: list[str]) -> pd.DataFrame:
             y_pred = X_others @ beta
 
             ss_res = np.sum((y - y_pred) ** 2)
-            ss_tot = np.sum(y ** 2)  # Already centered
+            ss_tot = np.sum(y**2)  # Already centered
 
             if ss_tot < 1e-10:
                 r_squared = 0.0
@@ -88,11 +90,13 @@ def compute_vif_values(X: np.ndarray, feature_names: list[str]) -> pd.DataFrame:
         else:
             concern_flags.append("low")
 
-    return pd.DataFrame({
-        "feature_name": feature_names,
-        "vif": vif_values,
-        "concern_flag": concern_flags,
-    })
+    return pd.DataFrame(
+        {
+            "feature_name": feature_names,
+            "vif": vif_values,
+            "concern_flag": concern_flags,
+        }
+    )
 
 
 def build_vif_audit_table(
@@ -156,21 +160,25 @@ def summarize_vif_concerns(vif_table: pd.DataFrame) -> pd.DataFrame:
         n_high_concern = (group["concern_flag"].isin(["high", "critical"])).sum()
         n_moderate_concern = (group["concern_flag"] == "moderate").sum()
 
-        summary_rows.append({
-            "model_name": model_name,
-            "n_features": n_features,
-            "n_high_concern": n_high_concern,
-            "n_moderate_concern": n_moderate_concern,
-            "max_vif": vif_values.max() if not vif_values.empty else np.nan,
-            "mean_vif": vif_values.mean() if not vif_values.empty else np.nan,
-            "median_vif": vif_values.median() if not vif_values.empty else np.nan,
-            "pct_vif_gt_5": (vif_values > 5).mean() * 100 if not vif_values.empty else 0.0,
-            "pct_vif_gt_10": (vif_values > 10).mean() * 100 if not vif_values.empty else 0.0,
-            "overall_status": (
-                "review_recommended" if n_high_concern > 0
-                else "moderate_concern" if n_moderate_concern > 0
-                else "acceptable"
-            ),
-        })
+        summary_rows.append(
+            {
+                "model_name": model_name,
+                "n_features": n_features,
+                "n_high_concern": n_high_concern,
+                "n_moderate_concern": n_moderate_concern,
+                "max_vif": vif_values.max() if not vif_values.empty else np.nan,
+                "mean_vif": vif_values.mean() if not vif_values.empty else np.nan,
+                "median_vif": vif_values.median() if not vif_values.empty else np.nan,
+                "pct_vif_gt_5": (vif_values > 5).mean() * 100 if not vif_values.empty else 0.0,
+                "pct_vif_gt_10": (vif_values > 10).mean() * 100 if not vif_values.empty else 0.0,
+                "overall_status": (
+                    "review_recommended"
+                    if n_high_concern > 0
+                    else "moderate_concern"
+                    if n_moderate_concern > 0
+                    else "acceptable"
+                ),
+            }
+        )
 
     return pd.DataFrame(summary_rows)

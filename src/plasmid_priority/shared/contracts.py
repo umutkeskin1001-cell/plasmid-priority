@@ -64,7 +64,9 @@ def ensure_branch_label_alias(
     return working
 
 
-def validate_branch_feature_set(features: Sequence[str], *, label: str = "branch feature set") -> None:
+def validate_branch_feature_set(
+    features: Sequence[str], *, label: str = "branch feature set"
+) -> None:
     """Reject feature sets that expose future-derived columns."""
     normalized = [str(feature).strip() for feature in features if str(feature).strip()]
     if not normalized:
@@ -93,20 +95,21 @@ def validate_branch_input_contract(
         raise ValueError(f"{label} is missing required columns: {missing_text}.")
 
     split_year_values = (
-        pd.to_numeric(scored["split_year"], errors="coerce")
-        .dropna()
-        .astype(int)
-        .unique()
-        .tolist()
+        pd.to_numeric(scored["split_year"], errors="coerce").dropna().astype(int).unique().tolist()
     )
     if split_year_values != [int(benchmark.split_year)]:
         raise ValueError(
-            f"{label} has split_year metadata {split_year_values}, expected only {int(benchmark.split_year)}."
+            f"{label} has split_year metadata {split_year_values}, expected only "
+            f"{int(benchmark.split_year)}."
         )
 
     if contract.require_assignment_mode:
         assignment_modes = (
-            scored["backbone_assignment_mode"].fillna("").astype(str).str.strip().replace("", np.nan)
+            scored["backbone_assignment_mode"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .replace("", np.nan)
         )
         invalid_modes = sorted(
             {
@@ -134,13 +137,16 @@ def validate_branch_input_contract(
         if contract.require_label_consistency:
             eligible = label_values.notna() & outcome.notna()
             if eligible.any():
-                expected = (outcome.loc[eligible] >= float(benchmark.positive_threshold)).astype(float)
+                expected = (outcome.loc[eligible] >= float(benchmark.positive_threshold)).astype(
+                    float
+                )
                 observed = label_values.loc[eligible].astype(float)
                 mismatch_mask = observed.to_numpy(dtype=float) != expected.to_numpy(dtype=float)
                 if mismatch_mask.any():
                     raise ValueError(
-                        f"{label} has {int(mismatch_mask.sum())} row(s) whose `{benchmark.label_column}` "
-                        f"does not match `{benchmark.outcome_column}` thresholding."
+                        f"{label} has {int(mismatch_mask.sum())} row(s) whose "
+                        f"`{benchmark.label_column}` does not match "
+                        f"`{benchmark.outcome_column}` thresholding."
                     )
 
     if "training_only_future_unseen_backbone_flag" in scored.columns:
@@ -149,4 +155,6 @@ def validate_branch_input_contract(
             & scored[benchmark.label_column].notna()
         ]
         if not unseen_labeled.empty:
-            raise ValueError(f"{label} assigns labels to {len(unseen_labeled)} future-unseen backbones.")
+            raise ValueError(
+                f"{label} assigns labels to {len(unseen_labeled)} future-unseen backbones."
+            )

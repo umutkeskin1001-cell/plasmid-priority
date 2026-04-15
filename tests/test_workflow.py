@@ -182,8 +182,12 @@ class WorkflowTests(unittest.TestCase):
             with (
                 mock.patch.object(run_validation_script, "build_context", return_value=context),
                 mock.patch.object(run_validation_script, "ManagedScriptRun", return_value=fake_run),
-                mock.patch.object(run_validation_script, "project_python_source_paths", return_value=[]),
-                mock.patch.object(run_validation_script, "load_signature_manifest", return_value=True),
+                mock.patch.object(
+                    run_validation_script, "project_python_source_paths", return_value=[]
+                ),
+                mock.patch.object(
+                    run_validation_script, "load_signature_manifest", return_value=True
+                ),
             ):
                 result = run_validation_script.main()
 

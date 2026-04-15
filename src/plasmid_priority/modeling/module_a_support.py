@@ -67,9 +67,13 @@ SINGLE_MODEL_PARETO_PARENT_MODEL_NAMES: tuple[str, ...] = (
 
 
 def _get_model_config() -> dict:
-    if not hasattr(_project_config_local, 'value') or _project_config_local.value is None:
+    if not hasattr(_project_config_local, "value") or _project_config_local.value is None:
         _project_config_local.value = _load_project_config()
-    models = _project_config_local.value.get("models", {}) if isinstance(_project_config_local.value, dict) else {}
+    models = (
+        _project_config_local.value.get("models", {})
+        if isinstance(_project_config_local.value, dict)
+        else {}
+    )
     if not isinstance(models, dict):
         return _DEFAULT_MODEL_CONFIG
     return {
@@ -400,24 +404,31 @@ def build_single_model_candidate_family() -> pd.DataFrame:
                     "candidate_kind": "pruned",
                 }
             )
-    family = pd.DataFrame(rows, columns=[
-        "model_name",
-        "parent_model_name",
-        "feature_set",
-        "feature_count",
-        "candidate_kind",
-    ])
+    family = pd.DataFrame(
+        rows,
+        columns=[
+            "model_name",
+            "parent_model_name",
+            "feature_set",
+            "feature_count",
+            "candidate_kind",
+        ],
+    )
     if family.empty:
         return family
     kind_order = {"parent": 0, "pruned": 1}
     family = family.assign(
         _candidate_kind_order=family["candidate_kind"].map(kind_order).fillna(99)
     )
-    return family.sort_values(
-        ["parent_model_name", "_candidate_kind_order", "feature_count", "model_name"],
-        ascending=[True, True, False, True],
-        kind="mergesort",
-    ).drop(columns="_candidate_kind_order").reset_index(drop=True)
+    return (
+        family.sort_values(
+            ["parent_model_name", "_candidate_kind_order", "feature_count", "model_name"],
+            ascending=[True, True, False, True],
+            kind="mergesort",
+        )
+        .drop(columns="_candidate_kind_order")
+        .reset_index(drop=True)
+    )
 
 
 FEATURE_PROVENANCE_REGISTRY: dict[str, FeatureProvenance] = _build_feature_provenance_registry()
@@ -740,7 +751,7 @@ def _fit_firthlogist_sidecar_with_diagnostics(
             l2=0.0,
             max_iter=max_iter,
             sample_weight=sample_weight,
-    )
+        )
     if sample_weight is not None:
         warnings.warn(
             (
@@ -865,6 +876,7 @@ def _fit_firth_logistic_regression_with_diagnostics(
             beta = np.asarray(warm_start_beta, dtype=float)
         except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
             import warnings
+
             warnings.warn(f"Warm-start logistic fit failed, using zero initialization: {e}")
             beta = np.zeros(X_aug.shape[1], dtype=float)
     ridge_penalty = np.eye(X_aug.shape[1], dtype=float) * float(max(l2, 0.0))

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
@@ -14,18 +13,12 @@ from plasmid_priority.bio_transfer.contracts import (
 )
 from plasmid_priority.bio_transfer.features import build_bio_transfer_features
 from plasmid_priority.bio_transfer.specs import (
-    BioTransferBenchmarkSpec,
     BioTransferConfig,
     load_bio_transfer_config,
-    resolve_bio_transfer_model_names,
 )
 from plasmid_priority.shared.branching import (
     BranchDataset,
     build_branch_dataset_from_prepared,
-    fit_branch,
-    fit_branch_model,
-    fit_branch_model_predictions,
-    prepare_branch_dataset,
     prepare_branch_scored_table,
 )
 from plasmid_priority.shared.labels import build_bio_transfer_labels
@@ -58,7 +51,9 @@ def _build_label_frame(
     if not unseen_backbones:
         return label_frame
     masked = label_frame.copy()
-    masked.loc[masked["backbone_id"].astype(str).isin(unseen_backbones), "bio_transfer_label"] = pd.NA
+    masked.loc[masked["backbone_id"].astype(str).isin(unseen_backbones), "bio_transfer_label"] = (
+        pd.NA
+    )
     masked.loc[
         masked["backbone_id"].astype(str).isin(unseen_backbones),
         "bio_transfer_label_reason",
@@ -74,7 +69,9 @@ def prepare_bio_transfer_scored_table(
     records: pd.DataFrame | None = None,
     label: str = "bio transfer scored table",
 ) -> pd.DataFrame:
-    bio_config = config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    bio_config = (
+        config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    )
     bio_contract = contract or build_bio_transfer_input_contract()
     prepared = prepare_branch_scored_table(
         scored,
@@ -100,7 +97,9 @@ def prepare_bio_transfer_dataset(
     records: pd.DataFrame | None = None,
     label: str = "bio transfer scored table",
 ) -> BioTransferDataset:
-    bio_config = config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    bio_config = (
+        config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    )
     bio_contract = contract or build_bio_transfer_input_contract()
     prepared = prepare_bio_transfer_scored_table(
         scored,
@@ -125,7 +124,9 @@ def build_bio_transfer_dataset_from_prepared(
     config: BioTransferConfig | dict[str, Any] | None = None,
     contract: BioTransferInputContract | None = None,
 ) -> BioTransferDataset:
-    bio_config = config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    bio_config = (
+        config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    )
     bio_contract = contract or build_bio_transfer_input_contract()
     return build_branch_dataset_from_prepared(
         prepared,
@@ -142,7 +143,9 @@ def resolve_bio_transfer_dataset_model_names(
     include_research: bool = False,
     include_ablation: bool = False,
 ) -> tuple[str, ...]:
-    bio_config = config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    bio_config = (
+        config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    )
     names = list(bio_config.core_model_names)
     names.extend([bio_config.primary_model_name, bio_config.conservative_model_name])
     if bio_config.fallback_model_name:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 from plasmid_priority.shared.specs import (
@@ -216,7 +216,9 @@ def resolve_bio_transfer_model_names(
     include_research: bool = False,
     include_ablation: bool = False,
 ) -> tuple[str, ...]:
-    bio_config = config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    bio_config = (
+        config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    )
     return resolve_branch_model_names(
         bio_config,
         include_research=include_research,
@@ -228,5 +230,7 @@ def resolve_bio_transfer_fit_config(
     config: Mapping[str, Any] | BioTransferConfig | None,
     model_name: str,
 ) -> BioTransferFitConfig:
-    bio_config = config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    bio_config = (
+        config if isinstance(config, BioTransferConfig) else load_bio_transfer_config(config)
+    )
     return resolve_branch_fit_config(bio_config, model_name)

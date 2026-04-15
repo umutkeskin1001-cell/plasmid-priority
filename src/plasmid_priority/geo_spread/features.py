@@ -46,12 +46,16 @@ def classify_geo_spread_feature(feature_name: str) -> str:
         raise KeyError(f"Unsupported geo spread feature: {normalized}") from exc
 
 
-def validate_geo_spread_feature_set(features: Sequence[str], *, label: str = "geo spread feature set") -> None:
+def validate_geo_spread_feature_set(
+    features: Sequence[str], *, label: str = "geo spread feature set"
+) -> None:
     """Reject geo feature sets that contain unsupported or empty features."""
     normalized = [str(feature).strip() for feature in features if str(feature).strip()]
     if not normalized:
         raise ValueError(f"{label} must contain at least one feature")
-    unsupported = sorted(feature for feature in normalized if feature not in GEO_SPREAD_ALLOWED_FEATURES)
+    unsupported = sorted(
+        feature for feature in normalized if feature not in GEO_SPREAD_ALLOWED_FEATURES
+    )
     if unsupported:
         joined = ", ".join(f"`{feature}`" for feature in unsupported)
         raise ValueError(f"{label} contains unsupported features: {joined}")

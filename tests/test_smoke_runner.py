@@ -210,7 +210,9 @@ class SmokeRunnerTests(unittest.TestCase):
             )
 
             with (
-                mock.patch.object(smoke_runner_script, "build_context", return_value=_FakeContext()),
+                mock.patch.object(
+                    smoke_runner_script, "build_context", return_value=_FakeContext()
+                ),
                 mock.patch.object(smoke_runner_script, "ManagedScriptRun", return_value=fake_run),
                 mock.patch.object(
                     smoke_runner_script, "run_unit_tests", return_value=_SuccessfulTestResult()

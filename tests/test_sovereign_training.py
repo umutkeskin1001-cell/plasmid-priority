@@ -141,16 +141,24 @@ def test_main_reuses_cached_outputs_without_recomputing() -> None:
             mock.patch.object(
                 train_sovereign_script,
                 "build_context",
-                return_value=SimpleNamespace(root=PROJECT_ROOT, data_dir=data_root, logs_dir=data_root / "logs"),
+                return_value=SimpleNamespace(
+                    root=PROJECT_ROOT, data_dir=data_root, logs_dir=data_root / "logs"
+                ),
             ),
             mock.patch.object(train_sovereign_script, "MODULE_A_FEATURE_SETS", fake_feature_sets),
-            mock.patch.object(train_sovereign_script.module_a_support_impl, "MODULE_A_FEATURE_SETS", fake_feature_sets),
+            mock.patch.object(
+                train_sovereign_script.module_a_support_impl,
+                "MODULE_A_FEATURE_SETS",
+                fake_feature_sets,
+            ),
             mock.patch.object(
                 train_sovereign_script.module_a_support_impl,
                 "_model_fit_kwargs",
                 side_effect=lambda _name: {"sample_weight_mode": "class_balanced", "l2": 1.5},
             ),
-            mock.patch.object(train_sovereign_script, "evaluate_model_name", evaluate_model_name_mock),
+            mock.patch.object(
+                train_sovereign_script, "evaluate_model_name", evaluate_model_name_mock
+            ),
             mock.patch.object(
                 train_sovereign_script,
                 "fit_full_model_predictions",

@@ -12,15 +12,19 @@ from plasmid_priority.bio_transfer.dataset import (
     prepare_bio_transfer_scored_table,
     resolve_bio_transfer_dataset_model_names,
 )
-from plasmid_priority.bio_transfer.features import build_bio_transfer_features
 from plasmid_priority.bio_transfer.train import fit_bio_transfer_branch
 from plasmid_priority.validation.metrics import average_precision, roc_auc_score
 
 
 def _augment_bio_result_metrics(result: Any, *, prepared_scored: pd.DataFrame) -> None:
-    if getattr(result, "status", "") != "ok" or getattr(result, "predictions", pd.DataFrame()).empty:
+    if (
+        getattr(result, "status", "") != "ok"
+        or getattr(result, "predictions", pd.DataFrame()).empty
+    ):
         return
-    score_column = "oof_prediction" if "oof_prediction" in result.predictions.columns else "prediction"
+    score_column = (
+        "oof_prediction" if "oof_prediction" in result.predictions.columns else "prediction"
+    )
     if score_column not in result.predictions.columns:
         return
     merge_columns = [
@@ -42,16 +46,20 @@ def _augment_bio_result_metrics(result: Any, *, prepared_scored: pd.DataFrame) -
         suffixes=("", "_prepared"),
     )
     if "bio_transfer_label_prepared" in merged.columns and "bio_transfer_label" in merged.columns:
-        merged["bio_transfer_label"] = pd.to_numeric(merged["bio_transfer_label"], errors="coerce").fillna(
-            pd.to_numeric(merged["bio_transfer_label_prepared"], errors="coerce")
-        )
+        merged["bio_transfer_label"] = pd.to_numeric(
+            merged["bio_transfer_label"], errors="coerce"
+        ).fillna(pd.to_numeric(merged["bio_transfer_label_prepared"], errors="coerce"))
         merged = merged.drop(columns=["bio_transfer_label_prepared"])
     labels = pd.to_numeric(merged.get("bio_transfer_label"), errors="coerce")
     score = pd.to_numeric(merged.get(score_column), errors="coerce")
     valid = labels.notna() & score.notna()
     if valid.any() and labels.loc[valid].nunique() >= 2:
-        result.metrics["roc_auc"] = float(roc_auc_score(labels.loc[valid].astype(int), score.loc[valid]))
-        result.metrics["average_precision"] = float(average_precision(labels.loc[valid].astype(int), score.loc[valid]))
+        result.metrics["roc_auc"] = float(
+            roc_auc_score(labels.loc[valid].astype(int), score.loc[valid])
+        )
+        result.metrics["average_precision"] = float(
+            average_precision(labels.loc[valid].astype(int), score.loc[valid])
+        )
     result.metrics["n_backbones"] = int(len(merged))
     result.metrics["n_positive"] = int(labels.fillna(0).astype(int).sum())
     if "knownness_score" in merged.columns:

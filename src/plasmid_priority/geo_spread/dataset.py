@@ -19,7 +19,10 @@ from plasmid_priority.geo_spread.specs import (
     load_geo_spread_config,
     resolve_geo_spread_model_names,
 )
-from plasmid_priority.modeling.module_a import annotate_knownness_metadata, assert_feature_columns_present
+from plasmid_priority.modeling.module_a import (
+    annotate_knownness_metadata,
+    assert_feature_columns_present,
+)
 
 
 @dataclass(slots=True)

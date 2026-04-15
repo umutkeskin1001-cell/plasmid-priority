@@ -128,10 +128,12 @@ def format_missingness_report(audit_result: dict[str, Any]) -> str:
         )
 
     if audit_result["high_missingness_count"] > 0:
-        lines.extend([
-            "",
-            f"⚠️  {audit_result['high_missingness_count']} columns exceed missingness threshold",
-        ])
+        lines.extend(
+            [
+                "",
+                f"⚠️  {audit_result['high_missingness_count']} columns exceed missingness threshold",
+            ]
+        )
 
     return "\n".join(lines)
 

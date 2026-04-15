@@ -124,7 +124,9 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("report_visibility", result.columns)
         primary_row = result.loc[result["model_name"] == "primary_model"].iloc[0]
         audit_row = result.loc[result["model_name"] == "audit_only_model"].iloc[0]
-        self.assertAlmostEqual(float(primary_row["brier_skill_score"]), 1.0 - (0.16 / (0.36 * 0.64)))
+        self.assertAlmostEqual(
+            float(primary_row["brier_skill_score"]), 1.0 - (0.16 / (0.36 * 0.64))
+        )
         self.assertEqual(str(primary_row["report_visibility"]), "official")
         self.assertEqual(str(audit_row["report_visibility"]), "audit_only")
 
@@ -401,7 +403,9 @@ class ReportingTests(unittest.TestCase):
             preserved.write_text("x\n1\n", encoding="utf-8")
             shadowed = diag_dir / "ordinary_shadowed.tsv"
             shadowed.write_text("x\n1\n", encoding="utf-8")
-            (analysis_dir / "single_model_pareto_finalists.tsv").write_text("x\n2\n", encoding="utf-8")
+            (analysis_dir / "single_model_pareto_finalists.tsv").write_text(
+                "x\n2\n", encoding="utf-8"
+            )
             (analysis_dir / "ordinary_shadowed.tsv").write_text("x\n2\n", encoding="utf-8")
 
             build_reports_script._prune_shadowed_report_tables(
@@ -814,9 +818,7 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(int(result.loc[0, "official_benchmark_panel_size"]), 5)
         self.assertIn("official_primary_model", candidate_universe.columns)
         self.assertIn("official_primary_decision_utility_score", candidate_universe.columns)
-        self.assertIn(
-            "official_primary_optimal_decision_threshold", candidate_universe.columns
-        )
+        self.assertIn("official_primary_optimal_decision_threshold", candidate_universe.columns)
         self.assertEqual(
             str(candidate_universe.loc[0, "official_governance_model"]),
             "governance_priority",
@@ -824,9 +826,7 @@ class ReportingTests(unittest.TestCase):
         self.assertIn("official_primary_model", case_studies.columns)
         self.assertIn("official_benchmark_panel_size", case_studies.columns)
         self.assertIn("official_primary_decision_utility_score", case_studies.columns)
-        self.assertIn(
-            "official_primary_optimal_decision_threshold", case_studies.columns
-        )
+        self.assertIn("official_primary_optimal_decision_threshold", case_studies.columns)
         self.assertIn("candidate_explanation_summary", result.columns)
         self.assertIn("low_candidate_confidence_risk", result.columns)
         self.assertIn("bootstrap_top_10_frequency", case_studies.columns)
@@ -1788,14 +1788,18 @@ class ReportingTests(unittest.TestCase):
 
     def test_claim_discipline_failed_model_not_presented_as_accepted(self) -> None:
         """Test that a failed strict acceptance model cannot be presented as accepted in narrative."""
-        from plasmid_priority.reporting.narrative_utils import benchmark_scope_note, strict_acceptance_status
         import pandas as pd
+
+        from plasmid_priority.reporting.narrative_utils import (
+            benchmark_scope_note,
+            strict_acceptance_status,
+        )
 
         # Test that failed status produces conditional language
         failed_row = pd.Series({"scientific_acceptance_status": "fail"})
         failed_status = strict_acceptance_status(failed_row)
         failed_note = benchmark_scope_note(failed_status)
-        
+
         # Failed models should produce conditional language
         self.assertIn("conditional", failed_note.lower())
         self.assertIn("benchmark-limited", failed_note.lower())
@@ -1805,7 +1809,7 @@ class ReportingTests(unittest.TestCase):
         passed_row = pd.Series({"scientific_acceptance_status": "pass"})
         passed_status = strict_acceptance_status(passed_row)
         passed_note = benchmark_scope_note(passed_status)
-        
+
         # Passed models should reference the benchmark contract
         self.assertIn("accepted language is allowed", passed_note.lower())
         self.assertIn("benchmark contract", passed_note.lower())
@@ -1814,7 +1818,7 @@ class ReportingTests(unittest.TestCase):
         not_scored_row = pd.Series({"scientific_acceptance_status": "not_scored"})
         not_scored_status = strict_acceptance_status(not_scored_row)
         not_scored_note = benchmark_scope_note(not_scored_status)
-        
+
         # Not-scored models should produce conditional language
         self.assertIn("conditional", not_scored_note.lower())
         self.assertIn("benchmark-limited", not_scored_note.lower())

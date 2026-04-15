@@ -267,15 +267,25 @@ def _candidate_stability_phrase(frame: pd.DataFrame, *, idx: object) -> str:
         return "multiverse stable"
     if pd.notna(stability_value) and float(stability_value) >= 0.55:
         return "multiverse moderate"
-    if pd.notna(bootstrap_value) and pd.notna(variant_value) and min(
-        float(bootstrap_value),
-        float(variant_value),
-    ) >= 0.75:
+    if (
+        pd.notna(bootstrap_value)
+        and pd.notna(variant_value)
+        and min(
+            float(bootstrap_value),
+            float(variant_value),
+        )
+        >= 0.75
+    ):
         return "multiverse stable"
-    if pd.notna(bootstrap_value) and pd.notna(variant_value) and max(
-        float(bootstrap_value),
-        float(variant_value),
-    ) >= 0.60:
+    if (
+        pd.notna(bootstrap_value)
+        and pd.notna(variant_value)
+        and max(
+            float(bootstrap_value),
+            float(variant_value),
+        )
+        >= 0.60
+    ):
         return "multiverse moderate"
     return "multiverse mixed"
 
@@ -284,7 +294,7 @@ def build_multiverse_stability_table(
     rank_stability: pd.DataFrame,
     variant_consistency: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Merge bootstrap rank stability and variant consistency into a unified multiverse stability table."""
+    """Merge bootstrap and variant stability into one table."""
     if rank_stability.empty and variant_consistency.empty:
         return pd.DataFrame()
     if rank_stability.empty:
@@ -313,7 +323,11 @@ def build_multiverse_stability_table(
         merged.get("variant_top_10_frequency", pd.Series(np.nan, index=merged.index)),
         errors="coerce",
     )
-    components = [col for col in [bootstrap_top25, variant_top25, bootstrap_top10, variant_top10] if col.notna().any()]
+    components = [
+        col
+        for col in [bootstrap_top25, variant_top25, bootstrap_top10, variant_top10]
+        if col.notna().any()
+    ]
     if components:
         stability = pd.concat(components, axis=1).mean(axis=1).clip(0.0, 1.0)
     else:
@@ -739,9 +753,7 @@ def build_candidate_portfolio_table(
     )
     combined["low_candidate_confidence_risk"] = (
         pd.to_numeric(
-            combined.get(
-                "candidate_confidence_score", pd.Series(np.nan, index=combined.index)
-            ),
+            combined.get("candidate_confidence_score", pd.Series(np.nan, index=combined.index)),
             errors="coerce",
         )
         .fillna(1.0)
@@ -1172,9 +1184,9 @@ def annotate_candidate_explanation_fields(frame: pd.DataFrame) -> pd.DataFrame:
         .astype(str)
     )
     # Uncertainty type clarification:
-    # - model_prediction_uncertainty: Predictive/posterior uncertainty (std dev of full-fit predictions)
-    # - operational_risk_score: Operational decision uncertainty (combined risk for deployment decisions)
-    # - stability_risk: Rank stability uncertainty (bootstrap/multiverse stability concerns)
+    # - model_prediction_uncertainty: predictive/posterior uncertainty
+    # - operational_risk_score: operational decision uncertainty
+    # - stability_risk: rank stability uncertainty
     model_prediction_uncertainty = pd.to_numeric(
         working.get("model_prediction_uncertainty", pd.Series(np.nan, index=working.index)),
         errors="coerce",
@@ -1295,9 +1307,10 @@ def annotate_candidate_explanation_fields(frame: pd.DataFrame) -> pd.DataFrame:
         if working.loc[idx, "secondary_driver_axis"]:
             parts.append(f"secondary {working.loc[idx, 'secondary_driver_axis']}")
         parts.append(_candidate_stability_phrase(working, idx=idx))
-        if pd.notna(candidate_confidence_score.loc[idx]) and float(
-            candidate_confidence_score.loc[idx]
-        ) <= 0.55:
+        if (
+            pd.notna(candidate_confidence_score.loc[idx])
+            and float(candidate_confidence_score.loc[idx]) <= 0.55
+        ):
             parts.append("low-confidence risk")
         parts.append(f"review {uncertainty_review_tier.loc[idx]}")
         explanation_summary.append("; ".join(parts) + ".")

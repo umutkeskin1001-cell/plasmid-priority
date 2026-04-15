@@ -57,16 +57,22 @@ def classify_clinical_hazard_feature(feature_name: str) -> str:
         raise KeyError(f"Unsupported clinical hazard feature: {normalized}") from exc
 
 
-def validate_clinical_hazard_feature_set(features: Sequence[str], *, label: str = "clinical hazard feature set") -> None:
+def validate_clinical_hazard_feature_set(
+    features: Sequence[str], *, label: str = "clinical hazard feature set"
+) -> None:
     validate_branch_feature_set(features, label=label)
     normalized = [str(feature).strip() for feature in features if str(feature).strip()]
-    unsupported = sorted(feature for feature in normalized if feature not in CLINICAL_HAZARD_ALLOWED_FEATURES)
+    unsupported = sorted(
+        feature for feature in normalized if feature not in CLINICAL_HAZARD_ALLOWED_FEATURES
+    )
     if unsupported:
         joined = ", ".join(f"`{feature}`" for feature in unsupported)
         raise ValueError(f"{label} contains unsupported features: {joined}")
 
 
-def _numeric_series(frame: pd.DataFrame, candidates: Sequence[str], default: float = 0.0) -> pd.Series:
+def _numeric_series(
+    frame: pd.DataFrame, candidates: Sequence[str], default: float = 0.0
+) -> pd.Series:
     for column in candidates:
         if column in frame.columns:
             return pd.to_numeric(frame[column], errors="coerce").fillna(default)
@@ -76,8 +82,12 @@ def _numeric_series(frame: pd.DataFrame, candidates: Sequence[str], default: flo
 def build_clinical_hazard_features(frame: pd.DataFrame) -> pd.DataFrame:
     """Build split-safe features for the clinical hazard branch."""
     working = frame.copy()
-    working["amr_gene_count_norm"] = _numeric_series(working, ("amr_gene_count_norm", "amr_gene_count", "amr_hit_count"))
-    working["amr_class_count_norm"] = _numeric_series(working, ("amr_class_count_norm", "amr_class_count"))
+    working["amr_gene_count_norm"] = _numeric_series(
+        working, ("amr_gene_count_norm", "amr_gene_count", "amr_hit_count")
+    )
+    working["amr_class_count_norm"] = _numeric_series(
+        working, ("amr_class_count_norm", "amr_class_count")
+    )
     working["amr_mechanism_diversity_norm"] = _numeric_series(
         working,
         ("amr_mechanism_diversity_norm", "amr_mechanism_diversity", "mechanism_diversity_norm"),
@@ -138,29 +148,42 @@ def build_clinical_hazard_features(frame: pd.DataFrame) -> pd.DataFrame:
         working,
         ("evolutionary_jump_score_norm", "evolutionary_jump_score"),
     )
-    working["A_clinical_context_synergy_norm"] = (
-        _numeric_series(working, ("A_eff_norm",), default=0.0).fillna(0.0)
-        * working["clinical_context_fraction_norm"].fillna(0.0)
+    working["A_clinical_context_synergy_norm"] = _numeric_series(
+        working, ("A_eff_norm",), default=0.0
+    ).fillna(0.0) * working["clinical_context_fraction_norm"].fillna(0.0)
+    working["A_host_range_synergy_norm"] = _numeric_series(
+        working, ("A_eff_norm",), default=0.0
+    ).fillna(0.0) * _numeric_series(working, ("H_external_host_range_norm",), default=0.0).fillna(
+        0.0
     )
-    working["A_host_range_synergy_norm"] = (
-        _numeric_series(working, ("A_eff_norm",), default=0.0).fillna(0.0)
-        * _numeric_series(working, ("H_external_host_range_norm",), default=0.0).fillna(0.0)
+    working["A_novelty_synergy_norm"] = _numeric_series(
+        working, ("A_eff_norm",), default=0.0
+    ).fillna(0.0) * _numeric_series(
+        working, ("mash_neighbor_distance_train_norm",), default=0.0
+    ).fillna(0.0)
+    working["backbone_purity_norm"] = _numeric_series(
+        working, ("backbone_purity_norm",), default=0.0
     )
-    working["A_novelty_synergy_norm"] = (
-        _numeric_series(working, ("A_eff_norm",), default=0.0).fillna(0.0)
-        * _numeric_series(working, ("mash_neighbor_distance_train_norm",), default=0.0).fillna(0.0)
+    working["assignment_confidence_norm"] = _numeric_series(
+        working, ("assignment_confidence_norm",), default=0.0
     )
-    working["backbone_purity_norm"] = _numeric_series(working, ("backbone_purity_norm",), default=0.0)
-    working["assignment_confidence_norm"] = _numeric_series(working, ("assignment_confidence_norm",), default=0.0)
     working["mash_neighbor_distance_train_norm"] = _numeric_series(
         working,
         ("mash_neighbor_distance_train_norm",),
     )
     working["amr_support_norm"] = _numeric_series(working, ("amr_support_norm",), default=0.0)
-    working["amr_support_norm_residual"] = _numeric_series(working, ("amr_support_norm_residual",), default=0.0)
-    working["metadata_support_depth_norm"] = _numeric_series(working, ("metadata_support_depth_norm",), default=0.0)
-    working["context_support_guard_norm"] = _numeric_series(working, ("context_support_guard_norm",), default=0.0)
-    working["H_external_host_range_norm"] = _numeric_series(working, ("H_external_host_range_norm",), default=0.0)
+    working["amr_support_norm_residual"] = _numeric_series(
+        working, ("amr_support_norm_residual",), default=0.0
+    )
+    working["metadata_support_depth_norm"] = _numeric_series(
+        working, ("metadata_support_depth_norm",), default=0.0
+    )
+    working["context_support_guard_norm"] = _numeric_series(
+        working, ("context_support_guard_norm",), default=0.0
+    )
+    working["H_external_host_range_norm"] = _numeric_series(
+        working, ("H_external_host_range_norm",), default=0.0
+    )
     working["coherence_score"] = _numeric_series(working, ("coherence_score",), default=0.0)
     working["orit_support"] = _numeric_series(working, ("orit_support",), default=0.0)
     for column in CLINICAL_HAZARD_ALLOWED_FEATURES:

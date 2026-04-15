@@ -142,7 +142,12 @@ class GeoSpreadScriptTests(unittest.TestCase):
                     geo_spread_cli,
                     "build_geo_spread_inventory",
                     return_value=(
-                        pd.DataFrame({"path": ["src/plasmid_priority/geo_spread/report.py"], "category": ["code"]}),
+                        pd.DataFrame(
+                            {
+                                "path": ["src/plasmid_priority/geo_spread/report.py"],
+                                "category": ["code"],
+                            }
+                        ),
                         pd.DataFrame({"path": ["data/analysis/other.tsv"], "category": ["data"]}),
                         {"used_file_count": 1, "unused_file_count": 1},
                     ),
@@ -151,16 +156,37 @@ class GeoSpreadScriptTests(unittest.TestCase):
                 result = geo_spread_cli.main([])
 
         self.assertEqual(result, 0)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_metrics.json", fake_run.outputs)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_model_summary.tsv", fake_run.outputs)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_predictions.tsv", fake_run.outputs)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_calibration_summary.tsv", fake_run.outputs)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_calibrated_predictions.tsv", fake_run.outputs)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_provenance.json", fake_run.outputs)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_report_card.tsv", fake_run.outputs)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_report.md", fake_run.outputs)
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_metrics.json", fake_run.outputs
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_model_summary.tsv",
+            fake_run.outputs,
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_predictions.tsv", fake_run.outputs
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_calibration_summary.tsv",
+            fake_run.outputs,
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_calibrated_predictions.tsv",
+            fake_run.outputs,
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_provenance.json", fake_run.outputs
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_report_card.tsv", fake_run.outputs
+        )
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/analysis/geo_spread_report.md", fake_run.outputs
+        )
         self.assertIn(Path(tmp_dir) / "data/geo_spread/inventory/used_paths.tsv", fake_run.outputs)
-        self.assertIn(Path(tmp_dir) / "data/geo_spread/inventory/unused_paths.tsv", fake_run.outputs)
+        self.assertIn(
+            Path(tmp_dir) / "data/geo_spread/inventory/unused_paths.tsv", fake_run.outputs
+        )
         self.assertEqual(fake_run.metrics.get("cache_hit"), False)
         self.assertEqual(fake_run.metrics.get("models_run"), 1)
 

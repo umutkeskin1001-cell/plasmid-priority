@@ -8,7 +8,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from plasmid_priority.consensus.fuse import build_operational_consensus_frame, build_research_consensus_frame
+from plasmid_priority.consensus.fuse import (
+    build_operational_consensus_frame,
+    build_research_consensus_frame,
+)
 from plasmid_priority.consensus.specs import resolve_consensus_model_names
 from plasmid_priority.modeling.module_a import _evaluate_prediction_set
 from plasmid_priority.modeling.module_a_support import ModelResult
@@ -33,15 +36,28 @@ def _resolve_consensus_weights(config: Mapping[str, Any] | None) -> dict[str, fl
 
 def _model_result_from_frame(name: str, frame: pd.DataFrame) -> Any:
     if frame.empty or "consensus_score" not in frame.columns:
-        return ModelResult(name=name, metrics={}, predictions=frame.copy(), status="ok", error_message=None)
+        return ModelResult(
+            name=name, metrics={}, predictions=frame.copy(), status="ok", error_message=None
+        )
     working = frame.loc[:, ~frame.columns.duplicated()].copy()
-    label_series = working["spread_label"] if "spread_label" in working.columns else pd.Series(np.nan, index=working.index)
+    label_series = (
+        working["spread_label"]
+        if "spread_label" in working.columns
+        else pd.Series(np.nan, index=working.index)
+    )
     y = pd.to_numeric(label_series, errors="coerce").fillna(-1).astype(int)
     preds = pd.to_numeric(working["consensus_score"], errors="coerce").fillna(0.0)
     valid = y >= 0
     extra_metrics = {
-        "branch_agreement_score": float(pd.to_numeric(working["branch_agreement_score"], errors="coerce").mean()),
-        "review_fraction": float(pd.to_numeric(working["consensus_review_flag"], errors="coerce").fillna(False).astype(bool).mean()),
+        "branch_agreement_score": float(
+            pd.to_numeric(working["branch_agreement_score"], errors="coerce").mean()
+        ),
+        "review_fraction": float(
+            pd.to_numeric(working["consensus_review_flag"], errors="coerce")
+            .fillna(False)
+            .astype(bool)
+            .mean()
+        ),
         "ood_rate": float(
             pd.concat(
                 [
@@ -59,7 +75,9 @@ def _model_result_from_frame(name: str, frame: pd.DataFrame) -> Any:
     }
     if valid.any() and y.loc[valid].nunique() >= 2:
         extra_metrics["roc_auc"] = float(roc_auc_score(y.loc[valid], preds.loc[valid]))
-        extra_metrics["average_precision"] = float(average_precision(y.loc[valid], preds.loc[valid]))
+        extra_metrics["average_precision"] = float(
+            average_precision(y.loc[valid], preds.loc[valid])
+        )
     if not valid.any():
         return ModelResult(
             name=name,
@@ -78,7 +96,9 @@ def _model_result_from_frame(name: str, frame: pd.DataFrame) -> Any:
         prediction_detail=working.loc[valid].copy(),
     )
     if isinstance(getattr(result, "predictions", None), pd.DataFrame):
-        result.predictions = result.predictions.loc[:, ~result.predictions.columns.duplicated()].copy()
+        result.predictions = result.predictions.loc[
+            :, ~result.predictions.columns.duplicated()
+        ].copy()
     return result
 
 

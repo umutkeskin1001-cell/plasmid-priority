@@ -22,7 +22,9 @@ class ClinicalHazardFeatureTests(unittest.TestCase):
         self.assertIn("A_clinical_context_synergy_norm", built.columns)
         self.assertIn("amr_mdr_proxy_norm", built.columns)
         self.assertNotIn("clinical_fraction_future_future", built.columns)
-        self.assertAlmostEqual(float(built.loc[0, "A_clinical_context_synergy_norm"]), 0.35, places=6)
+        self.assertAlmostEqual(
+            float(built.loc[0, "A_clinical_context_synergy_norm"]), 0.35, places=6
+        )
 
     def test_feature_builder_does_not_backfill_from_future_only_columns(self) -> None:
         frame = pd.DataFrame(

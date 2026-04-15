@@ -81,16 +81,12 @@ def main() -> int:
         context.data_dir / "analysis/exposure_adjusted_outcome_audit.tsv"
     )
     ordinal_outcome_output = context.data_dir / "analysis/ordinal_outcome_audit.tsv"
-    country_missingness_bounds_output = (
-        context.data_dir / "analysis/country_missingness_bounds.tsv"
-    )
+    country_missingness_bounds_output = context.data_dir / "analysis/country_missingness_bounds.tsv"
     country_missingness_sensitivity_output = (
         context.data_dir / "analysis/country_missingness_sensitivity.tsv"
     )
     geographic_jump_output = context.data_dir / "analysis/geographic_jump_distance_outcome.tsv"
-    duplicate_quality_output = (
-        context.data_dir / "analysis/duplicate_completeness_change_audit.tsv"
-    )
+    duplicate_quality_output = context.data_dir / "analysis/duplicate_completeness_change_audit.tsv"
     amr_uncertainty_output = context.data_dir / "analysis/amr_uncertainty_summary.tsv"
     mash_graph_output = context.data_dir / "analysis/mash_similarity_graph.tsv"
     counterfactual_output = context.data_dir / "analysis/counterfactual_shortlist_comparison.tsv"

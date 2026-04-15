@@ -235,7 +235,9 @@ def resolve_clinical_hazard_model_names(
     include_research: bool = False,
     include_ablation: bool = False,
 ) -> tuple[str, ...]:
-    clinical_config = config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    clinical_config = (
+        config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    )
     return resolve_branch_model_names(
         clinical_config,
         include_research=include_research,
@@ -247,5 +249,7 @@ def resolve_clinical_hazard_fit_config(
     config: Mapping[str, Any] | ClinicalHazardConfig | None,
     model_name: str,
 ) -> ClinicalHazardFitConfig:
-    clinical_config = config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    clinical_config = (
+        config if isinstance(config, ClinicalHazardConfig) else load_clinical_hazard_config(config)
+    )
     return resolve_branch_fit_config(clinical_config, model_name)

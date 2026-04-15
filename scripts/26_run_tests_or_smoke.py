@@ -132,7 +132,9 @@ def main(argv: list[str] | None = None) -> int:
                     "Pytest did not execute any tests in --with-tests mode; failing closed."
                 )
             if not test_result.was_successful():
-                run.warn(test_result.stderr.strip() or test_result.stdout.strip() or "pytest failed")
+                run.warn(
+                    test_result.stderr.strip() or test_result.stdout.strip() or "pytest failed"
+                )
                 raise RuntimeError("Unit tests failed.")
         else:
             run.set_metric("tests_run", 0)

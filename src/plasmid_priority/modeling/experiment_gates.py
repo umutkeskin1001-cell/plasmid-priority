@@ -140,9 +140,7 @@ def compute_honest_result(candidates: list[ConfigCandidate]) -> HonestModelResul
         raise ValueError("candidates list must have at least 1 entry")
 
     # Sort by raw_auc descending
-    sorted_candidates = sorted(
-        candidates, key=lambda c: c.raw_auc, reverse=True
-    )
+    sorted_candidates = sorted(candidates, key=lambda c: c.raw_auc, reverse=True)
 
     # Take top-3 (or fewer if less available)
     top_k = min(3, len(sorted_candidates))
@@ -202,11 +200,7 @@ def evaluate_experiment_gates(
     selected = result.selected_config
 
     # Evaluate each gate
-    ece_pass = (
-        selected.ece <= gates.ece_max
-        if not np.isnan(selected.ece)
-        else None
-    )
+    ece_pass = selected.ece <= gates.ece_max if not np.isnan(selected.ece) else None
 
     p_pass = (
         selected.selection_adjusted_p <= gates.selection_adjusted_p_max
@@ -214,11 +208,7 @@ def evaluate_experiment_gates(
         else None
     )
 
-    leakage_pass = (
-        selected.leakage_review_pass
-        if gates.require_leakage_pass
-        else None
-    )
+    leakage_pass = selected.leakage_review_pass if gates.require_leakage_pass else None
 
     # Placeholder contract: rolling_origin_gap
     if rolling_origin_gap is not None and gates.rolling_origin_gap_max is not None:
@@ -234,8 +224,7 @@ def evaluate_experiment_gates(
 
     # Overall: all evaluated gates must pass
     evaluated_gates = [
-        g for g in [ece_pass, p_pass, leakage_pass, rolling_pass, hybrid_pass]
-        if g is not None
+        g for g in [ece_pass, p_pass, leakage_pass, rolling_pass, hybrid_pass] if g is not None
     ]
     overall = all(evaluated_gates) if evaluated_gates else None
 

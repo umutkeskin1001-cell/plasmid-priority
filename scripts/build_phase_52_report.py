@@ -110,9 +110,7 @@ def determine_recommendation(
 
     if not passing_candidates:
         # Check if any candidate is close but has ECE issues
-        ece_issues = per_model_summary.loc[
-            per_model_summary["ece"] > 0.10
-        ]["model_name"].tolist()
+        ece_issues = per_model_summary.loc[per_model_summary["ece"] > 0.10]["model_name"].tolist()
 
         if ece_issues:
             return (
@@ -127,8 +125,8 @@ def determine_recommendation(
 
     # Check for meaningful gain among passing candidates
     meaningful_passing = per_model_summary.loc[
-        (per_model_summary["model_name"].isin(passing_candidates)) &
-        (per_model_summary["gain_class"] == "MEANINGFUL")
+        (per_model_summary["model_name"].isin(passing_candidates))
+        & (per_model_summary["gain_class"] == "MEANINGFUL")
     ]
 
     if not meaningful_passing.empty:
@@ -141,15 +139,14 @@ def determine_recommendation(
 
     # Check for marginal gain with clean profile
     marginal_passing = per_model_summary.loc[
-        (per_model_summary["model_name"].isin(passing_candidates)) &
-        (per_model_summary["gain_class"] == "MARGINAL")
+        (per_model_summary["model_name"].isin(passing_candidates))
+        & (per_model_summary["gain_class"] == "MARGINAL")
     ]
 
     if not marginal_passing.empty:
         # Check for clean profile (ECE <= 0.08, paired_delong_p <= 0.03)
         clean_marginal = marginal_passing.loc[
-            (marginal_passing["ece"] <= 0.08) &
-            (marginal_passing["paired_delong_p"] <= 0.03)
+            (marginal_passing["ece"] <= 0.08) & (marginal_passing["paired_delong_p"] <= 0.03)
         ]
 
         if not clean_marginal.empty:
@@ -178,9 +175,7 @@ def build_recommendation_report(
     batch_winner = artifacts["batch_winner"]
     gate_eval = artifacts["gate_evaluation"]
 
-    recommendation, rationale = determine_recommendation(
-        per_model, batch_winner, gate_eval
-    )
+    recommendation, rationale = determine_recommendation(per_model, batch_winner, gate_eval)
 
     lines = [
         "# Phase 5.2 Discovery Batch: Execution Summary and Recommendation",
@@ -201,21 +196,27 @@ def build_recommendation_report(
 
     # Baseline info
     baseline = metrics.get("baseline", {})
-    lines.extend([
-        "### Baseline Reference",
-        "",
-        f"- **Model**: {baseline.get('model_name', 'bio_clean_priority')}",
-        f"- **Raw AUC**: {baseline.get('raw_auc', 'N/A'):.4f}",
-        f"- **95% CI**: {baseline.get('auc_ci', 'N/A')}",
-        f"- **ECE**: {baseline.get('ece', 'N/A'):.4f}",
-        "",
-        "### Discovery Candidates",
-        "",
-    ])
+    lines.extend(
+        [
+            "### Baseline Reference",
+            "",
+            f"- **Model**: {baseline.get('model_name', 'bio_clean_priority')}",
+            f"- **Raw AUC**: {baseline.get('raw_auc', 'N/A'):.4f}",
+            f"- **95% CI**: {baseline.get('auc_ci', 'N/A')}",
+            f"- **ECE**: {baseline.get('ece', 'N/A'):.4f}",
+            "",
+            "### Discovery Candidates",
+            "",
+        ]
+    )
 
     # Candidate table
-    lines.append("| Model | Raw AUC | AUC CI | ECE | paired_delong_p | Δ vs Baseline | Gain Class | Gates Pass |")
-    lines.append("|-------|---------|--------|-----|-----------------|---------------|------------|------------|")
+    lines.append(
+        "| Model | Raw AUC | AUC CI | ECE | paired_delong_p | Δ vs Baseline | Gain Class | Gates Pass |"
+    )
+    lines.append(
+        "|-------|---------|--------|-----|-----------------|---------------|------------|------------|"
+    )
 
     for _, row in per_model.iterrows():
         gates_pass = "✓" if row["gate_overall"] else "✗"
@@ -225,44 +226,44 @@ def build_recommendation_report(
             f"{row['delta_vs_baseline']:+.4f} | {row['gain_class']} | {gates_pass} |"
         )
 
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## Honest Batch Winner Selection",
-        "",
-        "**Selection Pool**: Discovery candidates only (excluding baseline)",
-        "",
-        f"- **Selected Config** (highest raw AUC): **{batch_winner['selected_config_name']}**",
-        f"  - Raw AUC: {batch_winner['selected_config_raw_auc']:.4f}",
-        "",
-        f"- **Top-k Configs Considered**: {', '.join(batch_winner['top_k_config_names'])}",
-        "",
-        f"- **Reported Selection-Adjusted AUC** (top-3 mean): {batch_winner['reported_selection_adjusted_auc']:.4f}",
-        f"- **Conservative CI Envelope**: [{batch_winner['reported_ci'][0]:.3f}, {batch_winner['reported_ci'][1]:.3f}]",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## Honest Batch Winner Selection",
+            "",
+            "**Selection Pool**: Discovery candidates only (excluding baseline)",
+            "",
+            f"- **Selected Config** (highest raw AUC): **{batch_winner['selected_config_name']}**",
+            f"  - Raw AUC: {batch_winner['selected_config_raw_auc']:.4f}",
+            "",
+            f"- **Top-k Configs Considered**: {', '.join(batch_winner['top_k_config_names'])}",
+            "",
+            f"- **Reported Selection-Adjusted AUC** (top-3 mean): {batch_winner['reported_selection_adjusted_auc']:.4f}",
+            f"- **Conservative CI Envelope**: [{batch_winner['reported_ci'][0]:.3f}, {batch_winner['reported_ci'][1]:.3f}]",
+            "",
+        ]
+    )
 
     # Winner after gates
-    winner_after_gates = batch_winner.get('recommended_winner_after_gates')
+    winner_after_gates = batch_winner.get("recommended_winner_after_gates")
     if winner_after_gates:
-        lines.append(
-            f"- **Recommended Winner After Gates**: **{winner_after_gates}**  "
-        )
+        lines.append(f"- **Recommended Winner After Gates**: **{winner_after_gates}**  ")
     else:
-        lines.append(
-            "- **Recommended Winner After Gates**: None (no candidate passes all gates)  "
-        )
+        lines.append("- **Recommended Winner After Gates**: None (no candidate passes all gates)  ")
 
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## Gate Evaluation Summary",
-        "",
-        "| Model | ECE < 0.10 | paired_delong_p < 0.05 | Discovery Contract | Leakage Review | Overall |",
-        "|-------|------------|------------------------|-------------------|----------------|---------|",
-    ])
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            "## Gate Evaluation Summary",
+            "",
+            "| Model | ECE < 0.10 | paired_delong_p < 0.05 | Discovery Contract | Leakage Review | Overall |",
+            "|-------|------------|------------------------|-------------------|----------------|---------|",
+        ]
+    )
 
     for _, row in gate_eval.iterrows():
         ece_pass = "✓" if row["ece_pass"] else "✗"
@@ -275,74 +276,84 @@ def build_recommendation_report(
             f"| {row['model_name']} | {ece_pass} | {p_pass} | {contract_pass} | {leakage} | {overall} |"
         )
 
-    lines.extend([
-        "",
-        "**Gate Thresholds**:",
-        "- ECE < 0.10 (Expected Calibration Error)",
-        "- paired_delong_p < 0.05 (paired DeLong vs baseline; NOT selection-adjusted)",
-        "- Discovery contract: must pass (temporal safety, assignment mode)",
-        "- Leakage review: 'required' = no explicit signal in repo; discovery contract covers key checks",
-        "",
-        "**Important Notes**:",
-        "- The paired_delong_p values are from paired DeLong tests comparing each candidate to baseline.",
-        "- This is NOT equivalent to full selection-adjusted permutation-null inference.",
-        "- For true selection-adjusted inference accounting for post-hoc model selection, use:",
-        "  `build_selection_adjusted_permutation_null()` from `reporting.model_audit`",
-        "",
-        "---",
-        "",
-        "## Final Recommendation",
-        "",
-        f"### **{recommendation}**",
-        "",
-        f"**Rationale**: {rationale}",
-        "",
-    ])
+    lines.extend(
+        [
+            "",
+            "**Gate Thresholds**:",
+            "- ECE < 0.10 (Expected Calibration Error)",
+            "- paired_delong_p < 0.05 (paired DeLong vs baseline; NOT selection-adjusted)",
+            "- Discovery contract: must pass (temporal safety, assignment mode)",
+            "- Leakage review: 'required' = no explicit signal in repo; discovery contract covers key checks",
+            "",
+            "**Important Notes**:",
+            "- The paired_delong_p values are from paired DeLong tests comparing each candidate to baseline.",
+            "- This is NOT equivalent to full selection-adjusted permutation-null inference.",
+            "- For true selection-adjusted inference accounting for post-hoc model selection, use:",
+            "  `build_selection_adjusted_permutation_null()` from `reporting.model_audit`",
+            "",
+            "---",
+            "",
+            "## Final Recommendation",
+            "",
+            f"### **{recommendation}**",
+            "",
+            f"**Rationale**: {rationale}",
+            "",
+        ]
+    )
 
     if recommendation == "PROCEED":
-        lines.extend([
-            "### Next Steps",
-            "",
-            "1. Document selected model configuration",
-            "2. Update production pipeline to use recommended winner",
-            "3. Schedule Phase 6 governance experiments if applicable",
-            "",
-        ])
+        lines.extend(
+            [
+                "### Next Steps",
+                "",
+                "1. Document selected model configuration",
+                "2. Update production pipeline to use recommended winner",
+                "3. Schedule Phase 6 governance experiments if applicable",
+                "",
+            ]
+        )
     elif recommendation == "CALIBRATION_WORK":
-        lines.extend([
-            "### Next Steps",
-            "",
-            "1. Investigate calibration issues (ECE, reliability)",
-            "2. Consider isotonic regression or Platt scaling",
-            "3. Re-run batch after calibration improvements",
-            "",
-        ])
+        lines.extend(
+            [
+                "### Next Steps",
+                "",
+                "1. Investigate calibration issues (ECE, reliability)",
+                "2. Consider isotonic regression or Platt scaling",
+                "3. Re-run batch after calibration improvements",
+                "",
+            ]
+        )
     else:  # STOP
-        lines.extend([
-            "### Next Steps",
-            "",
-            "1. Return to feature engineering",
-            "2. Consider alternative model architectures",
-            "3. Re-evaluate target variable or labeling strategy",
-            "",
-        ])
+        lines.extend(
+            [
+                "### Next Steps",
+                "",
+                "1. Return to feature engineering",
+                "2. Consider alternative model architectures",
+                "3. Re-evaluate target variable or labeling strategy",
+                "",
+            ]
+        )
 
-    lines.extend([
-        "---",
-        "",
-        "## Artifact Locations",
-        "",
-        "- **Metrics JSON**: `data/analysis/phase_52_metrics.json`",
-        "- **Predictions TSV**: `data/analysis/phase_52_predictions.tsv`",
-        "- **Per-Model Summary**: `reports/phase_52_per_model_summary.tsv`",
-        "- **Batch Winner**: `reports/phase_52_batch_winner.json`",
-        "- **Gate Evaluation**: `reports/phase_52_gate_evaluation.tsv`",
-        "- **This Report**: `reports/phase_52_recommendation.md`",
-        "",
-        "---",
-        "",
-        "*Report generated by `scripts/build_phase_52_report.py`*",
-    ])
+    lines.extend(
+        [
+            "---",
+            "",
+            "## Artifact Locations",
+            "",
+            "- **Metrics JSON**: `data/analysis/phase_52_metrics.json`",
+            "- **Predictions TSV**: `data/analysis/phase_52_predictions.tsv`",
+            "- **Per-Model Summary**: `reports/phase_52_per_model_summary.tsv`",
+            "- **Batch Winner**: `reports/phase_52_batch_winner.json`",
+            "- **Gate Evaluation**: `reports/phase_52_gate_evaluation.tsv`",
+            "- **This Report**: `reports/phase_52_recommendation.md`",
+            "",
+            "---",
+            "",
+            "*Report generated by `scripts/build_phase_52_report.py`*",
+        ]
+    )
 
     return "\n".join(lines)
 

@@ -33,6 +33,10 @@ def _safe_probability(values: np.ndarray) -> np.ndarray:
     return np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
 
 
+def _identity_calibrator(values: np.ndarray) -> np.ndarray:
+    return _safe_probability(values)
+
+
 def _float_option(payload: Mapping[str, Any], key: str, default: float) -> float:
     try:
         return float(payload.get(key, default))
@@ -40,9 +44,11 @@ def _float_option(payload: Mapping[str, Any], key: str, default: float) -> float
         return float(default)
 
 
-def _fit_platt_calibrator(y_true: np.ndarray, y_score: np.ndarray) -> Callable[[np.ndarray], np.ndarray]:
+def _fit_platt_calibrator(
+    y_true: np.ndarray, y_score: np.ndarray
+) -> Callable[[np.ndarray], np.ndarray]:
     if np.unique(y_true).size < 2 or len(y_true) < 2:
-        return lambda values: _safe_probability(values)
+        return _identity_calibrator
     model = LogisticRegression(
         C=1e6,
         fit_intercept=True,
@@ -51,12 +57,16 @@ def _fit_platt_calibrator(y_true: np.ndarray, y_score: np.ndarray) -> Callable[[
         solver="lbfgs",
     )
     model.fit(np.asarray(y_score, dtype=float).reshape(-1, 1), np.asarray(y_true, dtype=int))
-    return lambda values: _safe_probability(model.predict_proba(np.asarray(values, dtype=float).reshape(-1, 1))[:, 1])
+    return lambda values: _safe_probability(
+        model.predict_proba(np.asarray(values, dtype=float).reshape(-1, 1))[:, 1]
+    )
 
 
-def _fit_isotonic_calibrator(y_true: np.ndarray, y_score: np.ndarray) -> Callable[[np.ndarray], np.ndarray]:
+def _fit_isotonic_calibrator(
+    y_true: np.ndarray, y_score: np.ndarray
+) -> Callable[[np.ndarray], np.ndarray]:
     if np.unique(y_true).size < 2 or len(y_true) < 2:
-        return lambda values: _safe_probability(values)
+        return _identity_calibrator
     model = IsotonicRegression(out_of_bounds="clip")
     model.fit(np.asarray(y_score, dtype=float), np.asarray(y_true, dtype=float))
     return lambda values: _safe_probability(model.predict(np.asarray(values, dtype=float)))
@@ -82,7 +92,9 @@ def _prediction_frame(value: Any) -> pd.DataFrame:
     raise TypeError("Expected a dataframe or an object with a dataframe `predictions` attribute")
 
 
-def _series_or_default(frame: pd.DataFrame, column: str, default: float = float("nan")) -> pd.Series:
+def _series_or_default(
+    frame: pd.DataFrame, column: str, default: float = float("nan")
+) -> pd.Series:
     if column in frame.columns:
         return pd.to_numeric(frame[column], errors="coerce")
     return pd.Series(default, index=frame.index, dtype=float)
@@ -133,7 +145,9 @@ def calibrate_branch_predictions(
     if label_column not in working.columns and scored is not None and not scored.empty:
         if entity_id_column in working.columns and label_column in scored.columns:
             working = working.merge(
-                scored.loc[:, [entity_id_column, label_column]].drop_duplicates(subset=[entity_id_column]),
+                scored.loc[:, [entity_id_column, label_column]].drop_duplicates(
+                    subset=[entity_id_column]
+                ),
                 on=entity_id_column,
                 how="left",
             )
@@ -142,7 +156,9 @@ def calibrate_branch_predictions(
 
     fit_payload: dict[str, Any]
     if isinstance(fit_config, BranchConfig):
-        fit_payload = dict(fit_config.fit_config.get(str(model_name), BranchFitConfig()).model_dump(mode="python"))
+        fit_payload = dict(
+            fit_config.fit_config.get(str(model_name), BranchFitConfig()).model_dump(mode="python")
+        )
     elif isinstance(fit_config, BranchFitConfig):
         fit_payload = dict(fit_config.model_dump(mode="python"))
     elif hasattr(fit_config, "model_dump"):
@@ -151,12 +167,25 @@ def calibrate_branch_predictions(
         fit_payload = dict(fit_config or {})
 
     method = _normalize_method(fit_payload.get("calibration", "none"))
-    support_threshold = float(np.clip(_float_option(fit_payload, "support_knownness_threshold", 0.25), 0.0, 1.0))
-    ood_knownness_threshold = float(np.clip(_float_option(fit_payload, "ood_knownness_threshold", 0.10), 0.0, 1.0))
-    confidence_review_threshold = float(np.clip(_float_option(fit_payload, "confidence_review_threshold", 0.45), 0.0, 1.0))
+    support_threshold = float(
+        np.clip(_float_option(fit_payload, "support_knownness_threshold", 0.25), 0.0, 1.0)
+    )
+    ood_knownness_threshold = float(
+        np.clip(_float_option(fit_payload, "ood_knownness_threshold", 0.10), 0.0, 1.0)
+    )
+    confidence_review_threshold = float(
+        np.clip(_float_option(fit_payload, "confidence_review_threshold", 0.45), 0.0, 1.0)
+    )
 
-    y_true = pd.to_numeric(working[label_column], errors="coerce").fillna(-1).astype(int).to_numpy(dtype=int)
-    raw_scores = pd.to_numeric(working[score_column], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    y_true = (
+        pd.to_numeric(working[label_column], errors="coerce")
+        .fillna(-1)
+        .astype(int)
+        .to_numpy(dtype=int)
+    )
+    raw_scores = (
+        pd.to_numeric(working[score_column], errors="coerce").fillna(0.0).to_numpy(dtype=float)
+    )
     labeled_mask = y_true >= 0
 
     if method == "platt":
@@ -164,10 +193,12 @@ def calibrate_branch_predictions(
     elif method == "isotonic":
         calibrator = _fit_isotonic_calibrator(y_true[labeled_mask], raw_scores[labeled_mask])
     else:
-        calibrator = lambda values: _safe_probability(values)
+        calibrator = _identity_calibrator
 
     calibrated = calibrator(raw_scores)
-    knownness_numeric = _series_or_default(working, knownness_column).fillna(np.nan).to_numpy(dtype=float)
+    knownness_numeric = (
+        _series_or_default(working, knownness_column).fillna(np.nan).to_numpy(dtype=float)
+    )
     support_sufficient = np.where(
         np.isnan(knownness_numeric),
         True,
@@ -187,7 +218,9 @@ def calibrate_branch_predictions(
     )
     score_uncertainty = 4.0 * raw_scores * (1.0 - raw_scores)
     calibration_gap = np.abs(calibrated - raw_scores)
-    support_uncertainty = np.where(np.isnan(knownness_numeric), 0.35, 1.0 - np.clip(knownness_numeric, 0.0, 1.0))
+    support_uncertainty = np.where(
+        np.isnan(knownness_numeric), 0.35, 1.0 - np.clip(knownness_numeric, 0.0, 1.0)
+    )
     prediction_uncertainty = np.clip(
         0.55 * score_uncertainty + 0.30 * calibration_gap + 0.15 * support_uncertainty,
         0.0,
@@ -221,7 +254,6 @@ def calibrate_branch_predictions(
     calibrated_frame["review_reason"] = review_reason
     calibrated_frame["calibration_method"] = method
 
-    labeled_mask_series = pd.Series(labeled_mask, index=working.index)
     summary = {
         "model_name": str(model_name),
         "calibration_method": method,
@@ -235,8 +267,12 @@ def calibrate_branch_predictions(
     if labeled_mask.any():
         summary.update(
             {
-                "raw_brier_score": float(brier_score(y_true[labeled_mask], raw_scores[labeled_mask])),
-                "calibrated_brier_score": float(brier_score(y_true[labeled_mask], calibrated[labeled_mask])),
+                "raw_brier_score": float(
+                    brier_score(y_true[labeled_mask], raw_scores[labeled_mask])
+                ),
+                "calibrated_brier_score": float(
+                    brier_score(y_true[labeled_mask], calibrated[labeled_mask])
+                ),
                 "raw_expected_calibration_error": float(
                     expected_calibration_error(y_true[labeled_mask], raw_scores[labeled_mask])
                 ),
@@ -250,7 +286,9 @@ def calibrate_branch_predictions(
                     max_calibration_error(y_true[labeled_mask], calibrated[labeled_mask])
                 ),
                 "raw_log_loss": float(log_loss(y_true[labeled_mask], raw_scores[labeled_mask])),
-                "calibrated_log_loss": float(log_loss(y_true[labeled_mask], calibrated[labeled_mask])),
+                "calibrated_log_loss": float(
+                    log_loss(y_true[labeled_mask], calibrated[labeled_mask])
+                ),
                 "calibration_curve": calibration_curve_data(
                     y_true[labeled_mask], calibrated[labeled_mask]
                 ),

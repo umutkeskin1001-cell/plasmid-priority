@@ -190,11 +190,13 @@ class TestVIFAuditHelpers:
         np.random.seed(42)
         x = np.random.randn(100)
         # Mix of uncorrelated and correlated
-        X = np.column_stack([
-            x,  # Will be correlated with feat_b
-            x + 0.01 * np.random.randn(100),  # Highly correlated with feat_a
-            np.random.randn(100),  # Uncorrelated
-        ])
+        X = np.column_stack(
+            [
+                x,  # Will be correlated with feat_b
+                x + 0.01 * np.random.randn(100),  # Highly correlated with feat_a
+                np.random.randn(100),  # Uncorrelated
+            ]
+        )
         feature_names = ["high_vif", "high_vif_b", "low_vif"]
 
         result = compute_vif_values(X, feature_names)
@@ -321,11 +323,13 @@ class TestBenjaminiHochbergCorrection:
         """FDR adjustment should add q_value_bh column to DataFrame."""
         from plasmid_priority.validation.metrics import fdr_adjust_model_comparison
 
-        df = pd.DataFrame({
-            "model_a": ["m1", "m2", "m3"],
-            "model_b": ["m4", "m5", "m6"],
-            "delta_roc_auc_delong_pvalue": [0.01, 0.05, 0.2],
-        })
+        df = pd.DataFrame(
+            {
+                "model_a": ["m1", "m2", "m3"],
+                "model_b": ["m4", "m5", "m6"],
+                "delta_roc_auc_delong_pvalue": [0.01, 0.05, 0.2],
+            }
+        )
 
         result = fdr_adjust_model_comparison(df, alpha=0.05)
 
@@ -362,13 +366,17 @@ class TestFalsificationHelpers:
 
         np.random.seed(42)
         # Create synthetic predictions
-        predictions = pd.DataFrame({
-            "model_name": ["test_model"] * 50,
-            "spread_label": np.random.randint(0, 2, 50),
-            "oof_prediction": np.random.random(50),
-        })
+        predictions = pd.DataFrame(
+            {
+                "model_name": ["test_model"] * 50,
+                "spread_label": np.random.randint(0, 2, 50),
+                "oof_prediction": np.random.random(50),
+            }
+        )
 
-        result = build_label_shuffle_falsification(predictions, ["test_model"], n_shuffles=10, seed=42)
+        result = build_label_shuffle_falsification(
+            predictions, ["test_model"], n_shuffles=10, seed=42
+        )
 
         assert isinstance(result, pd.DataFrame)
         if not result.empty:
@@ -391,13 +399,17 @@ class TestFalsificationHelpers:
         predictions_arr = np.where(labels == 1, 0.7, 0.3) + np.random.randn(n) * 0.2
         predictions_arr = np.clip(predictions_arr, 0, 1)
 
-        predictions = pd.DataFrame({
-            "model_name": ["test_model"] * n,
-            "spread_label": labels,
-            "oof_prediction": predictions_arr,
-        })
+        predictions = pd.DataFrame(
+            {
+                "model_name": ["test_model"] * n,
+                "spread_label": labels,
+                "oof_prediction": predictions_arr,
+            }
+        )
 
-        result = build_label_shuffle_falsification(predictions, ["test_model"], n_shuffles=20, seed=42)
+        result = build_label_shuffle_falsification(
+            predictions, ["test_model"], n_shuffles=20, seed=42
+        )
 
         if not result.empty:
             observed = result["observed_roc_auc"].iloc[0]
@@ -412,13 +424,17 @@ class TestFalsificationHelpers:
         """Single class labels should result in empty/skipped result."""
         from plasmid_priority.validation.falsification import build_label_shuffle_falsification
 
-        predictions = pd.DataFrame({
-            "model_name": ["test_model"] * 20,
-            "spread_label": [1] * 20,  # All same class
-            "oof_prediction": np.random.random(20),
-        })
+        predictions = pd.DataFrame(
+            {
+                "model_name": ["test_model"] * 20,
+                "spread_label": [1] * 20,  # All same class
+                "oof_prediction": np.random.random(20),
+            }
+        )
 
-        result = build_label_shuffle_falsification(predictions, ["test_model"], n_shuffles=10, seed=42)
+        result = build_label_shuffle_falsification(
+            predictions, ["test_model"], n_shuffles=10, seed=42
+        )
 
         # Should return empty DataFrame since no valid comparisons possible
         assert len(result) == 0
@@ -427,11 +443,13 @@ class TestFalsificationHelpers:
         """Empty models list should return empty DataFrame."""
         from plasmid_priority.validation.falsification import build_label_shuffle_falsification
 
-        predictions = pd.DataFrame({
-            "model_name": [],
-            "spread_label": [],
-            "oof_prediction": [],
-        })
+        predictions = pd.DataFrame(
+            {
+                "model_name": [],
+                "spread_label": [],
+                "oof_prediction": [],
+            }
+        )
 
         result = build_label_shuffle_falsification(predictions, [], n_shuffles=10, seed=42)
 
@@ -442,18 +460,22 @@ class TestFalsificationHelpers:
         from plasmid_priority.validation.falsification import summarize_falsification_findings
 
         # Create mock permutation result
-        perm_result = pd.DataFrame({
-            "test_name": ["outcome_permutation_falsification"],
-            "model_name": ["model1"],
-            "interpretation": ["pass_collapses_under_falsification"],
-            "auc_collapse_delta": [0.3],
-        })
+        perm_result = pd.DataFrame(
+            {
+                "test_name": ["outcome_permutation_falsification"],
+                "model_name": ["model1"],
+                "interpretation": ["pass_collapses_under_falsification"],
+                "auc_collapse_delta": [0.3],
+            }
+        )
 
-        shuffle_result = pd.DataFrame({
-            "test_name": ["label_shuffle_falsification", "label_shuffle_falsification"],
-            "model_name": ["model1", "model2"],
-            "interpretation": ["pass_strong_signal", "pass_strong_signal"],
-        })
+        shuffle_result = pd.DataFrame(
+            {
+                "test_name": ["label_shuffle_falsification", "label_shuffle_falsification"],
+                "model_name": ["model1", "model2"],
+                "interpretation": ["pass_strong_signal", "pass_strong_signal"],
+            }
+        )
 
         summary = summarize_falsification_findings(perm_result, shuffle_result)
 
@@ -466,12 +488,14 @@ class TestFalsificationHelpers:
         """Falsification summary should detect and report warnings."""
         from plasmid_priority.validation.falsification import summarize_falsification_findings
 
-        perm_result = pd.DataFrame({
-            "test_name": ["outcome_permutation_falsification"],
-            "model_name": ["model1"],
-            "interpretation": ["warning_minimal_collapse"],
-            "auc_collapse_delta": [0.02],
-        })
+        perm_result = pd.DataFrame(
+            {
+                "test_name": ["outcome_permutation_falsification"],
+                "model_name": ["model1"],
+                "interpretation": ["warning_minimal_collapse"],
+                "auc_collapse_delta": [0.02],
+            }
+        )
 
         summary = summarize_falsification_findings(perm_result, None)
 
@@ -483,11 +507,13 @@ class TestFalsificationHelpers:
         """Falsification summary should report no concerns when all tests pass."""
         from plasmid_priority.validation.falsification import summarize_falsification_findings
 
-        shuffle_result = pd.DataFrame({
-            "test_name": ["label_shuffle_falsification"],
-            "model_name": ["model1"],
-            "interpretation": ["pass_strong_signal"],
-        })
+        shuffle_result = pd.DataFrame(
+            {
+                "test_name": ["label_shuffle_falsification"],
+                "model_name": ["model1"],
+                "interpretation": ["pass_strong_signal"],
+            }
+        )
 
         summary = summarize_falsification_findings(None, shuffle_result)
 

@@ -47,9 +47,7 @@ class TestShannonEvennessProperties:
 
     @given(
         values=st.lists(
-            st.text(min_size=1, max_size=20).filter(lambda x: x.strip()),
-            min_size=1,
-            max_size=100
+            st.text(min_size=1, max_size=20).filter(lambda x: x.strip()), min_size=1, max_size=100
         )
     )
     @settings(max_examples=200)
@@ -58,29 +56,23 @@ class TestShannonEvennessProperties:
         result = _normalized_shannon_evenness(values)
         assert 0.0 <= result <= 1.0
 
-    @given(
-        values=st.lists(
-            st.sampled_from(["A", "B"]),
-            min_size=2,
-            max_size=100
-        )
-    )
+    @given(values=st.lists(st.sampled_from(["A", "B"]), min_size=2, max_size=100))
     @settings(max_examples=100)
     def test_evenness_maximum_for_uniform(self, values: list[str]) -> None:
         """Evenness is 1.0 when all categories have equal count (and > 1 unique)."""
         # Need at least 2 unique values for evenness to be meaningful
         unique_counts = {v: values.count(v) for v in set(values)}
-        if len(unique_counts) >= 2 and len(set(unique_counts.values())) == 1:  # All equal, multiple uniques
+        if (
+            len(unique_counts) >= 2 and len(set(unique_counts.values())) == 1
+        ):  # All equal, multiple uniques
             result = _normalized_shannon_evenness(values)
             assert result == 1.0
 
     @given(
         base=st.lists(
-            st.text(min_size=1, max_size=10).filter(lambda x: x.strip()),
-            min_size=2,
-            max_size=20
+            st.text(min_size=1, max_size=10).filter(lambda x: x.strip()), min_size=2, max_size=20
         ),
-        dominant=st.text(min_size=1, max_size=10).filter(lambda x: x.strip())
+        dominant=st.text(min_size=1, max_size=10).filter(lambda x: x.strip()),
     )
     @settings(max_examples=100)
     def test_evenness_low_for_dominant(self, base: list[str], dominant: str) -> None:
@@ -106,13 +98,13 @@ class TestEmpiricalPercentileProperties:
         values=st.lists(
             st.floats(min_value=0.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
             min_size=5,
-            max_size=100
+            max_size=100,
         ),
         ref_values=st.lists(
             st.floats(min_value=0.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
             min_size=5,
-            max_size=100
-        )
+            max_size=100,
+        ),
     )
     @settings(max_examples=200)
     def test_percentile_range(self, values: list[float], ref_values: list[float]) -> None:
@@ -126,7 +118,7 @@ class TestEmpiricalPercentileProperties:
         values=st.lists(
             st.floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False),
             min_size=5,
-            max_size=50
+            max_size=50,
         ).filter(lambda x: max(x) > 0)  # Need at least one positive value
     )
     @settings(max_examples=100)
@@ -145,13 +137,13 @@ class TestRobustSigmoidProperties:
         values=st.lists(
             st.floats(min_value=-1000.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
             min_size=5,
-            max_size=100
+            max_size=100,
         ),
         ref_values=st.lists(
             st.floats(min_value=0.1, max_value=1000.0, allow_nan=False, allow_infinity=False),
             min_size=5,
-            max_size=100
-        )
+            max_size=100,
+        ),
     )
     @settings(max_examples=200)
     def test_sigmoid_range(self, values: list[float], ref_values: list[float]) -> None:
@@ -165,16 +157,18 @@ class TestRobustSigmoidProperties:
         values=st.lists(
             st.floats(min_value=-1000.0, max_value=-0.1, allow_nan=False, allow_infinity=False),
             min_size=1,
-            max_size=50
+            max_size=50,
         ),
         ref_values=st.lists(
             st.floats(min_value=1.0, max_value=100.0, allow_nan=False, allow_infinity=False),
             min_size=5,
-            max_size=50
-        )
+            max_size=50,
+        ),
     )
     @settings(max_examples=100)
-    def test_sigmoid_negative_input_zero(self, values: list[float], ref_values: list[float]) -> None:
+    def test_sigmoid_negative_input_zero(
+        self, values: list[float], ref_values: list[float]
+    ) -> None:
         """Negative inputs to sigmoid should yield zero output."""
         s_values = pd.Series(values)
         s_ref = pd.Series(ref_values)
@@ -188,20 +182,19 @@ class TestNaNHandlingProperties:
     @given(
         values=st.lists(
             st.one_of(
-                st.floats(min_value=0.0, max_value=100.0, allow_nan=False),
-                st.just(float("nan"))
+                st.floats(min_value=0.0, max_value=100.0, allow_nan=False), st.just(float("nan"))
             ),
             min_size=5,
-            max_size=50
+            max_size=50,
         ),
         ref_values=st.lists(
-            st.floats(min_value=1.0, max_value=100.0, allow_nan=False),
-            min_size=5,
-            max_size=50
-        )
+            st.floats(min_value=1.0, max_value=100.0, allow_nan=False), min_size=5, max_size=50
+        ),
     )
     @settings(max_examples=100)
-    def test_empirical_percentile_nan_handling(self, values: list[float], ref_values: list[float]) -> None:
+    def test_empirical_percentile_nan_handling(
+        self, values: list[float], ref_values: list[float]
+    ) -> None:
         """NaN inputs should result in 0.0 output (filled)."""
         s_values = pd.Series(values)
         s_ref = pd.Series(ref_values)
