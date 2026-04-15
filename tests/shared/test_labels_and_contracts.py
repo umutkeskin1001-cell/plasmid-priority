@@ -4,8 +4,14 @@ import unittest
 
 import pandas as pd
 
-from plasmid_priority.bio_transfer.contracts import build_bio_transfer_input_contract, validate_bio_transfer_input_contract
-from plasmid_priority.clinical_hazard.contracts import build_clinical_hazard_input_contract, validate_clinical_hazard_input_contract
+from plasmid_priority.bio_transfer.contracts import (
+    build_bio_transfer_input_contract,
+    validate_bio_transfer_input_contract,
+)
+from plasmid_priority.clinical_hazard.contracts import (
+    build_clinical_hazard_input_contract,
+    validate_clinical_hazard_input_contract,
+)
 from plasmid_priority.shared.labels import (
     build_bio_transfer_labels,
     build_clinical_hazard_labels,
@@ -51,13 +57,21 @@ class SharedLabelTests(unittest.TestCase):
                 "backbone_id": ["bb1", "bb1", "bb1", "bb2", "bb2"],
                 "resolved_year": [2014, 2016, 2017, 2014, 2018],
                 "country": ["A", "B", "B", "A", "A"],
-                "clinical_context": ["environmental", "clinical", "clinical", "environmental", "environmental"],
+                "clinical_context": [
+                    "environmental",
+                    "clinical",
+                    "clinical",
+                    "environmental",
+                    "environmental",
+                ],
                 "amr_class": ["A", "CARBAPENEM", "CARBAPENEM", "A", "A"],
                 "drug_class_count": [1, 4, 4, 1, 1],
                 "pd_clinical_support": [0, 1, 1, 0, 0],
             }
         )
-        pd_metadata = pd.DataFrame({"backbone_id": ["bb1", "bb2"], "context_label": ["clinical", "environmental"]})
+        pd_metadata = pd.DataFrame(
+            {"backbone_id": ["bb1", "bb2"], "context_label": ["clinical", "environmental"]}
+        )
         labels = build_clinical_hazard_labels(records, pd_metadata, 2015, 5)
         row = labels.loc[labels["backbone_id"] == "bb1"].iloc[0]
         self.assertEqual(int(row["clinical_hazard_label"]), 1)

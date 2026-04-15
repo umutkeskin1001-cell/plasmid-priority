@@ -9,7 +9,6 @@ import pandas as pd
 
 from plasmid_priority.shared.temporal import future_window_mask, pre_split_mask
 
-
 _ENTITY_ID_CANDIDATES = (
     "backbone_id",
     "primary_cluster_id",
@@ -109,7 +108,9 @@ def _bool_from_text(series: pd.Series, positive_tokens: Iterable[str]) -> pd.Ser
     return mask
 
 
-def _coerce_bool_series(frame: pd.DataFrame, candidates: Sequence[str], *, positive_tokens: Iterable[str] = ()) -> pd.Series:
+def _coerce_bool_series(
+    frame: pd.DataFrame, candidates: Sequence[str], *, positive_tokens: Iterable[str] = ()
+) -> pd.Series:
     column = _select_column(frame, candidates)
     if column is None:
         return pd.Series(False, index=frame.index, dtype=bool)
@@ -124,7 +125,9 @@ def _coerce_bool_series(frame: pd.DataFrame, candidates: Sequence[str], *, posit
     return _normalize_text(series).isin({"true", "t", "1", "yes", "y"})
 
 
-def _new_value_counts_by_entity(frame: pd.DataFrame, entity_column: str, value_column: str) -> pd.Series:
+def _new_value_counts_by_entity(
+    frame: pd.DataFrame, entity_column: str, value_column: str
+) -> pd.Series:
     valid = frame.loc[frame[value_column].notna(), [entity_column, value_column]].drop_duplicates()
     if valid.empty:
         return pd.Series(dtype=float)
@@ -236,9 +239,7 @@ def _aggregate_future_counts(
             text = pd_metadata[column].fillna("").astype(str).str.strip().str.lower()
             clinical_genus_tokens.update(token for token in text if token)
             clinical_genus_tokens.update(
-                token.split()[0]
-                for token in text
-                if token and token.split()
+                token.split()[0] for token in text if token and token.split()
             )
         genus_column = _select_column(working, _HOST_GENUS_CANDIDATES)
         if genus_column is not None and clinical_genus_tokens:
@@ -273,9 +274,9 @@ def _aggregate_future_counts(
     result["min_resolved_year_test"] = (
         result["backbone_id"].map(future_min_year).fillna(int(split_year + 1)).astype(int)
     )
-    result["training_only_future_unseen_backbone_flag"] = (
-        ~result["backbone_id"].isin(pre[entity_column]) & result["backbone_id"].isin(future[entity_column])
-    )
+    result["training_only_future_unseen_backbone_flag"] = ~result["backbone_id"].isin(
+        pre[entity_column]
+    ) & result["backbone_id"].isin(future[entity_column])
 
     if country_column is not None:
         country_delta, _, _ = _new_value_deltas(
@@ -324,14 +325,12 @@ def _aggregate_future_counts(
         result["pre_host_families_count"] = np.nan
 
     if host_family_column is not None or host_genus_column is not None:
-        family_gain = (
-            pd.to_numeric(result["future_host_families_count"], errors="coerce").fillna(0.0)
-            - pd.to_numeric(result["pre_host_families_count"], errors="coerce").fillna(0.0)
-        )
-        genus_gain = (
-            pd.to_numeric(result["future_host_genera_count"], errors="coerce").fillna(0.0)
-            - pd.to_numeric(result["pre_host_genera_count"], errors="coerce").fillna(0.0)
-        )
+        family_gain = pd.to_numeric(result["future_host_families_count"], errors="coerce").fillna(
+            0.0
+        ) - pd.to_numeric(result["pre_host_families_count"], errors="coerce").fillna(0.0)
+        genus_gain = pd.to_numeric(result["future_host_genera_count"], errors="coerce").fillna(
+            0.0
+        ) - pd.to_numeric(result["pre_host_genera_count"], errors="coerce").fillna(0.0)
         result["host_phylo_dispersion_gain_future"] = family_gain + 0.5 * genus_gain
     else:
         result["host_phylo_dispersion_gain_future"] = np.nan
@@ -383,7 +382,9 @@ def build_geo_spread_labels(
         )
 
     if records is not None and not records.empty:
-        future_stats = _aggregate_future_counts(records, split_year=split_year, horizon_years=horizon_years)
+        future_stats = _aggregate_future_counts(
+            records, split_year=split_year, horizon_years=horizon_years
+        )
         base = base.merge(future_stats, on="backbone_id", how="left")
 
     if "n_new_countries_future" not in base.columns:
@@ -399,7 +400,9 @@ def build_geo_spread_labels(
         else:
             base["n_new_countries_future"] = np.nan
 
-    base["spread_label"] = pd.to_numeric(base["n_new_countries_future"], errors="coerce").ge(3).astype(float)
+    base["spread_label"] = (
+        pd.to_numeric(base["n_new_countries_future"], errors="coerce").ge(3).astype(float)
+    )
     unseen_mask = (
         base["training_only_future_unseen_backbone_flag"].fillna(False).astype(bool)
         if "training_only_future_unseen_backbone_flag" in base.columns
@@ -424,7 +427,9 @@ def build_bio_transfer_labels(
     horizon_years: int,
 ) -> pd.DataFrame:
     """Build host-expansion labels for the bio transfer branch."""
-    future_stats = _aggregate_future_counts(records, split_year=split_year, horizon_years=horizon_years)
+    future_stats = _aggregate_future_counts(
+        records, split_year=split_year, horizon_years=horizon_years
+    )
     if future_stats.empty:
         return pd.DataFrame(
             columns=[
@@ -448,13 +453,18 @@ def build_bio_transfer_labels(
             >= 2.0
         )
         | (
-            pd.to_numeric(future_stats.get("n_new_host_families_future"), errors="coerce").fillna(0.0)
+            pd.to_numeric(future_stats.get("n_new_host_families_future"), errors="coerce").fillna(
+                0.0
+            )
             >= 1.0
         ),
         1.0,
         0.0,
     )
-    future_stats.loc[future_stats["training_only_future_unseen_backbone_flag"].fillna(False).astype(bool), "bio_transfer_label"] = np.nan
+    future_stats.loc[
+        future_stats["training_only_future_unseen_backbone_flag"].fillna(False).astype(bool),
+        "bio_transfer_label",
+    ] = np.nan
     future_stats["bio_transfer_label_reason"] = np.where(
         future_stats["bio_transfer_label"].isna(),
         "future_unseen_or_missing_future_window",
@@ -512,12 +522,25 @@ def build_clinical_hazard_labels(
             )
             meta["pd_clinical_support_future"] = meta_bool.astype(float)
             meta["pd_clinical_support_meta"] = meta_bool.astype(float)
-            meta = meta.loc[:, [column for column in meta.columns if column in {"backbone_id", "pd_clinical_support_future", "pd_clinical_support_meta"}]]
-            future_stats = future_stats.merge(meta.groupby("backbone_id", as_index=False).mean(numeric_only=True), on="backbone_id", how="left", suffixes=("", "_meta"))
+            meta = meta.loc[
+                :,
+                [
+                    column
+                    for column in meta.columns
+                    if column
+                    in {"backbone_id", "pd_clinical_support_future", "pd_clinical_support_meta"}
+                ],
+            ]
+            future_stats = future_stats.merge(
+                meta.groupby("backbone_id", as_index=False).mean(numeric_only=True),
+                on="backbone_id",
+                how="left",
+                suffixes=("", "_meta"),
+            )
             if "pd_clinical_support_future_meta" in future_stats.columns:
-                future_stats["pd_clinical_support_future"] = future_stats["pd_clinical_support_future"].fillna(
-                    future_stats["pd_clinical_support_future_meta"]
-                )
+                future_stats["pd_clinical_support_future"] = future_stats[
+                    "pd_clinical_support_future"
+                ].fillna(future_stats["pd_clinical_support_future_meta"])
                 future_stats = future_stats.drop(columns=["pd_clinical_support_future_meta"])
 
     gain_thresholds = {
@@ -534,13 +557,18 @@ def build_clinical_hazard_labels(
         future_stats[f"{column}_gain"] = gain
     escalation_flags = pd.DataFrame(
         {
-            f"{name}_gain": pd.to_numeric(future_stats.get(f"{name}_gain"), errors="coerce").fillna(0.0)
+            f"{name}_gain": pd.to_numeric(future_stats.get(f"{name}_gain"), errors="coerce").fillna(
+                0.0
+            )
             >= threshold
             for name, threshold in gain_thresholds.items()
         }
     )
     future_stats["clinical_hazard_label"] = (escalation_flags.sum(axis=1) >= 2).astype(float)
-    future_stats.loc[future_stats["training_only_future_unseen_backbone_flag"].fillna(False).astype(bool), "clinical_hazard_label"] = np.nan
+    future_stats.loc[
+        future_stats["training_only_future_unseen_backbone_flag"].fillna(False).astype(bool),
+        "clinical_hazard_label",
+    ] = np.nan
     future_stats["clinical_hazard_label_reason"] = np.where(
         future_stats["clinical_hazard_label"].isna(),
         "future_unseen_or_missing_future_window",

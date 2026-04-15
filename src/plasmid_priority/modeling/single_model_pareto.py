@@ -56,9 +56,7 @@ def _extract_failed_criteria(row: pd.Series) -> tuple[str, ...]:
         if normalized.startswith("fail:"):
             normalized = normalized.removeprefix("fail:")
         tokens = [
-            token.strip()
-            for token in normalized.replace(";", ",").split(",")
-            if token.strip()
+            token.strip() for token in normalized.replace(";", ",").split(",") if token.strip()
         ]
         return tuple(tokens) or ("fail",)
     if isinstance(raw, Iterable):

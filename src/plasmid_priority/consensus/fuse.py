@@ -118,9 +118,7 @@ def build_operational_consensus_frame(
         ).fillna(confidence_floor)
     for column in ("ood_geo", "ood_bio_transfer", "ood_clinical_hazard"):
         working[column] = (
-            working.get(column, pd.Series(False, index=working.index))
-            .fillna(False)
-            .astype(bool)
+            working.get(column, pd.Series(False, index=working.index)).fillna(False).astype(bool)
         )
     consensus_raw = (
         resolved_weights["p_geo"] * working["p_geo"]

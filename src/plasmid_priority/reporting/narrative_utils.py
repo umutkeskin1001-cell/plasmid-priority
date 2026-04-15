@@ -35,7 +35,9 @@ def pretty_report_model_label(model_name: str) -> str:
 
 
 def strict_acceptance_status(row: pd.Series) -> str:
-    return str(row.get("scientific_acceptance_status", "not_scored") or "not_scored").strip().lower()
+    return (
+        str(row.get("scientific_acceptance_status", "not_scored") or "not_scored").strip().lower()
+    )
 
 
 def benchmark_scope_note(strict_acceptance_status_value: str) -> str:
@@ -129,7 +131,9 @@ def blocked_holdout_summary_text(blocked_holdout_summary: pd.DataFrame, *, model
     return " ".join(texts)
 
 
-def blocked_holdout_summary_text_tr(blocked_holdout_summary: pd.DataFrame, *, model_name: str) -> str:
+def blocked_holdout_summary_text_tr(
+    blocked_holdout_summary: pd.DataFrame, *, model_name: str
+) -> str:
     if blocked_holdout_summary.empty:
         return ""
     working = blocked_holdout_summary.loc[
@@ -174,7 +178,9 @@ def country_missingness_summary_text(
             errors="coerce",
         ).fillna(0.0)
         binary = values.astype(int)
-        return int(binary.sum()), int((eligible["label_observed"].fillna(0).astype(int) != binary).sum())
+        return int(binary.sum()), int(
+            (eligible["label_observed"].fillna(0).astype(int) != binary).sum()
+        )
 
     observed_pos, _ = _label_count("label_observed")
     midpoint_pos, midpoint_flips = _label_count("label_midpoint")
@@ -185,29 +191,38 @@ def country_missingness_summary_text(
         f"{pretty_report_model_label(model_name)} country-missingness audit "
         f"(`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): "
         f"observed labels mark {observed_pos}/{len(eligible)} eligible backbones positive; "
-        f"midpoint / optimistic / weighted interpretations shift {midpoint_flips}/{optimistic_flips}/{weighted_flips} labels "
-        f"and yield {midpoint_pos}/{optimistic_pos}/{weighted_pos} positives."
+        "midpoint / optimistic / weighted interpretations shift "
+        f"{midpoint_flips}/{optimistic_flips}/{weighted_flips} labels and yield "
+        f"{midpoint_pos}/{optimistic_pos}/{weighted_pos} positives."
     )
 
-    if not country_missingness_sensitivity.empty and "model_name" in country_missingness_sensitivity.columns:
+    if (
+        not country_missingness_sensitivity.empty
+        and "model_name" in country_missingness_sensitivity.columns
+    ):
         model_rows = country_missingness_sensitivity.loc[
             country_missingness_sensitivity["model_name"].astype(str).eq(str(model_name))
         ].copy()
         if not model_rows.empty:
             if "outcome_name" in model_rows.columns:
                 model_rows = model_rows.loc[
-                    model_rows["outcome_name"].astype(str).isin(
+                    model_rows["outcome_name"]
+                    .astype(str)
+                    .isin(
                         ["label_observed", "label_midpoint", "label_optimistic", "label_weighted"]
                     )
                 ].copy()
-            if not model_rows.empty and {"roc_auc", "average_precision"}.issubset(model_rows.columns):
+            if not model_rows.empty and {"roc_auc", "average_precision"}.issubset(
+                model_rows.columns
+            ):
                 roc_auc = pd.to_numeric(model_rows["roc_auc"], errors="coerce")
                 average_precision = pd.to_numeric(model_rows["average_precision"], errors="coerce")
                 if roc_auc.notna().any() and average_precision.notna().any():
                     text += (
                         f" Sensitivity across those label variants spans ROC AUC "
                         f"{float(roc_auc.min()):.3f} to {float(roc_auc.max()):.3f} and AP "
-                        f"{float(average_precision.min()):.3f} to {float(average_precision.max()):.3f}."
+                        f"{float(average_precision.min()):.3f} to "
+                        f"{float(average_precision.max()):.3f}."
                     )
     return f"{text}."
 
@@ -221,30 +236,38 @@ def candidate_stability_summary_text(
 ) -> str:
     if frame.empty or frequency_column not in frame.columns:
         return ""
-    working = frame.loc[
-        frame.get("backbone_id", pd.Series(dtype=str)).astype(str).ne("")
-    ].copy()
+    working = frame.loc[frame.get("backbone_id", pd.Series(dtype=str)).astype(str).ne("")].copy()
     if working.empty:
         return ""
     sort_columns = [frequency_column]
-    if frequency_column != "bootstrap_top_10_frequency" and "bootstrap_top_10_frequency" in working.columns:
+    if (
+        frequency_column != "bootstrap_top_10_frequency"
+        and "bootstrap_top_10_frequency" in working.columns
+    ):
         sort_columns.append("bootstrap_top_10_frequency")
-    if frequency_column != "variant_top_10_frequency" and "variant_top_10_frequency" in working.columns:
+    if (
+        frequency_column != "variant_top_10_frequency"
+        and "variant_top_10_frequency" in working.columns
+    ):
         sort_columns.append("variant_top_10_frequency")
     working = working.sort_values(sort_columns, ascending=[False] * len(sort_columns))
     row = working.iloc[0]
     backbone_id = str(row.get("backbone_id", "") or "").strip()
     top_k = pd.to_numeric(pd.Series([row.get("top_k", float("nan"))]), errors="coerce").iloc[0]
-    frequency = pd.to_numeric(pd.Series([row.get(frequency_column, float("nan"))]), errors="coerce").iloc[0]
+    frequency = pd.to_numeric(
+        pd.Series([row.get(frequency_column, float("nan"))]), errors="coerce"
+    ).iloc[0]
     if language == "tr":
         intro = f"`{file_name}` aday siralama kararliligini raporlar"
         if backbone_id and pd.notna(frequency):
             if pd.notna(top_k):
                 return (
-                    f"{intro}; en kararlı örnek `{backbone_id}` için ilk `{int(top_k)}` içinde kalma sıklığı "
-                    f"`{float(frequency):.2f}`."
+                    f"{intro}; en kararlı örnek `{backbone_id}` için ilk "
+                    f"`{int(top_k)}` içinde kalma sıklığı `{float(frequency):.2f}`."
                 )
-            return f"{intro}; en kararlı örnek `{backbone_id}` için sıklık `{float(frequency):.2f}`."
+            return (
+                f"{intro}; en kararlı örnek `{backbone_id}` için sıklık `{float(frequency):.2f}`."
+            )
         return f"{intro}."
     intro = f"`{file_name}` records candidate rank stability"
     if frequency_column == "bootstrap_top_k_frequency":
@@ -254,10 +277,13 @@ def candidate_stability_summary_text(
     if backbone_id and pd.notna(frequency):
         if pd.notna(top_k):
             return (
-                f"{intro}; the strongest stable backbone `{backbone_id}` remains in the top-`{int(top_k)}` "
-                f"set at frequency `{float(frequency):.2f}`."
+                f"{intro}; the strongest stable backbone `{backbone_id}` remains in the "
+                f"top-`{int(top_k)}` set at frequency `{float(frequency):.2f}`."
             )
-        return f"{intro}; the strongest stable backbone `{backbone_id}` has frequency `{float(frequency):.2f}`."
+        return (
+            f"{intro}; the strongest stable backbone `{backbone_id}` has frequency "
+            f"`{float(frequency):.2f}`."
+        )
     return f"{intro}."
 
 
@@ -303,9 +329,7 @@ def select_confirmatory_row(
 def rolling_temporal_summary(rolling_temporal: pd.DataFrame) -> dict[str, object]:
     if rolling_temporal.empty or "status" not in rolling_temporal.columns:
         return {}
-    working = rolling_temporal.loc[
-        rolling_temporal["status"].astype(str).eq("ok")
-    ].copy()
+    working = rolling_temporal.loc[rolling_temporal["status"].astype(str).eq("ok")].copy()
     if working.empty:
         return {}
     roc_auc = pd.to_numeric(

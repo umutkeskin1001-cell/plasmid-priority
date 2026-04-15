@@ -60,7 +60,9 @@ def build_branch_selection_scorecard(
         row.update(getattr(result, "metrics", {}))
         if not calibration_frame.empty:
             match = calibration_frame.loc[
-                calibration_frame.get("model_name", pd.Series(dtype=str)).astype(str).eq(str(model_name))
+                calibration_frame.get("model_name", pd.Series(dtype=str))
+                .astype(str)
+                .eq(str(model_name))
             ]
             if not match.empty:
                 for column in (
@@ -129,7 +131,9 @@ def build_branch_selection_scorecard(
         rationale_frame[token] = mask.fillna(False).astype(bool)
     rationale_labels = [
         ", ".join(
-            column for column, active in zip(rationale_frame.columns, row, strict=False) if bool(active)
+            column
+            for column, active in zip(rationale_frame.columns, row, strict=False)
+            if bool(active)
         )
         or "balanced_selection"
         for row in rationale_frame.to_numpy(dtype=bool, copy=False)

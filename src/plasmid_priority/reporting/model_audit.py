@@ -371,10 +371,14 @@ def _guardrail_loss_series(scorecard: pd.DataFrame) -> pd.Series:
     loss = knownness_gap.fillna(0.0) + source_gap.fillna(0.0)
     has_any_gap = knownness_gap.notna() | source_gap.notna()
     loss = loss.where(has_any_gap, np.nan)
-    leakage_penalty = pd.to_numeric(
-        scorecard.get("leakage_review_required", pd.Series(False, index=scorecard.index)),
-        errors="coerce",
-    ).fillna(0.0).astype(float)
+    leakage_penalty = (
+        pd.to_numeric(
+            scorecard.get("leakage_review_required", pd.Series(False, index=scorecard.index)),
+            errors="coerce",
+        )
+        .fillna(0.0)
+        .astype(float)
+    )
     return loss + 0.25 * leakage_penalty
 
 
@@ -1698,23 +1702,25 @@ def _calibration_metrics_from_arrays(
 ) -> dict[str, object]:
     y = np.asarray(y, dtype=int)
     preds = _clip_probability_array(preds)
-    
+
     # Compute calibration slope and intercept via linear regression
     calibration_slope = float("nan")
     calibration_intercept = float("nan")
     if len(y) > 1 and np.unique(y).size > 1:
         try:
             from sklearn.linear_model import LinearRegression
+
             reg = LinearRegression()
             reg.fit(preds.reshape(-1, 1), y)
             calibration_slope = float(reg.coef_[0])
             calibration_intercept = float(reg.intercept_)
         except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
             import warnings
+
             warnings.warn(f"Calibration slope/intercept calculation failed: {e}")
             calibration_slope = float("nan")
             calibration_intercept = float("nan")
-    
+
     return {
         "calibration_method": method,
         "calibration_metric_family": "fixed_bin_probability_calibration",
@@ -1830,13 +1836,17 @@ def build_calibration_metric_table(
     if result.empty:
         return result
     method_order = {method: index for index, method in enumerate(_CALIBRATION_METHODS)}
-    result["_calibration_method_order"] = result["calibration_method"].map(method_order).fillna(
-        len(method_order)
+    result["_calibration_method_order"] = (
+        result["calibration_method"].map(method_order).fillna(len(method_order))
     )
-    return result.sort_values(
-        ["model_name", "evaluation_split", "_calibration_method_order"],
-        kind="mergesort",
-    ).drop(columns=["_calibration_method_order"]).reset_index(drop=True)
+    return (
+        result.sort_values(
+            ["model_name", "evaluation_split", "_calibration_method_order"],
+            kind="mergesort",
+        )
+        .drop(columns=["_calibration_method_order"])
+        .reset_index(drop=True)
+    )
 
 
 def build_blocked_holdout_calibration_table(
@@ -2052,9 +2062,9 @@ def build_blocked_holdout_calibration_summary(
         if valid_weights.size and np.isfinite(valid_weights).any():
             mean_prediction = float(
                 np.average(
-                    pd.to_numeric(
-                        frame.loc[valid, "mean_prediction"], errors="coerce"
-                    ).to_numpy(dtype=float),
+                    pd.to_numeric(frame.loc[valid, "mean_prediction"], errors="coerce").to_numpy(
+                        dtype=float
+                    ),
                     weights=valid_weights,
                 )
             )
@@ -2125,12 +2135,14 @@ def build_blocked_holdout_calibration_summary(
     if result.empty:
         return result
     method_order = {method: index for index, method in enumerate(_CALIBRATION_METHODS)}
-    result["_calibration_method_order"] = result["calibration_method"].map(method_order).fillna(
-        len(method_order)
+    result["_calibration_method_order"] = (
+        result["calibration_method"].map(method_order).fillna(len(method_order))
     )
-    return result.sort_values(
-        ["model_name", "_calibration_method_order"], kind="mergesort"
-    ).drop(columns=["_calibration_method_order"]).reset_index(drop=True)
+    return (
+        result.sort_values(["model_name", "_calibration_method_order"], kind="mergesort")
+        .drop(columns=["_calibration_method_order"])
+        .reset_index(drop=True)
+    )
 
 
 def build_source_balance_resampling_table(
@@ -3921,9 +3933,7 @@ def build_primary_model_selection_summary(
             return pd.Series(dtype=object)
         model_series = decision_yield.get("model_name", pd.Series(dtype=str)).astype(str)
         top_k_series = pd.to_numeric(
-            decision_yield.get(
-                "top_k", pd.Series(np.nan, index=decision_yield.index, dtype=float)
-            ),
+            decision_yield.get("top_k", pd.Series(np.nan, index=decision_yield.index, dtype=float)),
             errors="coerce",
         ).astype("Int64")
         match = decision_yield.loc[
@@ -3942,9 +3952,11 @@ def build_primary_model_selection_summary(
         if match.empty:
             return pd.Series(dtype=object)
         raw = blocked_holdout_calibration_summary.loc[
-            (blocked_holdout_calibration_summary.get("model_name", pd.Series(dtype=str))
-            .astype(str)
-            .eq(str(model_name)))
+            (
+                blocked_holdout_calibration_summary.get("model_name", pd.Series(dtype=str))
+                .astype(str)
+                .eq(str(model_name))
+            )
             & blocked_holdout_calibration_summary.get("calibration_method", pd.Series(dtype=str))
             .astype(str)
             .eq("raw")
@@ -3954,9 +3966,11 @@ def build_primary_model_selection_summary(
         else:
             raw_row = raw.iloc[0]
         non_raw = blocked_holdout_calibration_summary.loc[
-            (blocked_holdout_calibration_summary.get("model_name", pd.Series(dtype=str))
-            .astype(str)
-            .eq(str(model_name)))
+            (
+                blocked_holdout_calibration_summary.get("model_name", pd.Series(dtype=str))
+                .astype(str)
+                .eq(str(model_name))
+            )
             & ~blocked_holdout_calibration_summary.get("calibration_method", pd.Series(dtype=str))
             .astype(str)
             .eq("raw")
@@ -4022,9 +4036,7 @@ def build_primary_model_selection_summary(
             yield_row = _decision_yield_row(model_name, top_k)
             if yield_row.empty:
                 continue
-            row[f"{prefix}_top_{top_k}_precision"] = float(
-                yield_row.get("precision_at_k", np.nan)
-            )
+            row[f"{prefix}_top_{top_k}_precision"] = float(yield_row.get("precision_at_k", np.nan))
             row[f"{prefix}_top_{top_k}_recall"] = float(yield_row.get("recall_at_k", np.nan))
 
     def _add_utility(prefix: str, model_name: str) -> None:
@@ -4415,9 +4427,7 @@ def build_benchmark_protocol_table(
             )
             if not scorecard_row.empty
             else "not_scored",
-            "knownness_matched_gap": _safe_float(
-                scorecard_row.get("knownness_matched_gap", np.nan)
-            )
+            "knownness_matched_gap": _safe_float(scorecard_row.get("knownness_matched_gap", np.nan))
             if not scorecard_row.empty
             else np.nan,
             "source_holdout_gap": _safe_float(scorecard_row.get("source_holdout_gap", np.nan))
@@ -4706,9 +4716,7 @@ def build_model_selection_scorecard(
     )
     group_holdout = group_holdout if group_holdout is not None else pd.DataFrame()
     single_model_finalist_audit = (
-        single_model_finalist_audit
-        if single_model_finalist_audit is not None
-        else pd.DataFrame()
+        single_model_finalist_audit if single_model_finalist_audit is not None else pd.DataFrame()
     )
     available_metrics = model_metrics.set_index("model_name", drop=False)
     requested_models = [str(name) for name in (model_names or available_metrics.index.tolist())]
@@ -4756,7 +4764,9 @@ def build_model_selection_scorecard(
             single_model_finalist_audit.get("model_name", pd.Series(dtype=str)).astype(str)
             == model_name
         ].head(1)
-        finalist_metrics = finalist_row.iloc[0] if not finalist_row.empty else pd.Series(dtype=object)
+        finalist_metrics = (
+            finalist_row.iloc[0] if not finalist_row.empty else pd.Series(dtype=object)
+        )
         row = {
             "model_name": model_name,
             "model_track": _safe_model_track(model_name),
@@ -4870,11 +4880,12 @@ def build_model_selection_scorecard(
                 pd.Series([finalist_metrics.get("ece", np.nan)]),
                 errors="coerce",
             ).iloc[0]
-        if pd.isna(row.get("selection_adjusted_empirical_p_roc_auc", np.nan)) and not finalist_metrics.empty:
+        if (
+            pd.isna(row.get("selection_adjusted_empirical_p_roc_auc", np.nan))
+            and not finalist_metrics.empty
+        ):
             row["selection_adjusted_empirical_p_roc_auc"] = pd.to_numeric(
-                pd.Series(
-                    [finalist_metrics.get("selection_adjusted_empirical_p_roc_auc", np.nan)]
-                ),
+                pd.Series([finalist_metrics.get("selection_adjusted_empirical_p_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
         rows.append(row)
@@ -5475,9 +5486,9 @@ def build_single_model_finalist_audit(
     heavy["spatial_holdout_gate_pass"] = pd.to_numeric(
         heavy["spatial_holdout_gap"], errors="coerce"
     ).ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["spatial_holdout_gap_min"])
-    heavy["calibration_gate_pass"] = pd.to_numeric(
-        heavy["ece"], errors="coerce"
-    ).le(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"])
+    heavy["calibration_gate_pass"] = pd.to_numeric(heavy["ece"], errors="coerce").le(
+        FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"]
+    )
     heavy["selection_adjusted_gate_pass"] = pd.to_numeric(
         heavy["selection_adjusted_empirical_p_roc_auc"], errors="coerce"
     ).le(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["selection_adjusted_p_max"])
@@ -5583,9 +5594,7 @@ def build_single_model_official_decision(finalists: pd.DataFrame) -> pd.DataFram
                 "average_precision": float(winner.get("average_precision", np.nan)),
                 "weighted_objective_score": float(winner.get("weighted_objective_score", np.nan)),
                 "screen_fit_seconds": float(winner.get("screen_fit_seconds", np.nan)),
-                "compute_efficiency_score": float(
-                    winner.get("compute_efficiency_score", np.nan)
-                ),
+                "compute_efficiency_score": float(winner.get("compute_efficiency_score", np.nan)),
                 "selected_from_n_finalists": int(len(ranked)),
             }
         ]

@@ -37,7 +37,7 @@ def _pipeline_settings(settings: PipelineSettings | None = None) -> PipelineSett
     if settings is not None:
         _injected_settings_local.value = settings
         return settings
-    if hasattr(_injected_settings_local, 'value') and _injected_settings_local.value is not None:
+    if hasattr(_injected_settings_local, "value") and _injected_settings_local.value is not None:
         return cast(PipelineSettings, _injected_settings_local.value)
     # Lazy load from disk only on first uncached call
     return build_context(find_project_root(Path(__file__).resolve())).pipeline_settings
@@ -52,8 +52,6 @@ def _cached_pipeline_settings() -> PipelineSettings:
 
 def _support_factor(n: int, pseudocount: float = 3.0) -> float:
     return float(n / (n + pseudocount)) if n > 0 else 0.0
-
-
 
 
 def _split_values(cell: object) -> set[str]:
@@ -892,8 +890,7 @@ def compute_feature_h(
     external_score_array = external_score.to_numpy(dtype=float)
     support_composite = pd.Series(
         np.clip(
-            (0.5 * host_support.to_numpy(dtype=float))
-            + (0.5 * external_support.astype(float)),
+            (0.5 * host_support.to_numpy(dtype=float)) + (0.5 * external_support.astype(float)),
             0.0,
             1.0,
         ),
@@ -954,9 +951,7 @@ def compute_feature_h(
             "H_augmented_raw": h_augmented_raw.to_numpy(dtype=float),
             "H_phylogenetic_augmented_raw": h_phylogenetic_augmented_raw.to_numpy(dtype=float),
             "H_eff": (h_phylogenetic_raw * support_composite).to_numpy(dtype=float),
-            "H_phylogenetic_eff": (
-                h_phylogenetic_raw * support_composite
-            ).to_numpy(dtype=float),
+            "H_phylogenetic_eff": (h_phylogenetic_raw * support_composite).to_numpy(dtype=float),
             "H_augmented_eff": (h_augmented_raw * support_composite).to_numpy(dtype=float),
             "H_phylogenetic_augmented_eff": (
                 h_phylogenetic_augmented_raw * support_composite
@@ -1012,8 +1007,8 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
 
     base = training_canonical.copy().reset_index(drop=True)
     base["row_id"] = np.arange(len(base))
-    base["amr_gene_symbols"] = (
-        base.get("amr_gene_symbols", pd.Series("", index=base.index)).fillna("")
+    base["amr_gene_symbols"] = base.get("amr_gene_symbols", pd.Series("", index=base.index)).fillna(
+        ""
     )
     grouped = base.groupby("backbone_id", sort=False)
     summary = grouped.agg(
@@ -1042,21 +1037,14 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
     row_amr["public_health_class_count"] = row_amr["public_health_classes"].map(len).astype(int)
     row_amr["amr_gene_families"] = row_amr["amr_gene_symbols"].map(
         lambda value: sorted(
-            {
-                family
-                for family in (_gene_family(item) for item in _split_values(value))
-                if family
-            }
+            {family for family in (_gene_family(item) for item in _split_values(value)) if family}
         )
     )
     row_amr["gene_family_count"] = row_amr["amr_gene_families"].map(len).astype(int)
     row_amr["mdr_proxy_flag"] = row_amr["public_health_class_count"].ge(3).astype(float)
     row_amr["xdr_proxy_flag"] = (
         row_amr["public_health_class_count"].ge(6)
-        | (
-            row_amr["public_health_class_count"].ge(4)
-            & row_amr["last_resort_class_count"].ge(1)
-        )
+        | (row_amr["public_health_class_count"].ge(4) & row_amr["last_resort_class_count"].ge(1))
     ).astype(float)
     row_amr["last_resort_convergence_score"] = np.clip(
         row_amr["last_resort_class_count"].astype(float) / 2.0,
@@ -1703,21 +1691,21 @@ def build_backbone_table(
     )
     first_new_year = new_country_first.groupby("backbone_id", sort=False)["resolved_year"].min()
     if "event_rank" in new_country_first.columns:
-        third_new_year = new_country_first.loc[
-            new_country_first["event_rank"].eq(2)
-        ].set_index("backbone_id")["resolved_year"]
+        third_new_year = new_country_first.loc[new_country_first["event_rank"].eq(2)].set_index(
+            "backbone_id"
+        )["resolved_year"]
     else:
         third_new_year = pd.Series(dtype=float)
-    backbone_table["time_to_first_new_country_years"] = (
-        backbone_table["backbone_id"].map(first_new_year).astype(float) - float(split_year)
-    )
+    backbone_table["time_to_first_new_country_years"] = backbone_table["backbone_id"].map(
+        first_new_year
+    ).astype(float) - float(split_year)
     backbone_table.loc[
         backbone_table["backbone_id"].map(first_new_year).isna(),
         "time_to_first_new_country_years",
     ] = math.nan
-    backbone_table["time_to_third_new_country_years"] = (
-        backbone_table["backbone_id"].map(third_new_year).astype(float) - float(split_year)
-    )
+    backbone_table["time_to_third_new_country_years"] = backbone_table["backbone_id"].map(
+        third_new_year
+    ).astype(float) - float(split_year)
     backbone_table.loc[
         backbone_table["backbone_id"].map(third_new_year).isna(),
         "time_to_third_new_country_years",
@@ -1797,10 +1785,11 @@ def build_backbone_table(
     else:
         backbone_table["n_test_records_seen_in_training"] = 0
         backbone_table["test_seen_in_training_fraction"] = np.nan
-    backbone_table["training_only_future_unseen_backbone_flag"] = (
-        backbone_table["backbone_assignment_mode"].astype(str).eq("training_only")
-        & backbone_table["member_count_train"].fillna(0).astype(int).eq(0)
-    )
+    backbone_table["training_only_future_unseen_backbone_flag"] = backbone_table[
+        "backbone_assignment_mode"
+    ].astype(str).eq("training_only") & backbone_table["member_count_train"].fillna(0).astype(
+        int
+    ).eq(0)
 
     if not purity_table.empty:
         backbone_table = backbone_table.merge(

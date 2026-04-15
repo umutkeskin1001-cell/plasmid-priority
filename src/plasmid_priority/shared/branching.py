@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -10,12 +10,22 @@ from typing import Any, Callable
 import pandas as pd
 
 from plasmid_priority.modeling import evaluate_feature_columns, fit_feature_columns_predictions
-from plasmid_priority.modeling.module_a import ModelResult, annotate_knownness_metadata, assert_feature_columns_present
+from plasmid_priority.modeling.module_a import (
+    ModelResult,
+    annotate_knownness_metadata,
+    assert_feature_columns_present,
+)
 from plasmid_priority.modeling.module_a_support import build_failed_model_result
-from plasmid_priority.shared.contracts import ensure_branch_label_alias, validate_branch_input_contract
-from plasmid_priority.shared.specs import BranchBenchmarkSpec, BranchConfig, BranchFitConfig, resolve_branch_fit_config, resolve_branch_model_names
+from plasmid_priority.shared.contracts import (
+    ensure_branch_label_alias,
+    validate_branch_input_contract,
+)
+from plasmid_priority.shared.specs import (
+    BranchBenchmarkSpec,
+    BranchConfig,
+    resolve_branch_model_names,
+)
 from plasmid_priority.utils.parallel import limit_native_threads
-
 
 LabelBuilder = Callable[..., pd.DataFrame]
 FeatureBuilder = Callable[[pd.DataFrame], pd.DataFrame]
@@ -68,7 +78,9 @@ def prepare_branch_scored_table(
                 if column != "backbone_id" and column not in working.columns
             )
             working = working.merge(label_frame.loc[:, merge_columns], on="backbone_id", how="left")
-    validate_branch_input_contract(working, contract=contract, label=f"{config.benchmark.name} scored table")
+    validate_branch_input_contract(
+        working, contract=contract, label=f"{config.benchmark.name} scored table"
+    )
     working = ensure_branch_label_alias(working, branch_label_column)
     if feature_builder is not None:
         working = feature_builder(working)
@@ -84,12 +96,15 @@ def prepare_branch_scored_table(
         merge_columns = [
             column
             for column in dict.fromkeys(["backbone_id", *pd_metadata_merge_columns])
-            if column in pd_metadata.columns and (column == "backbone_id" or column not in working.columns)
+            if column in pd_metadata.columns
+            and (column == "backbone_id" or column not in working.columns)
         ]
         if len(merge_columns) > 1:
             meta = pd_metadata.loc[:, merge_columns].copy(deep=False)
             meta["backbone_id"] = meta["backbone_id"].astype(str)
-            working = working.merge(meta.drop_duplicates(subset=["backbone_id"]), on="backbone_id", how="left")
+            working = working.merge(
+                meta.drop_duplicates(subset=["backbone_id"]), on="backbone_id", how="left"
+            )
     return working
 
 
@@ -257,7 +272,9 @@ def fit_branch_model_predictions(
     )
     if predictions.empty or include_posterior_uncertainty:
         return predictions
-    return predictions.loc[:, [column for column in predictions.columns if column in {"backbone_id", "prediction"}]].copy()
+    return predictions.loc[
+        :, [column for column in predictions.columns if column in {"backbone_id", "prediction"}]
+    ].copy()
 
 
 def fit_branch(
@@ -281,7 +298,11 @@ def fit_branch(
     prepared_scored: pd.DataFrame | None = None,
 ) -> dict[str, ModelResult]:
     selected_model_names = (
-        list(resolve_branch_model_names(config, include_research=include_research, include_ablation=include_ablation))
+        list(
+            resolve_branch_model_names(
+                config, include_research=include_research, include_ablation=include_ablation
+            )
+        )
         if model_names is None
         else [str(name) for name in model_names]
     )

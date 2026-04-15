@@ -1880,11 +1880,7 @@ def build_false_negative_audit(
     flag_records = flag_frame.to_dict("records")
     positives["miss_driver_flags"] = pd.Series(
         [
-            ",".join(
-                label
-                for column, label in mapping.items()
-                if bool(record.get(column, False))
-            )
+            ",".join(label for column, label in mapping.items() if bool(record.get(column, False)))
             or "none"
             for record in flag_records
         ],
