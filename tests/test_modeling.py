@@ -955,9 +955,21 @@ class ModelingTests(unittest.TestCase):
         features = MODULE_A_FEATURE_SETS["sovereign_v2_priority"]
 
         self.assertNotIn("assignment_confidence_norm", features)
+        self.assertNotIn("context_support_guard_norm", features)
         self.assertIn("T_eff_norm", features)
+        self.assertIn("T_raw_norm", features)
         self.assertIn("A_eff_norm", features)
         self.assertIn("metadata_support_depth_norm", features)
+        self.assertIn("evolutionary_jump_score_norm", features)
+
+    def test_single_model_candidate_family_includes_sovereign_parents(self) -> None:
+        family = module_a_support_impl.build_single_model_candidate_family()
+        parents = set(
+            family.loc[family["candidate_kind"].astype(str) == "parent", "model_name"].astype(str)
+        )
+
+        self.assertIn("sovereign_precision_priority", parents)
+        self.assertIn("sovereign_v2_priority", parents)
 
     def test_fit_feature_columns_predictions_scores_requested_rows(self) -> None:
         n = 24

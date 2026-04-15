@@ -57,6 +57,8 @@ _BAYESIAN_CI_Z = 1.959963984540054
 
 SINGLE_MODEL_PARETO_PARENT_MODEL_NAMES: tuple[str, ...] = (
     "phylo_support_fusion_priority",
+    "sovereign_precision_priority",
+    "sovereign_v2_priority",
     "discovery_12f_source",
     "support_synergy_priority",
     "knownness_robust_priority",

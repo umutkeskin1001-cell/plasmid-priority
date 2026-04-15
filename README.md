@@ -1,6 +1,12 @@
 # Plasmid Priority
 
-Plasmid Priority is a retrospective genomic surveillance prioritization framework for operational plasmid backbone classes. It scores backbones with mobility (`T`), observed host diversity (`H`), and AMR burden/consistency (`A`), then tests whether higher-priority backbones are retrospectively associated with later new-country visibility increase.
+Plasmid Priority is a retrospective genomic surveillance prioritization framework for operational plasmid backbone classes. It now exposes three split-safe prediction branches:
+
+- `geo_spread`: retrospective new-country visibility increase
+- `bio_transfer`: retrospective host-expansion / transfer-linked emergence
+- `clinical_hazard`: retrospective clinical escalation / resistance hazard emergence
+
+Those branch surfaces are fused into a guarded `consensus` risk score. The project still operates on retrospective labels, not direct clinical outcome or transmission inference.
 
 The project now has two explicit model tracks:
 
@@ -9,7 +15,7 @@ The project now has two explicit model tracks:
 
 ## Scientific Boundaries
 
-This repository does not claim to predict true biological spread, prove transmission, or act as a clinical risk tool. The primary outcome is a visibility-based retrospective label, not direct epidemiological spread.
+This repository does not claim to predict mortality, patient prognosis, true transmission, or causal spread. The branch labels are retrospective surveillance targets only, and the consensus layer is a guarded fusion of those retrospective signals.
 
 ## Core Data Sources
 
@@ -80,6 +86,7 @@ The current implementation now covers the main retrospective pipeline:
 - conservative and proxy-audit model comparisons
 - subgroup validation, coefficient audit, and feature-dropout analysis
 - discovery/governance split with guardrail-aware selection and calibrated risk reporting
+- geo_spread, bio_transfer, clinical_hazard, and consensus branch surfaces
 - exploratory Module B AMR comparison
 - supportive Module C Pathogen Detection metadata analysis, including clinical/environmental strata
 - supportive CARD ontology and MOB-suite literature/cluster support analysis

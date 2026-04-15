@@ -24,6 +24,7 @@ class WorkflowStep:
 
 
 STEP_LIBRARY: dict[str, WorkflowStep] = {
+    "00_fetch_external_data": WorkflowStep("00_fetch_external_data", "00_fetch_external_data.py"),
     "01_check_inputs": WorkflowStep("01_check_inputs", "01_check_inputs.py"),
     "02_build_all_plasmids_fasta": WorkflowStep(
         "02_build_all_plasmids_fasta",
@@ -219,6 +220,8 @@ REPORTS_ONLY_STEP_NAMES: tuple[str, ...] = (
     "25_export_tubitak_summary",
 )
 
+FETCH_EXTERNAL_STEP_NAMES: tuple[str, ...] = ("00_fetch_external_data",)
+
 SEQUENTIAL_WORKFLOW_MODES = {"pipeline-sequential", "analysis-refresh-sequential"}
 
 
@@ -231,6 +234,7 @@ MODE_STEP_NAMES: dict[str, tuple[str, ...]] = {
     "support-refresh": SUPPORT_REFRESH_STEP_NAMES,
     "reports-only": REPORTS_ONLY_STEP_NAMES,
     "release": RELEASE_STEP_NAMES,
+    "fetch-external": FETCH_EXTERNAL_STEP_NAMES,
 }
 
 

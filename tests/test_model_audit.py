@@ -704,6 +704,65 @@ class ModelAuditTests(unittest.TestCase):
             str(calibration_fail_row["scientific_acceptance_failed_criteria"]),
         )
 
+    def test_build_model_selection_scorecard_backfills_finalist_audit_metrics(self) -> None:
+        model_metrics = pd.DataFrame(
+            [
+                {
+                    "model_name": "sovereign_v2_priority",
+                    "roc_auc": 0.83,
+                    "average_precision": 0.77,
+                }
+            ]
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)],
+                "model_name": ["sovereign_v2_priority"] * 8,
+                "oof_prediction": [0.90, 0.84, 0.81, 0.78, 0.32, 0.28, 0.22, 0.10],
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0],
+            }
+        )
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(8)],
+                "spread_label": [1, 1, 1, 1, 0, 0, 0, 0],
+                "log1p_member_count_train": [0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.5, 1.5],
+                "log1p_n_countries_train": [0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.5, 1.5],
+                "refseq_share_train": [0.2, 0.2, 0.3, 0.3, 0.8, 0.8, 0.9, 0.9],
+            }
+        )
+        finalist_audit = pd.DataFrame(
+            [
+                {
+                    "model_name": "sovereign_v2_priority",
+                    "matched_knownness_weighted_roc_auc": 0.825,
+                    "source_holdout_weighted_roc_auc": 0.826,
+                    "spatial_holdout_weighted_roc_auc": 0.821,
+                    "ece": 0.045,
+                    "selection_adjusted_empirical_p_roc_auc": 0.009,
+                }
+            ]
+        )
+
+        scorecard = build_model_selection_scorecard(
+            model_metrics,
+            predictions,
+            scored,
+            single_model_finalist_audit=finalist_audit,
+        )
+
+        row = scorecard.loc[scorecard["model_name"] == "sovereign_v2_priority"].iloc[0]
+        self.assertAlmostEqual(float(row["matched_knownness_weighted_roc_auc"]), 0.825)
+        self.assertAlmostEqual(float(row["source_holdout_weighted_roc_auc"]), 0.826)
+        self.assertAlmostEqual(float(row["spatial_holdout_roc_auc"]), 0.821)
+        self.assertAlmostEqual(float(row["ece"]), 0.045)
+        self.assertAlmostEqual(float(row["selection_adjusted_empirical_p_roc_auc"]), 0.009)
+        self.assertEqual(str(row["scientific_acceptance_status"]), "fail")
+        self.assertIn(
+            "matched_knownness",
+            str(row["scientific_acceptance_failed_criteria"]),
+        )
+
     def test_build_frozen_scientific_acceptance_audit_filters_official_surfaces(self) -> None:
         scorecard = pd.DataFrame(
             [

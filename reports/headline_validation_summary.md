@@ -18,7 +18,7 @@ This is the canonical one-page validation surface for jury review.
 
 | Surface | Model | ROC AUC | ROC AUC 95% CI | AP | AP 95% CI | Brier | Brier Skill | Fixed-bin ECE | Fixed-bin Max CE | Calibration Slope | Calibration Intercept | Frozen Acceptance | Frozen Acceptance Reason | Selection-adjusted p | Fixed-score p | Delta vs baseline | Spatial holdout AUC | n | Positives |
 | --- | --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- | ---: | ---: | ---: |
-| discovery_primary | discovery_12f_source | 0.804 | [0.775, 0.831] | 0.723 | [0.678, 0.770] | 0.169 | 0.270 | 0.049 | NA | NA | NA | not_scored | missing:matched_knownness_weighted_roc_auc | 0.005 | <0.001 | 0.081 ([0.046, 0.116]) | 0.789 | 989 | 362 |
+| discovery_primary | discovery_12f_source | 0.804 | [0.775, 0.831] | 0.723 | [0.678, 0.770] | 0.169 | 0.270 | 0.049 | NA | NA | NA | fail | fail:matched_knownness,source_holdout | 0.005 | <0.001 | 0.081 ([0.046, 0.116]) | 0.789 | 989 | 362 |
 | governance_watch_only | phylo_support_fusion_priority | 0.827 | [0.800, 0.852] | 0.767 | [0.725, 0.803] | 0.166 | 0.284 | 0.085 | NA | NA | NA | fail | fail:matched_knownness,source_holdout,calibration | 0.005 | NA | NA | 0.821 | 989 | 362 |
 | counts_baseline | baseline_both | 0.722 | [0.689, 0.756] | 0.647 | [0.596, 0.698] | 0.186 | 0.198 | 0.039 | NA | NA | NA | fail | fail:matched_knownness | 0.005 | <0.001 | NA | 0.740 | 989 | 362 |
 | single_model_pareto_official | discovery_12f_source__pruned | 0.792 | NA | 0.712 | NA | NA | NA | 0.040 | NA | NA | NA | fail | fail:matched_knownness,selection_adjusted_null | 0.020 | NA | NA | NA | 0 | 0 |
@@ -26,9 +26,9 @@ This is the canonical one-page validation surface for jury review.
 ## Single-Model Pareto Decision
 
 - Official single-model candidate: `discovery_12f_source__pruned`; status `fail`; reason `lowest_failure_severity_with_competitive_auc`.
-- Selected from `3` Pareto finalists after finalist-heavy audit.
+- Selected from `5` Pareto finalists after finalist-heavy audit.
 - Weighted objective `0.200` with failure severity `3.612`.
-- Full Stage A screen time for the winning candidate family row was `0.08` seconds.
+- Full Stage A screen time for the winning candidate family row was `0.22` seconds.
 
 ## Rolling-Origin Validation
 

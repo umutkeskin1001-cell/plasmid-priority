@@ -594,7 +594,8 @@ def main(argv: list[str] | None = None) -> int:
                 index=False,
             )
             single_model_pareto_finalists = build_single_model_pareto_finalists(
-                single_model_pareto_screen
+                single_model_pareto_screen,
+                max_finalists=5,
             )
             single_model_pareto_finalists = build_single_model_finalist_audit(
                 scored,
@@ -1087,6 +1088,8 @@ def main(argv: list[str] | None = None) -> int:
             "host_transfer_synergy_priority",
             "ecology_clinical_priority",
             "full_priority",
+            "sovereign_precision_priority",
+            "sovereign_v2_priority",
             "baseline_both",
             "baseline_country_count",
             "source_only",
@@ -1329,7 +1332,8 @@ def main(argv: list[str] | None = None) -> int:
             index=False,
         )
         single_model_pareto_finalists = build_single_model_pareto_finalists(
-            single_model_pareto_screen
+            single_model_pareto_screen,
+            max_finalists=5,
         )
         single_model_pareto_finalists = build_single_model_finalist_audit(
             scored,

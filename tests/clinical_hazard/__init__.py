@@ -1,0 +1,1 @@
+"""Clinical hazard branch tests."""

@@ -135,8 +135,10 @@ def build_plsdb_canonical_metadata(
         if duckdb_joined is not None and not duckdb_joined.empty:
             joined = duckdb_joined
     if joined.empty:
-        metadata = pd.read_csv(plsdb_metadata_path, sep="\t")
-        taxonomy = pd.read_csv(taxonomy_path, sep="\t", usecols=TAXONOMY_COLUMNS)
+        # PLSDB publishes the source metadata as CSV, but some historical snapshots in
+        # this repository used TSV aliases. Let pandas auto-detect so either format works.
+        metadata = pd.read_csv(plsdb_metadata_path, sep=None, engine="python")
+        taxonomy = pd.read_csv(taxonomy_path, sep=None, engine="python", usecols=TAXONOMY_COLUMNS)
         taxonomy = taxonomy.drop_duplicates(subset=["TAXONOMY_UID"])
         joined = metadata.merge(taxonomy, on="TAXONOMY_UID", how="left", validate="m:1")
 

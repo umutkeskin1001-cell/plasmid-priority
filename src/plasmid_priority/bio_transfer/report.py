@@ -1,0 +1,116 @@
+"""Bio transfer branch reporting helpers."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+import pandas as pd
+
+from plasmid_priority.shared.selection import build_branch_selection_scorecard
+
+
+def _safe_series_value(frame: pd.DataFrame, column: str, default: Any = float("nan")) -> Any:
+    if frame.empty or column not in frame.columns:
+        return default
+    return frame.iloc[0].get(column, default)
+
+
+def build_bio_transfer_report_card(
+    results: Mapping[str, Any],
+    *,
+    calibration_summary: pd.DataFrame | None = None,
+    provenance: Mapping[str, Any] | None = None,
+    selection_scorecard: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    calibration_frame = calibration_summary if calibration_summary is not None else pd.DataFrame()
+    ordered_results = sorted(
+        results.items(),
+        key=lambda item: (-float(item[1].metrics.get("roc_auc", float("-inf"))), str(item[0])),
+    )
+    for rank, (model_name, result) in enumerate(ordered_results, start=1):
+        row = {
+            "rank": int(rank),
+            "model_name": str(model_name),
+            "status": getattr(result, "status", "ok"),
+            "roc_auc": result.metrics.get("roc_auc", float("nan")),
+            "average_precision": result.metrics.get("average_precision", float("nan")),
+            "brier_score": result.metrics.get("brier_score", float("nan")),
+            "expected_calibration_error": result.metrics.get("expected_calibration_error", float("nan")),
+            "n_backbones": result.metrics.get("n_backbones", len(getattr(result, "predictions", []))),
+            "n_positive": result.metrics.get("n_positive", float("nan")),
+            "error_message": getattr(result, "error_message", None),
+        }
+        if not calibration_frame.empty:
+            match = calibration_frame.loc[
+                calibration_frame.get("model_name", pd.Series(dtype=str)).astype(str).eq(str(model_name))
+            ]
+            if not match.empty:
+                row["calibration_method"] = _safe_series_value(match, "calibration_method", "none")
+                row["abstain_rate"] = _safe_series_value(match, "abstain_rate")
+                row["mean_confidence"] = _safe_series_value(match, "mean_confidence")
+                row["ood_rate"] = _safe_series_value(match, "ood_rate")
+                row["calibrated_expected_calibration_error"] = _safe_series_value(
+                    match, "calibrated_expected_calibration_error"
+                )
+                row["calibrated_brier_score"] = _safe_series_value(match, "calibrated_brier_score")
+        rows.append(row)
+    report = pd.DataFrame(rows)
+    if report.empty:
+        return report
+    report["is_primary_candidate"] = report["model_name"].astype(str).eq(
+        str(provenance.get("primary_model_name", "")) if provenance else ""
+    )
+    report["is_headline_candidate"] = report["rank"].eq(1)
+    if provenance:
+        for key in ("benchmark_name", "split_year", "run_signature", "config_hash", "input_hash", "feature_surface_hash"):
+            report[key] = provenance.get(key)
+    if selection_scorecard is not None and not selection_scorecard.empty:
+        report = report.merge(
+            selection_scorecard.loc[
+                :,
+                [column for column in selection_scorecard.columns if column in {"model_name", "selection_score", "selection_rank"}],
+            ],
+            on="model_name",
+            how="left",
+        )
+    return report
+
+
+def format_bio_transfer_report_markdown(
+    report_card: pd.DataFrame,
+    *,
+    provenance: Mapping[str, Any] | None = None,
+) -> str:
+    if report_card.empty:
+        return "# Bio transfer report\n\nNo eligible models were evaluated.\n"
+    top_row = report_card.iloc[0]
+    lines = [
+        "# Bio transfer report",
+        "",
+        "## Branch summary",
+        f"- evaluated_models: `{int(len(report_card))}`",
+        f"- best_predictive_model: `{top_row['model_name']}`",
+        f"- best_predictive_roc_auc: `{float(top_row['roc_auc']):.3f}`",
+        f"- best_predictive_average_precision: `{float(top_row['average_precision']):.3f}`",
+    ]
+    if provenance:
+        lines.extend(
+            [
+                "",
+                "## Provenance",
+                f"- benchmark: `{provenance.get('benchmark_name', 'bio_transfer_v1')}`",
+                f"- split_year: `{provenance.get('split_year', '')}`",
+                f"- run_signature: `{provenance.get('run_signature', '')}`",
+                f"- primary_model_name: `{provenance.get('primary_model_name', '')}`",
+            ]
+        )
+    lines.extend(["", "## Ranked models"])
+    for _, row in report_card.iterrows():
+        lines.append(
+            f"- `{row['model_name']}`: ROC AUC `{float(pd.to_numeric(pd.Series([row['roc_auc']]), errors='coerce').iloc[0]):.3f}`, "
+            f"AP `{float(pd.to_numeric(pd.Series([row['average_precision']]), errors='coerce').iloc[0]):.3f}`"
+        )
+    lines.append("")
+    return "\n".join(lines)

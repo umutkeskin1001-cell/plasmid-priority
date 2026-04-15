@@ -318,8 +318,8 @@ def main() -> int:
     parser.add_argument(
         "--external-data-root",
         type=str,
-        default="/Volumes/UMUT/data",
-        help="External data root path",
+        default=None,
+        help="Optional external data root path (defaults to the project data directory).",
     )
     parser.add_argument(
         "--scored-path",
@@ -331,16 +331,17 @@ def main() -> int:
 
     context = build_context(PROJECT_ROOT)
 
-    # Check for external data availability
-    external_data_root = Path(args.external_data_root)
-
-    # Resolve scored path
     if args.scored_path:
         scored_path = Path(args.scored_path)
-    elif external_data_root.exists():
-        scored_path = external_data_root / "scores/backbone_scored.tsv"
     else:
-        scored_path = context.data_dir / "scores/backbone_scored.tsv"
+        candidate_root = (
+            Path(args.external_data_root).expanduser().resolve()
+            if args.external_data_root not in (None, "")
+            else context.data_dir
+        )
+        scored_path = candidate_root / "scores/backbone_scored.tsv"
+        if not scored_path.exists():
+            scored_path = context.data_dir / "scores/backbone_scored.tsv"
 
     # Verify required inputs exist
     if not scored_path.exists():

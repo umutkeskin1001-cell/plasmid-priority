@@ -305,6 +305,46 @@
       "stage": "derived",
       "required": false,
       "description": "Model-level summary of dominant-region spatial holdout performance."
+    },
+    {
+      "key": "vfdb_annotations",
+      "relative_path": "data/external/vfdb/vfdb_annotations.tsv",
+      "kind": "file",
+      "stage": "optional",
+      "required": false,
+      "description": "Optional VFDB annotation table for virulence cargo support."
+    },
+    {
+      "key": "conjscan_annotations",
+      "relative_path": "data/external/conjscan/conjscan_annotations.tsv",
+      "kind": "file",
+      "stage": "optional",
+      "required": false,
+      "description": "Optional CONJScan annotation table for conjugation support."
+    },
+    {
+      "key": "clinical_context_lookup",
+      "relative_path": "data/external/clinical_context_lookup.tsv",
+      "kind": "file",
+      "stage": "supporting",
+      "required": false,
+      "description": "Lookup table that maps context/source annotations to clinical hazard priors."
+    },
+    {
+      "key": "iceberg_annotations",
+      "relative_path": "data/external/iceberg/iceberg_annotations.tsv",
+      "kind": "file",
+      "stage": "optional",
+      "required": false,
+      "description": "Optional ICEberg annotations for mobile element context."
+    },
+    {
+      "key": "bacmet_annotations",
+      "relative_path": "data/external/bacmet/bacmet_annotations.tsv",
+      "kind": "file",
+      "stage": "optional",
+      "required": false,
+      "description": "Optional BacMet annotations for stress-response and metal resistance context."
     }
   ]
 }

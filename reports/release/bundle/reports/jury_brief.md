@@ -23,7 +23,7 @@ This framework retrospectively prioritizes plasmid backbone surveillance units u
 
 ## Primary Model Selection Rationale
 
-Model selection was not driven by a single metric. We jointly considered ROC AUC, average precision, lower-knownness behavior, matched-knownness/source performance, source holdout robustness, and practical shortlist yield. In the current scorecard, the headline model ranks `NA`.
+Model selection was not driven by a single metric. We jointly considered ROC AUC, average precision, lower-knownness behavior, matched-knownness/source performance, source holdout robustness, and practical shortlist yield. In the current scorecard, the headline model ranks `3/44` overall; `1` within the discovery track.
 
 Operationally, the headline model is preferred because it keeps the strongest balance between discrimination and shortlist usefulness. In this refresh, the primary model also preserves a top-10 precision of 1.0 while remaining clearly above the counts-only baseline in matched-knownness auditing.
 Governance track logic is kept separate from discovery-track optimization even when the shortlisted candidates partially overlap.

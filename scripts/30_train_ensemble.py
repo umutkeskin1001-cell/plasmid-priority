@@ -11,6 +11,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.isotonic import IsotonicRegression
 
+from plasmid_priority.config import build_context
 # Metrics
 from plasmid_priority.validation.metrics import roc_auc_score, average_precision, brier_score
 
@@ -18,8 +19,10 @@ print("=" * 80)
 print("🎯 META-SOVEREIGN ENSEMBLE - MODEL EĞİTİMİ")
 print("=" * 80)
 
+context = build_context(PROJECT_ROOT)
+
 # Load predictions file
-preds_file = Path(".usb-data/analysis/module_a_predictions.tsv")
+preds_file = context.data_dir / "analysis/module_a_predictions.tsv"
 if not preds_file.exists():
     print(f"❌ Predictions file not found: {preds_file}")
     sys.exit(1)
@@ -164,7 +167,7 @@ results = {
     "target_83_achieved": final_auc >= 0.83,
 }
 
-output_dir = Path(".usb-data/analysis")
+output_dir = context.data_dir / "analysis"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 output_file = output_dir / "meta_sovereign_ensemble_results.json"

@@ -6995,12 +6995,21 @@ def main() -> int:
                 scored,
                 knownness_matched_validation=knownness_matched_validation,
                 group_holdout=group_holdout,
+                single_model_finalist_audit=single_model_pareto_finalists,
                 model_names=active_model_names,
             )
             acceptance_columns = [
                 column
                 for column in [
                     "model_name",
+                    "ece",
+                    "selection_adjusted_empirical_p_roc_auc",
+                    "matched_knownness_weighted_roc_auc",
+                    "knownness_matched_gap",
+                    "source_holdout_weighted_roc_auc",
+                    "source_holdout_gap",
+                    "spatial_holdout_roc_auc",
+                    "spatial_holdout_gap",
                     "scientific_acceptance_scored",
                     "scientific_acceptance_flag",
                     "scientific_acceptance_status",
@@ -7020,7 +7029,38 @@ def main() -> int:
                     model_selection_scorecard[acceptance_columns].drop_duplicates("model_name"),
                     on="model_name",
                     how="left",
+                    suffixes=("", "_scorecard"),
                 )
+                for column in [
+                    "ece",
+                    "selection_adjusted_empirical_p_roc_auc",
+                    "matched_knownness_weighted_roc_auc",
+                    "knownness_matched_gap",
+                    "source_holdout_weighted_roc_auc",
+                    "source_holdout_gap",
+                    "spatial_holdout_roc_auc",
+                    "spatial_holdout_gap",
+                    "scientific_acceptance_scored",
+                    "scientific_acceptance_flag",
+                    "scientific_acceptance_status",
+                    "scientific_acceptance_failed_criteria",
+                    "matched_knownness_gate_pass",
+                    "source_holdout_gate_pass",
+                    "spatial_holdout_gate_pass",
+                    "calibration_gate_pass",
+                    "selection_adjusted_gate_pass",
+                    "leakage_review_gate_pass",
+                ]:
+                    scorecard_column = f"{column}_scorecard"
+                    if scorecard_column not in report_model_metrics.columns:
+                        continue
+                    if column in report_model_metrics.columns:
+                        report_model_metrics[column] = report_model_metrics[
+                            scorecard_column
+                        ].combine_first(report_model_metrics[column])
+                    else:
+                        report_model_metrics[column] = report_model_metrics[scorecard_column]
+                    report_model_metrics = report_model_metrics.drop(columns=scorecard_column)
             report_model_metrics.to_csv(final_tables_dir / "model_metrics.tsv", sep="\t", index=False)
             headline_validation_summary = _build_headline_validation_summary(
                 report_model_metrics,

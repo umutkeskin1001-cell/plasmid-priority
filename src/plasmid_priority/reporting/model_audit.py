@@ -4675,6 +4675,7 @@ def build_model_selection_scorecard(
     *,
     knownness_matched_validation: pd.DataFrame | None = None,
     group_holdout: pd.DataFrame | None = None,
+    single_model_finalist_audit: pd.DataFrame | None = None,
     model_names: list[str] | tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
     """Assemble a multi-objective model selection table beyond overall ROC AUC."""
@@ -4685,6 +4686,11 @@ def build_model_selection_scorecard(
         knownness_matched_validation if knownness_matched_validation is not None else pd.DataFrame()
     )
     group_holdout = group_holdout if group_holdout is not None else pd.DataFrame()
+    single_model_finalist_audit = (
+        single_model_finalist_audit
+        if single_model_finalist_audit is not None
+        else pd.DataFrame()
+    )
     available_metrics = model_metrics.set_index("model_name", drop=False)
     requested_models = [str(name) for name in (model_names or available_metrics.index.tolist())]
     if "spread_label" in scored.columns:
@@ -4727,6 +4733,11 @@ def build_model_selection_scorecard(
         if valid.empty:
             continue
         valid["spread_label"] = valid["spread_label"].astype(int)
+        finalist_row = single_model_finalist_audit.loc[
+            single_model_finalist_audit.get("model_name", pd.Series(dtype=str)).astype(str)
+            == model_name
+        ].head(1)
+        finalist_metrics = finalist_row.iloc[0] if not finalist_row.empty else pd.Series(dtype=object)
         row = {
             "model_name": model_name,
             "model_track": _safe_model_track(model_name),
@@ -4801,6 +4812,11 @@ def build_model_selection_scorecard(
                 row["matched_knownness_weighted_roc_auc"] = np.nan
         else:
             row["matched_knownness_weighted_roc_auc"] = np.nan
+        if pd.isna(row["matched_knownness_weighted_roc_auc"]) and not finalist_metrics.empty:
+            row["matched_knownness_weighted_roc_auc"] = pd.to_numeric(
+                pd.Series([finalist_metrics.get("matched_knownness_weighted_roc_auc", np.nan)]),
+                errors="coerce",
+            ).iloc[0]
         source_rows = group_holdout.loc[
             (
                 group_holdout.get("group_column", pd.Series(dtype=str)).astype(str)
@@ -4820,6 +4836,28 @@ def build_model_selection_scorecard(
         else:
             row["source_holdout_weighted_roc_auc"] = np.nan
             row["source_holdout_macro_roc_auc"] = np.nan
+        if pd.isna(row["source_holdout_weighted_roc_auc"]) and not finalist_metrics.empty:
+            row["source_holdout_weighted_roc_auc"] = pd.to_numeric(
+                pd.Series([finalist_metrics.get("source_holdout_weighted_roc_auc", np.nan)]),
+                errors="coerce",
+            ).iloc[0]
+        if pd.isna(row.get("spatial_holdout_roc_auc", np.nan)) and not finalist_metrics.empty:
+            row["spatial_holdout_roc_auc"] = pd.to_numeric(
+                pd.Series([finalist_metrics.get("spatial_holdout_weighted_roc_auc", np.nan)]),
+                errors="coerce",
+            ).iloc[0]
+        if pd.isna(row.get("ece", np.nan)) and not finalist_metrics.empty:
+            row["ece"] = pd.to_numeric(
+                pd.Series([finalist_metrics.get("ece", np.nan)]),
+                errors="coerce",
+            ).iloc[0]
+        if pd.isna(row.get("selection_adjusted_empirical_p_roc_auc", np.nan)) and not finalist_metrics.empty:
+            row["selection_adjusted_empirical_p_roc_auc"] = pd.to_numeric(
+                pd.Series(
+                    [finalist_metrics.get("selection_adjusted_empirical_p_roc_auc", np.nan)]
+                ),
+                errors="coerce",
+            ).iloc[0]
         rows.append(row)
 
     scorecard = pd.DataFrame(rows)
