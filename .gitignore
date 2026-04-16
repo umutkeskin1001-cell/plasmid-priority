@@ -28,6 +28,9 @@ docs/*
 !docs/index.md
 !docs/runbooks/
 !docs/runbooks/**
+docs/superpowers/
+docs/api/
+plans/
 *.egg-info/
 dist/
 build/
