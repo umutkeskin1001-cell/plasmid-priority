@@ -8,6 +8,13 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
+try:
+    import networkx as nx
+
+    _HAS_NETWORKX = True
+except ImportError:  # pragma: no cover
+    _HAS_NETWORKX = False
+
 from plasmid_priority.modeling import annotate_knownness_metadata, evaluate_feature_columns
 from plasmid_priority.utils.dataframe import clean_text_series as _clean_text
 from plasmid_priority.utils.geography import country_to_macro_region
@@ -16,6 +23,7 @@ from plasmid_priority.validation import (
     bootstrap_spearman_ci,
     brier_score,
     expected_calibration_error,
+    fdr_adjust_model_comparison,
     max_calibration_error,
     positive_prevalence,
     roc_auc_score,
@@ -2571,7 +2579,11 @@ def build_mash_similarity_graph_table(
     *,
     split_year: int = 2015,
 ) -> pd.DataFrame:
-    """Collapse Mash nearest-neighbor edges into training-only backbone graph features."""
+    """Collapse Mash nearest-neighbor edges into training-only backbone graph features.
+
+    Includes networkx centrality metrics (degree, betweenness, PageRank, neighborhood risk)
+    when networkx is available.
+    """
     if records.empty or mash_pairs.empty:
         return pd.DataFrame()
     training = records.loc[
@@ -2649,6 +2661,71 @@ def build_mash_similarity_graph_table(
     result["mash_graph_novelty_score"] = (
         1.0 / (1.0 + result["mash_graph_external_neighbor_count"].astype(float))
     ).astype(float)
+
+    # --- networkx centrality metrics (training-only backbone graph) ---
+    if _HAS_NETWORKX and not cross_edges.empty:
+        G = nx.Graph()
+        all_backbones = set(backbone_order)
+        G.add_nodes_from(all_backbones)
+        for _, row in cross_edges.iterrows():
+            left_bb = str(row["left_backbone"])
+            right_bb = str(row["right_backbone"])
+            if left_bb in all_backbones and right_bb in all_backbones:
+                G.add_edge(left_bb, right_bb)
+
+        if G.number_of_nodes() > 0:
+            degree_cent = nx.degree_centrality(G)
+            result["graph_degree_centrality_norm"] = (
+                result["backbone_id"].map(degree_cent).fillna(0.0).astype(float)
+            )
+
+            if G.number_of_nodes() <= 2000:
+                betweenness_cent = nx.betweenness_centrality(G, normalized=True)
+            else:
+                betweenness_cent = nx.betweenness_centrality(
+                    G, normalized=True, k=min(200, G.number_of_nodes()), seed=42
+                )
+            result["graph_betweenness_centrality_norm"] = (
+                result["backbone_id"].map(betweenness_cent).fillna(0.0).astype(float)
+            )
+
+            pagerank_scores = nx.pagerank(G, alpha=0.85, max_iter=200, tol=1e-06)
+            result["graph_pagerank_norm"] = (
+                result["backbone_id"].map(pagerank_scores).fillna(0.0).astype(float)
+            )
+
+            # neighborhood risk: fraction of direct neighbors that have
+            # high external connectivity (top quartile of external_neighbor_count)
+            ext_quantile_75 = float(result["mash_graph_external_neighbor_count"].quantile(0.75))
+            high_connectivity = set(
+                result.loc[
+                    result["mash_graph_external_neighbor_count"] >= ext_quantile_75,
+                    "backbone_id",
+                ]
+                .astype(str)
+                .tolist()
+            )
+            neigh_risk: dict[str, float] = {}
+            for node in G.nodes():
+                neighbors = set(G.neighbors(node))
+                if not neighbors:
+                    neigh_risk[node] = 0.0
+                else:
+                    neigh_risk[node] = float(len(neighbors & high_connectivity)) / len(neighbors)
+            result["graph_neighborhood_risk_norm"] = (
+                result["backbone_id"].map(neigh_risk).fillna(0.0).astype(float)
+            )
+        else:
+            result["graph_degree_centrality_norm"] = 0.0
+            result["graph_betweenness_centrality_norm"] = 0.0
+            result["graph_pagerank_norm"] = 0.0
+            result["graph_neighborhood_risk_norm"] = 0.0
+    else:
+        result["graph_degree_centrality_norm"] = 0.0
+        result["graph_betweenness_centrality_norm"] = 0.0
+        result["graph_pagerank_norm"] = 0.0
+        result["graph_neighborhood_risk_norm"] = 0.0
+
     return result.sort_values(
         ["mash_graph_external_neighbor_count", "mash_graph_edge_count"],
         ascending=[False, False],
@@ -2703,6 +2780,10 @@ def augment_scored_with_structural_audit_features(
         "mash_graph_novelty_score": 0.0,
         "mash_graph_bridge_fraction": 0.0,
         "mash_graph_external_neighbor_count": 0,
+        "graph_degree_centrality_norm": 0.0,
+        "graph_betweenness_centrality_norm": 0.0,
+        "graph_pagerank_norm": 0.0,
+        "graph_neighborhood_risk_norm": 0.0,
     }
     for column, default in default_columns.items():
         if column not in working.columns:
@@ -2828,4 +2909,395 @@ def build_counterfactual_shortlist_comparison(
                 top_k=top_k,
             )
         )
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# FAZ 5: Prospective Simulation & External Validation
+# ---------------------------------------------------------------------------
+
+# Known high-risk plasmid backbone families from the literature
+# Ordered most-specific-first to avoid double-counting (IncFII before IncF)
+_LITERATURE_HIGH_RISK_PATTERNS: list[tuple[str, str]] = [
+    ("IncFII", "ESBL_E_coli"),
+    ("IncF", "ESBL_E_coli"),
+    ("IncI1", "Salmonella_MDR"),
+    ("IncI2", "Salmonella_MDR"),
+    ("IncHI2", "Salmonella_MDR"),
+    ("IncHI1", "Salmonella_MDR"),
+    ("IncA/C", "MDR_Enterobacteriaceae"),
+    ("IncN", "KPC_Klebsiella"),
+    ("IncL/M", "Carbapenemase_Enterobacteriaceae"),
+    ("IncX3", "Carbapenemase_Klebsiella"),
+]
+
+
+def build_rolling_prospective_simulation(
+    scored_temporal: pd.DataFrame,
+    *,
+    model_name: str = "primary",
+) -> pd.DataFrame:
+    """Rolling-origin prospective simulation per split year.
+
+    For each split year, computes ROC AUC on the OOF predictions for that
+    year's fold.  Then performs pairwise DeLong AUC comparisons across years
+    and FDR-adjusts the resulting p-values.
+
+    Args:
+        scored_temporal: DataFrame with ``split_year``, ``oof_prediction``,
+            ``spread_label`` columns.
+        model_name: Name of the model to filter (if ``model_name`` column
+            exists in *scored_temporal*).
+
+    Returns:
+        DataFrame with ``split_year``, ``n_test``, ``n_positive``,
+        ``positive_rate``, ``roc_auc``, ``status``.  A second block of rows
+        (``row_type="pairwise_comparison"``) contains pairwise DeLong
+        FDR-adjusted p-values.
+    """
+    if scored_temporal.empty:
+        return pd.DataFrame()
+    working = scored_temporal.copy()
+    if "model_name" in working.columns:
+        working = working.loc[working["model_name"] == model_name].copy()
+    required = {"split_year", "oof_prediction", "spread_label"}
+    if not required.issubset(working.columns):
+        return pd.DataFrame()
+    working["split_year"] = pd.to_numeric(working["split_year"], errors="coerce")
+    working["oof_prediction"] = pd.to_numeric(working["oof_prediction"], errors="coerce")
+    working["spread_label"] = pd.to_numeric(working["spread_label"], errors="coerce")
+    working = working.loc[
+        working["split_year"].notna()
+        & working["oof_prediction"].notna()
+        & working["spread_label"].notna()
+    ].copy()
+    if working.empty:
+        return pd.DataFrame()
+    working["split_year"] = working["split_year"].astype(int)
+
+    year_rows: list[dict[str, object]] = []
+    year_data: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    for year, frame in working.groupby("split_year", sort=True):
+        y = frame["spread_label"].to_numpy(dtype=float)
+        p = frame["oof_prediction"].to_numpy(dtype=float)
+        n_test = len(y)
+        n_positive = int(y.sum())
+        if n_test < 5 or len(np.unique(y)) < 2:
+            year_rows.append(
+                {
+                    "split_year": int(year),
+                    "n_test": n_test,
+                    "n_positive": n_positive,
+                    "positive_rate": float(n_positive / max(n_test, 1)),
+                    "roc_auc": np.nan,
+                    "status": "skipped_insufficient_label_variation",
+                }
+            )
+            continue
+        auc = float(roc_auc_score(y, p))
+        year_rows.append(
+            {
+                "split_year": int(year),
+                "n_test": n_test,
+                "n_positive": n_positive,
+                "positive_rate": float(n_positive / max(n_test, 1)),
+                "roc_auc": auc,
+                "status": "ok",
+            }
+        )
+        year_data[int(year)] = (y, p)
+
+    result = pd.DataFrame(year_rows)
+    if result.empty:
+        return result
+
+    # Pairwise DeLong AUC comparisons across years
+    comparison_rows: list[dict[str, object]] = []
+    years_sorted = sorted(year_data.keys())
+    if len(years_sorted) >= 2:
+        for i, year_a in enumerate(years_sorted):
+            for year_b in years_sorted[i + 1 :]:
+                y_a, p_a = year_data[year_a]
+                y_b, p_b = year_data[year_b]
+                try:
+                    auc_a_val = float(roc_auc_score(y_a, p_a))
+                    auc_b_val = float(roc_auc_score(y_b, p_b))
+                    # Independent AUC comparison via z-approximation
+                    # (Hanley & McNeil, 1982) — DeLong requires paired samples
+                    n_a, n_b = len(y_a), len(y_b)
+                    # Standard error approximation for independent AUCs
+                    q1_a = auc_a_val / (2 - auc_a_val) if auc_a_val > 0 else 0.0
+                    q2_a = 2 * auc_a_val**2 / (1 + auc_a_val) if auc_a_val > 0 else 0.0
+                    se_a = (
+                        math.sqrt(
+                            (
+                                auc_a_val * (1 - auc_a_val)
+                                + (n_a - 1) * (q1_a - auc_a_val**2)
+                                + (n_a - 1) * (q2_a - auc_a_val**2)
+                            )
+                            / n_a
+                        )
+                        if n_a > 1
+                        else np.nan
+                    )
+                    q1_b = auc_b_val / (2 - auc_b_val) if auc_b_val > 0 else 0.0
+                    q2_b = 2 * auc_b_val**2 / (1 + auc_b_val) if auc_b_val > 0 else 0.0
+                    se_b = (
+                        math.sqrt(
+                            (
+                                auc_b_val * (1 - auc_b_val)
+                                + (n_b - 1) * (q1_b - auc_b_val**2)
+                                + (n_b - 1) * (q2_b - auc_b_val**2)
+                            )
+                            / n_b
+                        )
+                        if n_b > 1
+                        else np.nan
+                    )
+                    if np.isfinite(se_a) and np.isfinite(se_b) and se_a + se_b > 0:
+                        z_stat = (auc_a_val - auc_b_val) / math.sqrt(se_a**2 + se_b**2)
+                        from scipy.stats import norm
+
+                        p_value = float(2 * (1 - norm.cdf(abs(z_stat))))
+                    else:
+                        z_stat = np.nan
+                        p_value = np.nan
+                    comparison_rows.append(
+                        {
+                            "comparison_year_a": int(year_a),
+                            "comparison_year_b": int(year_b),
+                            "auc_a": auc_a_val,
+                            "auc_b": auc_b_val,
+                            "auc_diff": auc_a_val - auc_b_val,
+                            "comparison_z_stat": z_stat,
+                            "comparison_p_value": p_value,
+                        }
+                    )
+                except (ValueError, TypeError, ImportError):
+                    comparison_rows.append(
+                        {
+                            "comparison_year_a": int(year_a),
+                            "comparison_year_b": int(year_b),
+                            "auc_a": np.nan,
+                            "auc_b": np.nan,
+                            "auc_diff": np.nan,
+                            "comparison_z_stat": np.nan,
+                            "comparison_p_value": np.nan,
+                        }
+                    )
+
+        if comparison_rows:
+            comparison_df = pd.DataFrame(comparison_rows)
+            # FDR-adjust p-values
+            p_vals = pd.to_numeric(comparison_df["comparison_p_value"], errors="coerce").to_numpy()
+            valid_mask = np.isfinite(p_vals)
+            if valid_mask.any():
+                try:
+                    fdr_result = fdr_adjust_model_comparison(comparison_df)
+                    if "fdr_adjusted_p_value" in fdr_result.columns:
+                        comparison_df["fdr_adjusted_p_value"] = fdr_result["fdr_adjusted_p_value"]
+                    else:
+                        comparison_df["fdr_adjusted_p_value"] = np.nan
+                except (ValueError, TypeError):
+                    comparison_df["fdr_adjusted_p_value"] = np.nan
+            else:
+                comparison_df["fdr_adjusted_p_value"] = np.nan
+
+            # Combine year-level and comparison-level rows
+            result["row_type"] = "year_summary"
+            comparison_df["row_type"] = "pairwise_comparison"
+            for col in result.columns:
+                if col not in comparison_df.columns:
+                    comparison_df[col] = np.nan
+            for col in comparison_df.columns:
+                if col not in result.columns:
+                    result[col] = np.nan
+            result = pd.concat([result, comparison_df], ignore_index=True, sort=False)
+
+    return result
+
+
+def build_cross_source_validation(
+    scored: pd.DataFrame,
+    predictions: pd.DataFrame,
+    *,
+    model_names: list[str],
+) -> pd.DataFrame:
+    """Cross-source external validation per data source group.
+
+    Uses the ``dominant_source`` column (computed from ``refseq_share_train``)
+    to split backbones into PLSDB-dominant (``insd_leaning``) vs
+    RefSeq-dominant (``refseq_leaning``) groups.  Evaluates OOF predictions
+    within each source group independently.
+
+    Args:
+        scored: DataFrame with ``spread_label`` and ``refseq_share_train``.
+        predictions: DataFrame with ``model_name``, ``backbone_id``,
+            ``oof_prediction``.
+        model_names: List of model names to evaluate.
+
+    Returns:
+        DataFrame with ``model_name``, ``eval_source``, ``n_backbones``,
+        ``n_positive``, ``roc_auc``, ``status``.
+    """
+    if scored.empty or predictions.empty or not model_names:
+        return pd.DataFrame()
+
+    working = scored.copy()
+    if "dominant_source" not in working.columns and "refseq_share_train" in working.columns:
+        working["dominant_source"] = np.where(
+            working["refseq_share_train"].fillna(0.0).astype(float) >= 0.5,
+            "refseq_leaning",
+            "insd_leaning",
+        )
+    if "dominant_source" not in working.columns:
+        return pd.DataFrame()
+
+    eligible = working.loc[working["spread_label"].notna()].copy()
+    if eligible.empty:
+        return pd.DataFrame()
+    eligible["spread_label"] = pd.to_numeric(eligible["spread_label"], errors="coerce")
+
+    rows: list[dict[str, object]] = []
+    for model_name in model_names:
+        model_preds = (
+            predictions.loc[predictions["model_name"] == model_name].copy()
+            if "model_name" in predictions.columns
+            else predictions.copy()
+        )
+        if model_preds.empty:
+            continue
+        model_preds["oof_prediction"] = pd.to_numeric(
+            model_preds["oof_prediction"], errors="coerce"
+        )
+
+        for source_group in ["refseq_leaning", "insd_leaning"]:
+            source_backbones = eligible.loc[
+                eligible["dominant_source"] == source_group, "backbone_id"
+            ]
+            source_eval = model_preds.loc[model_preds["backbone_id"].isin(source_backbones)].copy()
+            if source_eval.empty:
+                continue
+            source_eval = source_eval.merge(
+                eligible[["backbone_id", "spread_label"]].drop_duplicates("backbone_id"),
+                on="backbone_id",
+                how="inner",
+            )
+            y = source_eval["spread_label"].to_numpy(dtype=float)
+            p = source_eval["oof_prediction"].to_numpy(dtype=float)
+            n_backbones = len(y)
+            n_positive = int(y.sum())
+            if n_backbones < 5 or len(np.unique(y)) < 2:
+                rows.append(
+                    {
+                        "model_name": model_name,
+                        "eval_source": source_group,
+                        "n_backbones": n_backbones,
+                        "n_positive": n_positive,
+                        "roc_auc": np.nan,
+                        "status": "skipped_insufficient_label_variation",
+                    }
+                )
+                continue
+            auc = float(roc_auc_score(y, p))
+            rows.append(
+                {
+                    "model_name": model_name,
+                    "eval_source": source_group,
+                    "n_backbones": n_backbones,
+                    "n_positive": n_positive,
+                    "roc_auc": auc,
+                    "status": "ok",
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def build_literature_validation_table(
+    predictions: pd.DataFrame,
+    *,
+    top_k: int = 25,
+    model_name: str = "primary",
+) -> pd.DataFrame:
+    """Check whether known high-risk backbone types appear in model top-k.
+
+    Compares the model's top-k shortlist against known high-risk plasmid
+    backbone families from the literature (IncF/ESBL, IncHI2/MDR, etc.).
+
+    Args:
+        predictions: DataFrame with ``backbone_id``, ``oof_prediction``,
+            and optionally ``model_name``.
+        top_k: Number of top-ranked backbones to consider.
+        model_name: Model name to filter.
+
+    Returns:
+        DataFrame with ``literature_backbone``, ``known_risk_category``,
+        ``in_top_k``, ``rank``, ``oof_prediction``.
+    """
+    empty_result = pd.DataFrame(
+        columns=[
+            "literature_backbone",
+            "known_risk_category",
+            "in_top_k",
+            "rank",
+            "oof_prediction",
+        ]
+    )
+    if predictions.empty:
+        return empty_result
+
+    working = predictions.copy()
+    if "model_name" in working.columns:
+        working = working.loc[working["model_name"] == model_name].copy()
+    if working.empty:
+        return empty_result
+
+    working["oof_prediction"] = pd.to_numeric(working["oof_prediction"], errors="coerce")
+    working = working.loc[working["oof_prediction"].notna()].copy()
+    if working.empty:
+        return empty_result
+
+    working = working.sort_values("oof_prediction", ascending=False).reset_index(drop=True)
+    working["rank"] = range(1, len(working) + 1)
+    top_k_set = set(working.head(top_k)["backbone_id"].astype(str))
+
+    rows: list[dict[str, object]] = []
+    matched_backbone_ids: set[str] = set()
+    for pattern, risk_category in _LITERATURE_HIGH_RISK_PATTERNS:
+        # Letter-boundary to avoid double-counting (IncFII vs IncF) while
+        # still matching underscore-containing IDs like "IncF_001"
+        regex_pattern = rf"(?<![A-Za-z]){pattern}(?![A-Za-z])"
+        mask = (
+            working["backbone_id"]
+            .astype(str)
+            .str.contains(regex_pattern, case=False, na=False, regex=True)
+        )
+        # Exclude backbones already matched by a more-specific pattern
+        mask = mask & ~working["backbone_id"].astype(str).isin(matched_backbone_ids)
+        matching = working.loc[mask]
+        if matching.empty:
+            rows.append(
+                {
+                    "literature_backbone": pattern,
+                    "known_risk_category": risk_category,
+                    "in_top_k": False,
+                    "rank": np.nan,
+                    "oof_prediction": np.nan,
+                }
+            )
+            continue
+        best = matching.iloc[0]
+        bid = str(best["backbone_id"])
+        matched_backbone_ids.add(bid)
+        rows.append(
+            {
+                "literature_backbone": bid,
+                "known_risk_category": risk_category,
+                "in_top_k": bid in top_k_set,
+                "rank": int(best["rank"]),
+                "oof_prediction": float(best["oof_prediction"]),
+            }
+        )
+
     return pd.DataFrame(rows)

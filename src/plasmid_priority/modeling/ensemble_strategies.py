@@ -40,11 +40,11 @@ class MetaSovereignEnsemble:
     def __init__(self, config: EnsembleConfig | None = None):
         self.config = config or EnsembleConfig(
             base_models=[
-                "phylo_support_fusion_priority",
+                "governance_linear",
                 "knownness_robust_priority",
                 "support_synergy_priority",
                 "host_transfer_synergy_priority",
-                "discovery_12f_source",
+                "discovery_boosted",
                 "sovereign_precision_priority",
             ]
         )
@@ -209,8 +209,13 @@ class MetaSovereignEnsemble:
         """Compute AUC-based adaptive weights for each base model."""
         from plasmid_priority.validation.metrics import roc_auc_score
 
+        # Iterate in config order so weights align with base_models
         aucs = []
-        for name, preds in self.base_predictions.items():
+        for model_name in self.config.base_models:
+            preds = self.base_predictions.get(model_name)
+            if preds is None:
+                aucs.append(0.5)
+                continue
             try:
                 auc = roc_auc_score(y, preds)
                 aucs.append(max(0.5, auc))  # Floor at 0.5
@@ -219,19 +224,26 @@ class MetaSovereignEnsemble:
 
         # Softmax weighting
         weights: np.ndarray = np.exp(np.array(aucs) - np.max(aucs))
-        weights = weights / np.sum(weights)
+        total = np.sum(weights)
+        if total <= 0.0:
+            weights = np.ones(len(aucs)) / len(aucs)
+        else:
+            weights = weights / total
 
         return weights
 
     def _estimate_uncertainty(
         self,
-        X: np.ndarray,
+        X: pd.DataFrame,
         y: np.ndarray,
     ) -> np.ndarray:
         """Estimate prediction uncertainty via base-model disagreement."""
-        del X, y
-        if not self.base_predictions:
+        del y  # y not used — uncertainty is from disagreement only
+        if not self.base_predictions and not self.fitted_base_models:
             return np.array([], dtype=float)
+        if self.fitted_base_models:
+            live_preds = self._predict_base_probabilities(X)
+            return self._estimate_uncertainty_from_predictions(live_preds)
         return self._estimate_uncertainty_from_predictions(self.base_predictions)
 
     def predict(
@@ -365,10 +377,14 @@ def create_meta_sovereign_model(
     else:
         raise ValueError(f"Unknown method: {method}")
 
-    # Final calibration
-    calibrator = IsotonicRegression(out_of_bounds="clip")
-    calibrator.fit(preds, y_true)
-    preds_calibrated = calibrator.predict(preds)
+    # Final calibration — only for non-stacking methods to avoid double-dipping.
+    # Stacking/meta-learner already performs its own calibration internally.
+    if method in ("simple_average", "weighted_average"):
+        calibrator = IsotonicRegression(out_of_bounds="clip")
+        calibrator.fit(preds, y_true)
+        preds_calibrated = calibrator.predict(preds)
+    else:
+        preds_calibrated = preds
 
     return {
         "probability": preds_calibrated,

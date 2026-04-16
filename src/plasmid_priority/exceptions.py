@@ -40,6 +40,7 @@ class PlasmidPriorityError(Exception):
 # Data errors
 # ---------------------------------------------------------------------------
 
+
 class DataError(PlasmidPriorityError):
     """Errors related to data loading, validation, or integrity."""
 
@@ -71,6 +72,7 @@ class DataIntegrityError(DataError):
 # ---------------------------------------------------------------------------
 # Model errors
 # ---------------------------------------------------------------------------
+
 
 class ModelError(PlasmidPriorityError):
     """Errors arising during model fitting, calibration, or prediction."""
@@ -107,6 +109,7 @@ class EnsembleError(ModelError):
 # ---------------------------------------------------------------------------
 # Config errors
 # ---------------------------------------------------------------------------
+
 
 class ConfigError(PlasmidPriorityError):
     """Errors related to branch or project configuration."""
@@ -148,6 +151,7 @@ class FeatureSetError(ConfigError):
 # Pipeline errors
 # ---------------------------------------------------------------------------
 
+
 class PipelineError(PlasmidPriorityError):
     """Errors occurring during pipeline orchestration."""
 
@@ -177,6 +181,7 @@ class WorkflowError(PipelineError):
 # ---------------------------------------------------------------------------
 # Provenance errors
 # ---------------------------------------------------------------------------
+
 
 class ProvenanceError(PlasmidPriorityError):
     """Provenance tracking or reproducibility check failed."""

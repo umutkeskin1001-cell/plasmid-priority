@@ -1,5 +1,9 @@
 """Validation metrics and utility functions."""
 
+from plasmid_priority.validation.boundaries import (
+    validate_output_artifact,
+    validate_script_boundary,
+)
 from plasmid_priority.validation.falsification import (
     build_label_shuffle_falsification,
     build_outcome_permutation_falsification,
@@ -51,10 +55,6 @@ from plasmid_priority.validation.schemas import (
     validate_harmonized_plasmids,
     validate_scored_backbones,
     validate_tables_from_paths,
-)
-from plasmid_priority.validation.boundaries import (
-    validate_output_artifact,
-    validate_script_boundary,
 )
 from plasmid_priority.validation.vif import (
     build_vif_audit_table,

@@ -13,6 +13,7 @@ from plasmid_priority.modeling import (
     CONSERVATIVE_MODEL_NAME,
     CORE_MODEL_NAMES,
     FEATURE_PROVENANCE_REGISTRY,
+    GOVERNANCE_MODEL_NAME,
     MODULE_A_FEATURE_SETS,
     MODULE_A_MODEL_TRACKS,
     NOVELTY_SPECIALIST_FEATURES,
@@ -173,7 +174,9 @@ class ModelingTests(unittest.TestCase):
                 "H_breadth_norm": np.clip(priority[::-1] * 0.7, 0.0, 1.0),
                 "H_phylogenetic_norm": np.clip(priority[::-1] * 0.6, 0.0, 1.0),
                 "H_phylogenetic_specialization_norm": 1.0 - np.clip(priority[::-1] * 0.6, 0.0, 1.0),
+                "H_obs_specialization_norm": 1.0 - np.clip(priority[::-1] * 0.6, 0.0, 1.0),
                 "host_taxon_evenness_norm": np.clip(priority[::-1] * 0.55, 0.0, 1.0),
+                "host_phylogenetic_dispersion_norm": np.clip(priority[::-1] * 0.5, 0.0, 1.0),
                 "A_raw_norm": np.clip(priority * 0.8, 0.0, 1.0),
                 "A_recurrence_norm": np.clip(priority * 0.7, 0.0, 1.0),
                 "support_shrinkage_norm": np.clip(priority * 0.95, 0.0, 1.0),
@@ -183,6 +186,21 @@ class ModelingTests(unittest.TestCase):
                 "amr_support_norm_residual": np.linspace(0.25, -0.25, n),
                 "coherence_score": np.clip(priority + 0.05, 0.0, 1.0),
                 "orit_support": np.clip(priority, 0.0, 1.0),
+                "backbone_purity_norm": np.clip(priority * 0.8, 0.0, 1.0),
+                "assignment_confidence_norm": np.clip(priority * 0.7, 0.0, 1.0),
+                "mash_neighbor_distance_train_norm": np.clip(1.0 - priority * 0.5, 0.0, 1.0),
+                "replicon_architecture_norm": np.clip(priority * 0.6, 0.0, 1.0),
+                "clinical_context_fraction_norm": np.clip(priority * 0.4, 0.0, 1.0),
+                "ecology_context_diversity_norm": np.clip(priority * 0.55, 0.0, 1.0),
+                "amr_gene_burden_norm": np.clip(priority * 0.65, 0.0, 1.0),
+                "evolutionary_jump_score_norm": np.clip(priority * 0.5, 0.0, 1.0),
+                "amr_agreement_score": np.clip(priority * 0.7, 0.0, 1.0),
+                "mean_amr_uncertainty_score": np.clip(1.0 - priority * 0.3, 0.0, 1.0),
+                "mash_graph_novelty_score": np.clip(priority * 0.45, 0.0, 1.0),
+                "mash_graph_bridge_fraction": np.clip(priority * 0.3, 0.0, 1.0),
+                "plasmidfinder_complexity_norm": np.clip(priority * 0.5, 0.0, 1.0),
+                "amr_class_richness_norm": np.clip(priority * 0.55, 0.0, 1.0),
+                "pmlst_coherence_norm": np.clip(priority * 0.6, 0.0, 1.0),
                 "H_external_host_range_support": np.clip(priority[::-1], 0.0, 1.0),
                 "pmlst_presence_fraction_train": np.clip(priority * 0.4, 0.0, 1.0),
                 "log1p_member_count_train": np.log1p(rng.integers(1, 10, size=n)),
@@ -194,36 +212,10 @@ class ModelingTests(unittest.TestCase):
         self.assertTrue(set(CORE_MODEL_NAMES).issubset(results))
         self.assertIn("random_score_control", results)
         self.assertIn("label_permutation", results)
-        self.assertIn("full_priority", results)
-        self.assertIn("bio_clean_priority", results)
-        self.assertIn("natural_auc_priority", results)
-        self.assertIn("phylogeny_aware_priority", results)
-        self.assertIn("structured_signal_priority", results)
-        self.assertIn("ecology_clinical_priority", results)
-        self.assertIn("knownness_robust_priority", results)
-        self.assertIn("support_calibrated_priority", results)
-        self.assertIn("support_synergy_priority", results)
-        self.assertIn("monotonic_latent_priority", results)
-        self.assertIn("phylo_support_fusion_priority", results)
-        self.assertIn("host_transfer_synergy_priority", results)
-        self.assertIn("threat_architecture_priority", results)
-        self.assertIn("baseline_both", results)
-        self.assertEqual(len(results["full_priority"].predictions), n)
-        self.assertEqual(len(results["bio_clean_priority"].predictions), n)
-        self.assertEqual(len(results["natural_auc_priority"].predictions), n)
-        self.assertEqual(len(results["phylogeny_aware_priority"].predictions), n)
-        self.assertEqual(len(results["structured_signal_priority"].predictions), n)
-        self.assertEqual(len(results["ecology_clinical_priority"].predictions), n)
-        self.assertEqual(len(results["knownness_robust_priority"].predictions), n)
-        self.assertEqual(len(results["support_calibrated_priority"].predictions), n)
-        self.assertEqual(len(results["support_synergy_priority"].predictions), n)
-        self.assertEqual(len(results["monotonic_latent_priority"].predictions), n)
-        self.assertEqual(len(results["phylo_support_fusion_priority"].predictions), n)
-        self.assertEqual(len(results["host_transfer_synergy_priority"].predictions), n)
-        self.assertEqual(len(results["threat_architecture_priority"].predictions), n)
-        # T6: Verify parsimonious_priority model (bio_clean without H_support_norm_residual)
-        self.assertIn("parsimonious_priority", results)
-        self.assertEqual(len(results["parsimonious_priority"].predictions), n)
+        # Verify all core models produce predictions
+        for model_name in CORE_MODEL_NAMES:
+            self.assertIn(model_name, results)
+            self.assertEqual(len(results[model_name].predictions), n)
         # parsimonious should not use H_support_norm_residual
         self.assertNotIn("H_support_norm_residual", MODULE_A_FEATURE_SETS["parsimonious_priority"])
         self.assertIn(
@@ -446,7 +438,9 @@ class ModelingTests(unittest.TestCase):
                 "H_breadth_norm": np.clip(priority[::-1] * 0.7, 0.0, 1.0),
                 "H_phylogenetic_norm": np.clip(priority[::-1] * 0.6, 0.0, 1.0),
                 "H_phylogenetic_specialization_norm": 1.0 - np.clip(priority[::-1] * 0.6, 0.0, 1.0),
+                "H_obs_specialization_norm": 1.0 - np.clip(priority[::-1] * 0.6, 0.0, 1.0),
                 "host_taxon_evenness_norm": np.clip(priority[::-1] * 0.55, 0.0, 1.0),
+                "host_phylogenetic_dispersion_norm": np.clip(priority[::-1] * 0.5, 0.0, 1.0),
                 "A_raw_norm": np.clip(priority * 0.8, 0.0, 1.0),
                 "A_recurrence_norm": np.clip(priority * 0.7, 0.0, 1.0),
                 "support_shrinkage_norm": np.clip(priority * 0.95, 0.0, 1.0),
@@ -456,6 +450,21 @@ class ModelingTests(unittest.TestCase):
                 "amr_support_norm_residual": np.linspace(0.25, -0.25, n),
                 "coherence_score": np.clip(priority + 0.05, 0.0, 1.0),
                 "orit_support": np.clip(priority, 0.0, 1.0),
+                "backbone_purity_norm": np.clip(priority * 0.8, 0.0, 1.0),
+                "assignment_confidence_norm": np.clip(priority * 0.7, 0.0, 1.0),
+                "mash_neighbor_distance_train_norm": np.clip(1.0 - priority * 0.5, 0.0, 1.0),
+                "replicon_architecture_norm": np.clip(priority * 0.6, 0.0, 1.0),
+                "clinical_context_fraction_norm": np.clip(priority * 0.4, 0.0, 1.0),
+                "ecology_context_diversity_norm": np.clip(priority * 0.55, 0.0, 1.0),
+                "amr_gene_burden_norm": np.clip(priority * 0.65, 0.0, 1.0),
+                "evolutionary_jump_score_norm": np.clip(priority * 0.5, 0.0, 1.0),
+                "amr_agreement_score": np.clip(priority * 0.7, 0.0, 1.0),
+                "mean_amr_uncertainty_score": np.clip(1.0 - priority * 0.3, 0.0, 1.0),
+                "mash_graph_novelty_score": np.clip(priority * 0.45, 0.0, 1.0),
+                "mash_graph_bridge_fraction": np.clip(priority * 0.3, 0.0, 1.0),
+                "plasmidfinder_complexity_norm": np.clip(priority * 0.5, 0.0, 1.0),
+                "amr_class_richness_norm": np.clip(priority * 0.55, 0.0, 1.0),
+                "pmlst_coherence_norm": np.clip(priority * 0.6, 0.0, 1.0),
                 "H_external_host_range_support": np.clip(priority[::-1], 0.0, 1.0),
                 "pmlst_presence_fraction_train": np.clip(priority * 0.4, 0.0, 1.0),
                 "log1p_member_count_train": np.log1p(rng.integers(1, 10, size=n)),
@@ -788,7 +797,9 @@ class ModelingTests(unittest.TestCase):
                 "H_breadth_norm": np.clip(priority[::-1] * 0.7, 0.0, 1.0),
                 "H_phylogenetic_norm": np.clip(priority[::-1] * 0.6, 0.0, 1.0),
                 "H_phylogenetic_specialization_norm": 1.0 - np.clip(priority[::-1] * 0.6, 0.0, 1.0),
+                "H_obs_specialization_norm": 1.0 - np.clip(priority[::-1] * 0.6, 0.0, 1.0),
                 "host_taxon_evenness_norm": np.clip(priority[::-1] * 0.55, 0.0, 1.0),
+                "host_phylogenetic_dispersion_norm": np.clip(priority[::-1] * 0.5, 0.0, 1.0),
                 "A_raw_norm": np.clip(priority * 0.8, 0.0, 1.0),
                 "A_recurrence_norm": np.clip(priority * 0.7, 0.0, 1.0),
                 "support_shrinkage_norm": np.clip(priority * 0.95, 0.0, 1.0),
@@ -798,6 +809,21 @@ class ModelingTests(unittest.TestCase):
                 "amr_support_norm_residual": np.linspace(0.25, -0.25, n),
                 "coherence_score": np.clip(priority + 0.05, 0.0, 1.0),
                 "orit_support": np.clip(priority, 0.0, 1.0),
+                "backbone_purity_norm": np.clip(priority * 0.8, 0.0, 1.0),
+                "assignment_confidence_norm": np.clip(priority * 0.7, 0.0, 1.0),
+                "mash_neighbor_distance_train_norm": np.clip(1.0 - priority * 0.5, 0.0, 1.0),
+                "replicon_architecture_norm": np.clip(priority * 0.6, 0.0, 1.0),
+                "clinical_context_fraction_norm": np.clip(priority * 0.4, 0.0, 1.0),
+                "ecology_context_diversity_norm": np.clip(priority * 0.55, 0.0, 1.0),
+                "amr_gene_burden_norm": np.clip(priority * 0.65, 0.0, 1.0),
+                "evolutionary_jump_score_norm": np.clip(priority * 0.5, 0.0, 1.0),
+                "amr_agreement_score": np.clip(priority * 0.7, 0.0, 1.0),
+                "mean_amr_uncertainty_score": np.clip(1.0 - priority * 0.3, 0.0, 1.0),
+                "mash_graph_novelty_score": np.clip(priority * 0.45, 0.0, 1.0),
+                "mash_graph_bridge_fraction": np.clip(priority * 0.3, 0.0, 1.0),
+                "plasmidfinder_complexity_norm": np.clip(priority * 0.5, 0.0, 1.0),
+                "amr_class_richness_norm": np.clip(priority * 0.55, 0.0, 1.0),
+                "pmlst_coherence_norm": np.clip(priority * 0.6, 0.0, 1.0),
                 "H_external_host_range_support": np.clip(priority[::-1], 0.0, 1.0),
                 "pmlst_presence_fraction_train": np.clip(priority * 0.4, 0.0, 1.0),
                 "log1p_member_count_train": np.log1p(rng.integers(1, 10, size=n)),
@@ -809,7 +835,7 @@ class ModelingTests(unittest.TestCase):
 
         def _evaluate_model_name_side_effect(*args: object, **kwargs: object) -> object:
             model_name = str(kwargs.get("model_name", ""))
-            if model_name == "bio_clean_priority":
+            if model_name == "T_only":
                 raise RuntimeError("forced model failure")
             return original_evaluate_model_name(*args, **kwargs)
 
@@ -829,11 +855,11 @@ class ModelingTests(unittest.TestCase):
             ):
                 results = run_module_a(scored, n_splits=4, n_repeats=2, seed=42, n_jobs=2)
 
-        self.assertIn("bio_clean_priority", results)
-        self.assertEqual(results["bio_clean_priority"].status, "failed")
-        self.assertEqual(results["bio_clean_priority"].metrics, {})
-        self.assertTrue(results["bio_clean_priority"].predictions.empty)
-        self.assertIn("RuntimeError", results["bio_clean_priority"].error_message or "")
+        self.assertIn("T_only", results)
+        self.assertEqual(results["T_only"].status, "failed")
+        self.assertEqual(results["T_only"].metrics, {})
+        self.assertTrue(results["T_only"].predictions.empty)
+        self.assertIn("RuntimeError", results["T_only"].error_message or "")
         self.assertEqual(results["baseline_both"].status, "ok")
         self.assertEqual(len(results["baseline_both"].predictions), n)
 
@@ -1011,12 +1037,12 @@ class ModelingTests(unittest.TestCase):
                 "baseline_both",
                 PRIMARY_MODEL_NAME,
                 "full_priority",
-                "phylo_support_fusion_priority",
+                GOVERNANCE_MODEL_NAME,
             ]
         )
         self.assertEqual(
             model_names,
-            (PRIMARY_MODEL_NAME, "phylo_support_fusion_priority", "baseline_both"),
+            (PRIMARY_MODEL_NAME, GOVERNANCE_MODEL_NAME, "baseline_both"),
         )
 
     def test_knownness_sample_weight_is_order_invariant(self) -> None:
@@ -1229,6 +1255,88 @@ class ModelingTests(unittest.TestCase):
         self.assertLess(float(weights[0]), float(weights[1]))
         self.assertLess(float(weights[0]), float(weights[2]))
 
+    def test_ipw_balanced_gives_higher_weight_to_low_knownness_samples(self) -> None:
+        eligible = pd.DataFrame(
+            {
+                "backbone_id": ["bb_low", "bb_high", "bb_pos_low", "bb_pos_high"],
+                "spread_label": [0, 0, 1, 1],
+                "log1p_member_count_train": [0.1, 3.0, 0.2, 2.8],
+                "log1p_n_countries_train": [0.0, 1.5, 0.1, 1.4],
+                "refseq_share_train": [0.05, 0.95, 0.1, 0.9],
+            }
+        )
+        weights = module_a_impl._compute_sample_weight(eligible, mode="ipw_balanced")
+        assert weights is not None
+        self.assertEqual(len(weights), 4)
+        self.assertTrue(np.isfinite(weights).all())
+        self.assertTrue((weights > 0).all())
+        # Low-knownness negative should have higher weight than high-knownness negative
+        self.assertGreater(float(weights[0]), float(weights[1]))
+
+    def test_ipw_balanced_combines_with_class_balanced(self) -> None:
+        eligible = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(12)],
+                "spread_label": [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1],
+                "log1p_member_count_train": [
+                    0.1,
+                    0.2,
+                    0.3,
+                    2.5,
+                    2.8,
+                    3.0,
+                    0.15,
+                    0.25,
+                    0.1,
+                    0.2,
+                    2.5,
+                    2.8,
+                ],
+                "log1p_n_countries_train": [
+                    0.0,
+                    0.1,
+                    0.2,
+                    1.0,
+                    1.2,
+                    1.5,
+                    0.05,
+                    0.15,
+                    0.0,
+                    0.1,
+                    1.0,
+                    1.2,
+                ],
+                "refseq_share_train": [
+                    0.05,
+                    0.1,
+                    0.15,
+                    0.8,
+                    0.9,
+                    0.95,
+                    0.03,
+                    0.08,
+                    0.05,
+                    0.1,
+                    0.8,
+                    0.9,
+                ],
+            }
+        )
+        weights_combined = module_a_impl._compute_sample_weight(
+            eligible, mode="class_balanced+ipw_balanced"
+        )
+        weights_class_only = module_a_impl._compute_sample_weight(eligible, mode="class_balanced")
+        weights_ipw_only = module_a_impl._compute_sample_weight(eligible, mode="ipw_balanced")
+        assert weights_combined is not None
+        assert weights_class_only is not None
+        assert weights_ipw_only is not None
+        self.assertEqual(len(weights_combined), 12)
+        self.assertTrue(np.isfinite(weights_combined).all())
+        self.assertTrue((weights_combined > 0).all())
+        # Combined weights should differ from either token alone
+        self.assertFalse(np.allclose(weights_combined, weights_class_only))
+        self.assertFalse(np.allclose(weights_combined, weights_ipw_only))
+
     def test_graph_evidence_priority_can_score_structural_columns(self) -> None:
         rng = np.random.default_rng(313)
         n = 30
@@ -1270,6 +1378,222 @@ class ModelingTests(unittest.TestCase):
         self.assertEqual(len(result.predictions), n)
         self.assertIn("oof_prediction", result.predictions.columns)
         self.assertTrue(result.predictions["oof_prediction"].between(0.0, 1.0).all())
+
+    def test_lightgbm_classifier_fit_and_predict(self) -> None:
+        """_fit_lightgbm_classifier should produce a model with predict_proba."""
+        rng = np.random.default_rng(42)
+        n = 60
+        X = rng.uniform(0, 1, size=(n, 4))
+        y = (X[:, 0] > 0.5).astype(int)
+        model = module_a_impl._fit_lightgbm_classifier(
+            X, y, fit_kwargs={"n_estimators": 20, "max_depth": 3, "verbose": -1}
+        )
+        self.assertTrue(hasattr(model, "predict_proba"))
+        proba = model.predict_proba(X)
+        self.assertEqual(proba.shape, (n, 2))
+        self.assertTrue(np.all(proba >= 0) and np.all(proba <= 1))
+
+    def test_oof_lightgbm_predictions_returns_well_formed_output(self) -> None:
+        """_oof_lightgbm_predictions_from_eligible should return OOF preds without standardization."""
+        rng = np.random.default_rng(77)
+        n = 50
+        eligible = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "spread_label": rng.choice([0, 1], size=n),
+                "T_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_specialization_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "coherence_score": rng.uniform(0.1, 0.9, size=n),
+                "orit_support": rng.uniform(0, 1, size=n),
+                "log1p_member_count_train": rng.uniform(0.1, 2.0, size=n),
+                "log1p_n_countries_train": rng.uniform(0.1, 1.5, size=n),
+                "refseq_share_train": rng.uniform(0.0, 1.0, size=n),
+            }
+        )
+        columns = [
+            "T_eff_norm",
+            "H_specialization_norm",
+            "A_eff_norm",
+            "coherence_score",
+            "orit_support",
+        ]
+        preds, y = module_a_impl._oof_lightgbm_predictions_from_eligible(
+            eligible,
+            columns=columns,
+            n_splits=3,
+            n_repeats=1,
+            seed=42,
+            fit_kwargs={"n_estimators": 20, "max_depth": 3},
+        )
+        self.assertEqual(len(preds), n)
+        self.assertEqual(len(y), n)
+        self.assertTrue(np.isfinite(preds).all())
+        self.assertTrue((preds >= 0).all() and (preds <= 1).all())
+
+    def test_oof_predictions_routes_lightgbm_model_type(self) -> None:
+        """_oof_predictions_from_eligible should route model_type='lightgbm' correctly."""
+        rng = np.random.default_rng(88)
+        n = 40
+        eligible = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "spread_label": rng.choice([0, 1], size=n),
+                "T_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_specialization_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "coherence_score": rng.uniform(0.1, 0.9, size=n),
+                "orit_support": rng.uniform(0, 1, size=n),
+                "log1p_member_count_train": rng.uniform(0.1, 2.0, size=n),
+                "log1p_n_countries_train": rng.uniform(0.1, 1.5, size=n),
+                "refseq_share_train": rng.uniform(0.0, 1.0, size=n),
+            }
+        )
+        columns = [
+            "T_eff_norm",
+            "H_specialization_norm",
+            "A_eff_norm",
+            "coherence_score",
+            "orit_support",
+        ]
+        preds, y = module_a_impl._oof_predictions_from_eligible(
+            eligible,
+            columns=columns,
+            n_splits=3,
+            n_repeats=1,
+            seed=42,
+            fit_kwargs={"model_type": "lightgbm", "n_estimators": 20, "max_depth": 3},
+        )
+        self.assertEqual(len(preds), n)
+        self.assertTrue(np.isfinite(preds).all())
+        self.assertTrue((preds >= 0).all() and (preds <= 1).all())
+
+    def test_compute_shap_tree_values_with_lightgbm(self) -> None:
+        """compute_shap_tree_values should return exact SHAP values for LightGBM."""
+        rng = np.random.default_rng(99)
+        n = 80
+        X_df = pd.DataFrame(
+            {
+                "T_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_specialization_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "coherence_score": rng.uniform(0.1, 0.9, size=n),
+            }
+        )
+        y = (X_df["T_eff_norm"] > 0.5).astype(int).to_numpy()
+        model = module_a_impl._fit_lightgbm_classifier(
+            X_df.to_numpy(), y, fit_kwargs={"n_estimators": 20, "max_depth": 3}
+        )
+        from plasmid_priority.modeling.shap_explainer import compute_shap_tree_values
+
+        result = compute_shap_tree_values(model, X_df)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(len(result["feature_names"]), 4)
+        self.assertEqual(result["shap_values"].shape, (n, 4))
+        self.assertIsInstance(result["base_value"], float)
+
+    def test_build_global_feature_importance_from_tree_shap(self) -> None:
+        """build_global_feature_importance should rank features by mean |SHAP|."""
+        rng = np.random.default_rng(99)
+        n = 80
+        X_df = pd.DataFrame(
+            {
+                "T_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_specialization_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "coherence_score": rng.uniform(0.1, 0.9, size=n),
+            }
+        )
+        y = (X_df["T_eff_norm"] > 0.5).astype(int).to_numpy()
+        model = module_a_impl._fit_lightgbm_classifier(
+            X_df.to_numpy(), y, fit_kwargs={"n_estimators": 20, "max_depth": 3}
+        )
+        from plasmid_priority.modeling.shap_explainer import (
+            build_global_feature_importance,
+            compute_shap_tree_values,
+        )
+
+        shap_result = compute_shap_tree_values(model, X_df)
+        importance = build_global_feature_importance(shap_result)
+        self.assertEqual(len(importance), 4)
+        self.assertIn("feature", importance.columns)
+        self.assertIn("mean_abs_shap", importance.columns)
+        self.assertIn("direction", importance.columns)
+        # Should be sorted descending
+        self.assertTrue((importance["mean_abs_shap"].diff().dropna() <= 0).all())
+
+    def test_fit_global_lightgbm_model(self) -> None:
+        """fit_global_lightgbm_model should fit a single model for interpretability."""
+        rng = np.random.default_rng(42)
+        n = 60
+        eligible = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "spread_label": rng.choice([0, 1], size=n),
+                "T_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_specialization_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_eff_norm": rng.uniform(0.1, 0.9, size=n),
+            }
+        )
+        columns = ["T_eff_norm", "H_specialization_norm", "A_eff_norm"]
+        from plasmid_priority.modeling.shap_explainer import fit_global_lightgbm_model
+
+        result = fit_global_lightgbm_model(
+            eligible, columns, fit_kwargs={"n_estimators": 20, "max_depth": 3}
+        )
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(hasattr(result["model"], "predict_proba"))
+        self.assertEqual(result["feature_names"], columns)
+        self.assertEqual(result["X"].shape, (n, 3))
+
+    def test_build_shap_dependence_data(self) -> None:
+        """build_shap_dependence_data should return dependence plot data for top features."""
+        rng = np.random.default_rng(99)
+        n = 80
+        X_df = pd.DataFrame(
+            {
+                "T_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "H_specialization_norm": rng.uniform(0.1, 0.9, size=n),
+                "A_eff_norm": rng.uniform(0.1, 0.9, size=n),
+                "coherence_score": rng.uniform(0.1, 0.9, size=n),
+            }
+        )
+        y = (X_df["T_eff_norm"] > 0.5).astype(int).to_numpy()
+        model = module_a_impl._fit_lightgbm_classifier(
+            X_df.to_numpy(), y, fit_kwargs={"n_estimators": 20, "max_depth": 3}
+        )
+        from plasmid_priority.modeling.shap_explainer import (
+            build_shap_dependence_data,
+            compute_shap_tree_values,
+        )
+
+        shap_result = compute_shap_tree_values(model, X_df)
+        dep_data = build_shap_dependence_data(shap_result, X_df, top_features=3)
+        self.assertEqual(len(dep_data), 3)
+        for entry in dep_data:
+            self.assertIn("feature", entry)
+            self.assertIn("feature_values", entry)
+            self.assertIn("shap_values", entry)
+            self.assertIn("interaction_feature", entry)
+            self.assertEqual(len(entry["feature_values"]), n)
+            self.assertEqual(len(entry["shap_values"]), n)
+
+    def test_shap_functions_return_skipped_when_unavailable(self) -> None:
+        """SHAP functions should return skipped status when shap is not available."""
+        from plasmid_priority.modeling import shap_explainer as se
+
+        # Monkey-patch to simulate missing shap
+        original = se.SHAP_AVAILABLE
+        try:
+            se.SHAP_AVAILABLE = False
+            result = se.compute_shap_tree_values(None, pd.DataFrame())
+            self.assertEqual(result["status"], "skipped")
+            result = se.compute_shap_interactions(None, pd.DataFrame())
+            self.assertEqual(result["status"], "skipped")
+            result = se.build_shap_dependence_data({"status": "skipped"}, pd.DataFrame())
+            self.assertEqual(result, [])
+        finally:
+            se.SHAP_AVAILABLE = original
 
 
 if __name__ == "__main__":

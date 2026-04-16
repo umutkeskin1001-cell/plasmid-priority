@@ -61,4 +61,3 @@ def sample_model_result() -> dict[str, object]:
     from plasmid_priority.modeling.module_a_support import build_failed_model_result
 
     return build_failed_model_result("test_model", "test error")
-

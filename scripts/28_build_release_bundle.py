@@ -112,10 +112,10 @@ def _release_protocol(context) -> ScientificProtocol:
     pipeline = (
         dict(config.get("pipeline", {})) if isinstance(config.get("pipeline", {}), dict) else {}
     )
-    models.setdefault("primary_model_name", "discovery_12f_source")
+    models.setdefault("primary_model_name", "discovery_boosted")
     models.setdefault("primary_model_fallback", "parsimonious_priority")
     models.setdefault("conservative_model_name", "parsimonious_priority")
-    models.setdefault("governance_model_name", "phylo_support_fusion_priority")
+    models.setdefault("governance_model_name", "governance_linear")
     models.setdefault("governance_model_fallback", "support_synergy_priority")
     core_model_names = [
         str(name) for name in models.get("core_model_names", []) if str(name).strip()
@@ -201,9 +201,7 @@ def _build_release_info(context_root: Path) -> str:
     chosen_model_name = str(decision_row.get("official_model_name", "") or "").strip()
     primary = metrics.loc[metrics["model_name"].astype(str) == chosen_model_name].head(1)
     if primary.empty:
-        primary = metrics.loc[
-            metrics["model_name"].astype(str) == "phylo_support_fusion_priority"
-        ].head(1)
+        primary = metrics.loc[metrics["model_name"].astype(str) == "discovery_boosted"].head(1)
     if primary.empty:
         primary = metrics.sort_values("roc_auc", ascending=False).head(1)
     row = primary.iloc[0]

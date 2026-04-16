@@ -73,7 +73,7 @@ def main() -> int:
 
         # Validate discovery contract
         primary_model_name = str(
-            context.model_settings.get("primary_model_name", "discovery_12f_source")
+            context.model_settings.get("primary_model_name", "discovery_boosted")
         )
         conservative_model_name = str(
             get_conservative_model_name(context.config if isinstance(context.config, dict) else {})

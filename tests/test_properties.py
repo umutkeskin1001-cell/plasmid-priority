@@ -18,12 +18,8 @@ from plasmid_priority.utils.dataframe import coalescing_left_merge
 @st.composite
 def _merge_case(draw) -> tuple[pd.DataFrame, pd.DataFrame]:
     keys = list(range(6))
-    left_keys = draw(
-        st.lists(st.sampled_from(keys), min_size=1, max_size=12)
-    )
-    right_keys = draw(
-        st.lists(st.sampled_from(keys), unique=True, min_size=1, max_size=6)
-    )
+    left_keys = draw(st.lists(st.sampled_from(keys), min_size=1, max_size=12))
+    right_keys = draw(st.lists(st.sampled_from(keys), unique=True, min_size=1, max_size=6))
     optional_text = st.one_of(st.none(), st.text(min_size=1, max_size=3))
     left_shared = draw(st.lists(optional_text, min_size=len(left_keys), max_size=len(left_keys)))
     left_extra = draw(st.lists(optional_text, min_size=len(left_keys), max_size=len(left_keys)))

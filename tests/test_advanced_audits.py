@@ -13,6 +13,7 @@ from plasmid_priority.reporting.advanced_audits import (
     build_count_outcome_alignment,
     build_counterfactual_shortlist_comparison,
     build_country_missingness_bounds,
+    build_cross_source_validation,
     build_duplicate_completeness_change_audit,
     build_event_timing_outcomes,
     build_exposure_adjusted_event_table,
@@ -20,6 +21,7 @@ from plasmid_priority.reporting.advanced_audits import (
     build_false_negative_audit,
     build_geographic_jump_distance_table,
     build_knownness_matched_validation,
+    build_literature_validation_table,
     build_macro_region_jump_table,
     build_mash_similarity_graph_table,
     build_matched_stratum_propensity_audit,
@@ -28,6 +30,7 @@ from plasmid_priority.reporting.advanced_audits import (
     build_nonlinear_deconfounding_audit,
     build_operational_risk_dictionary,
     build_ordinal_outcome_alignment,
+    build_rolling_prospective_simulation,
     build_secondary_outcome_performance,
 )
 
@@ -311,6 +314,94 @@ class AdvancedAuditTests(unittest.TestCase):
         self.assertEqual(str(weighted["status"]), "ok")
         self.assertIn("ipw_risk_difference", result.columns)
         self.assertGreaterEqual(float(weighted["treated_outcome_ipw"]), 0.0)
+
+    def test_build_rolling_prospective_simulation_returns_per_year_auc(self) -> None:
+        """build_rolling_prospective_simulation should return AUC per split year."""
+        rng = np.random.default_rng(42)
+        n_per_year = 60
+        rows = []
+        for year in [2012, 2014, 2016]:
+            for i in range(n_per_year):
+                rows.append(
+                    {
+                        "backbone_id": f"bb_{year}_{i}",
+                        "split_year": year,
+                        "oof_prediction": rng.uniform(0, 1),
+                        "spread_label": rng.choice([0, 1]),
+                    }
+                )
+        df = pd.DataFrame(rows)
+        result = build_rolling_prospective_simulation(df)
+        self.assertGreater(len(result), 0)
+        year_rows = result[result["row_type"] == "year_summary"]
+        self.assertEqual(len(year_rows), 3)
+        for _, row in year_rows.iterrows():
+            self.assertIn(row["status"], ["ok", "skipped_insufficient_label_variation"])
+            if row["status"] == "ok":
+                self.assertTrue(0.0 <= float(row["roc_auc"]) <= 1.0)
+
+    def test_build_rolling_prospective_simulation_empty_input(self) -> None:
+        """build_rolling_prospective_simulation should return empty for empty input."""
+        result = build_rolling_prospective_simulation(pd.DataFrame())
+        self.assertTrue(result.empty)
+
+    def test_build_cross_source_validation_returns_source_breakdown(self) -> None:
+        """build_cross_source_validation should return AUC per source group."""
+        rng = np.random.default_rng(77)
+        n = 80
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "spread_label": rng.choice([0, 1], size=n),
+                "refseq_share_train": np.where(rng.uniform(0, 1, size=n) >= 0.5, 0.8, 0.2),
+            }
+        )
+        predictions = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "model_name": "primary",
+                "oof_prediction": rng.uniform(0, 1, size=n),
+            }
+        )
+        result = build_cross_source_validation(scored, predictions, model_names=["primary"])
+        self.assertGreater(len(result), 0)
+        self.assertIn("eval_source", result.columns)
+        sources = set(result["eval_source"])
+        self.assertTrue(sources.issubset({"refseq_leaning", "insd_leaning"}))
+
+    def test_build_cross_source_validation_empty_input(self) -> None:
+        """build_cross_source_validation should return empty for empty inputs."""
+        result = build_cross_source_validation(pd.DataFrame(), pd.DataFrame(), model_names=[])
+        self.assertTrue(result.empty)
+
+    def test_build_literature_validation_table_matches_known_risk(self) -> None:
+        """build_literature_validation_table should detect IncF and other patterns."""
+        rng = np.random.default_rng(99)
+        n = 50
+        preds = pd.DataFrame(
+            {
+                "backbone_id": [
+                    f"IncF-{i}" if i < 5 else f"IncHI2-{i - 5}" if i < 10 else f"other-{i}"
+                    for i in range(n)
+                ],
+                "oof_prediction": rng.uniform(0, 1, size=n),
+                "model_name": "primary",
+            }
+        )
+        result = build_literature_validation_table(preds, top_k=15, model_name="primary")
+        self.assertGreater(len(result), 0)
+        self.assertIn("literature_backbone", result.columns)
+        self.assertIn("known_risk_category", result.columns)
+        self.assertIn("in_top_k", result.columns)
+        # At least one IncF should be matched
+        incf_rows = result[result["known_risk_category"] == "ESBL_E_coli"]
+        self.assertGreater(len(incf_rows), 0)
+
+    def test_build_literature_validation_table_empty_input(self) -> None:
+        """build_literature_validation_table should return empty for empty input."""
+        result = build_literature_validation_table(pd.DataFrame())
+        self.assertEqual(len(result), 0)
+        self.assertIn("literature_backbone", result.columns)
 
     def test_build_confirmatory_cohort_summary_returns_internal_cohort_metrics(self) -> None:
         scored = pd.DataFrame(

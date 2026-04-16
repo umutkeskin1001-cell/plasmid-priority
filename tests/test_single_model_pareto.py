@@ -26,17 +26,15 @@ class SingleModelParetoTests(unittest.TestCase):
         names = set(family["model_name"].astype(str))
         self.assertTrue(
             {
-                "phylo_support_fusion_priority",
-                "discovery_12f_source",
+                "discovery_boosted",
+                "governance_linear",
                 "support_synergy_priority",
                 "knownness_robust_priority",
                 "parsimonious_priority",
             }.issubset(names)
         )
-        self.assertTrue(
-            any(name.startswith("phylo_support_fusion_priority__pruned") for name in names)
-        )
-        self.assertTrue(any(name.startswith("discovery_12f_source__pruned") for name in names))
+        self.assertTrue(any(name.startswith("discovery_boosted__pruned") for name in names))
+        self.assertTrue(any(name.startswith("governance_linear__pruned") for name in names))
         self.assertTrue(any(name.startswith("support_synergy_priority__pruned") for name in names))
         self.assertTrue(any(name.startswith("knownness_robust_priority__pruned") for name in names))
         self.assertTrue(any(name.startswith("parsimonious_priority__pruned") for name in names))

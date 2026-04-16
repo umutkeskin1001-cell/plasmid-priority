@@ -64,7 +64,9 @@ class ConsensusFuseTests(unittest.TestCase):
         )
         fused = build_operational_consensus_frame(frame)
         self.assertGreater(float(fused.loc[1, "consensus_uncertainty"]), 0.0)
-        self.assertLessEqual(float(fused.loc[1, "consensus_score_lower"]), float(fused.loc[1, "consensus_score"]))
+        self.assertLessEqual(
+            float(fused.loc[1, "consensus_score_lower"]), float(fused.loc[1, "consensus_score"])
+        )
 
     def test_merge_branch_predictions_aligns_on_backbone_id(self) -> None:
         geo = pd.DataFrame(

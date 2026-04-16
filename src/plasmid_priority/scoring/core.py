@@ -626,7 +626,7 @@ def build_scored_backbone_table(
     scored = scored.merge(feature_a, on="backbone_id", how="left", validate="1:1")
 
     if "member_count_train_feature_t" in scored.columns:
-        scored = scored.drop(columns=["member_count_train_feature_t"])
+        scored = scored.drop(columns=["member_count_train_feature_t"], errors="ignore")
     scored = scored.copy()
     if "backbone_assignment_mode" not in scored.columns:
         scored["backbone_assignment_mode"] = "training_only"

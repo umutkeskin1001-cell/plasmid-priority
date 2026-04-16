@@ -462,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
             column
             for model_name in [
                 "baseline_both",
-                "bio_clean_priority",
+                "discovery_boosted",
                 "natural_auc_priority",
                 "knownness_robust_priority",
                 "host_transfer_synergy_priority",

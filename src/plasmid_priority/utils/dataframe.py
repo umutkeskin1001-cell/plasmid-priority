@@ -79,8 +79,10 @@ def coalescing_left_merge(
         for column in right.columns:
             if column == on:
                 continue
-            incoming = key_values.map(keyed[column]) if column in keyed.columns else pd.Series(
-                index=merged.index, dtype=keyed.dtypes.get(column, "object")
+            incoming = (
+                key_values.map(keyed[column])
+                if column in keyed.columns
+                else pd.Series(index=merged.index, dtype=keyed.dtypes.get(column, "object"))
             )
             if column in merged.columns:
                 merged[column] = merged[column].where(merged[column].notna(), incoming)

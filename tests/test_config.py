@@ -74,10 +74,11 @@ class ConfigTests(unittest.TestCase):
     def test_project_config_declares_governance_track(self) -> None:
         context = build_context()
         models = context.config["models"]
-        self.assertEqual(models["primary_model_name"], "discovery_12f_source")
+        self.assertEqual(models["primary_model_name"], "discovery_boosted")
         self.assertEqual(models["conservative_model_name"], "parsimonious_priority")
-        self.assertEqual(models["governance_model_name"], "phylo_support_fusion_priority")
+        self.assertEqual(models["governance_model_name"], "governance_linear")
         self.assertEqual(models["governance_model_fallback"], "support_synergy_priority")
+        # Research model fit_config should be available via layered merge
         self.assertEqual(
             models["fit_config"]["regime_stability_priority"]["preprocess_alpha"], "auto"
         )
@@ -87,6 +88,35 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(
             bool(models["fit_config"]["regime_stability_priority"]["preprocess_alpha_grouped"])
         )
+
+    def test_layered_config_merge_research_and_benchmarks(self) -> None:
+        """FAZ 6: Verify config.yaml + config/research_models.yaml + config/benchmarks.yaml merge correctly."""
+        context = build_context()
+        models = context.config["models"]
+        # Core models present
+        self.assertIn("baseline_both", models["core_model_names"])
+        self.assertIn("governance_linear", models["core_model_names"])
+        self.assertIn("discovery_boosted", models["core_model_names"])
+        self.assertIn("discovery_graph_boosted", models["core_model_names"])
+        # Official discovery models must use discovery-track features
+        self.assertIn("parsimonious_priority", models["feature_sets"])
+        # Official governance fallback must have governance features
+        self.assertIn("support_synergy_priority", models["feature_sets"])
+        # Research models present via merge
+        self.assertGreater(len(models.get("research_model_names", [])), 0)
+        # Feature sets for both core and research models
+        self.assertIn("baseline_both", models["feature_sets"])
+        self.assertIn("governance_linear", models["feature_sets"])
+        self.assertIn("regime_stability_priority", models["feature_sets"])
+        self.assertIn("parsimonious_priority", models["feature_sets"])
+        # Ablation trimmed to 4
+        self.assertEqual(len(models["ablation_model_names"]), 4)
+        # Benchmark sections present via merge
+        cfg = context.project_config.model_dump()
+        self.assertIn("geo_spread", cfg)
+        self.assertIn("bio_transfer", cfg)
+        self.assertIn("clinical_hazard", cfg)
+        self.assertIn("consensus", cfg)
 
     def test_load_project_config_merges_layered_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -43,7 +43,7 @@ def test_protocol_snapshot_includes_single_model_selection_weights() -> None:
 
     snapshot = build_protocol_snapshot(protocol)
 
-    assert snapshot["benchmark_contract_version"] == "2026-04-10"
+    assert snapshot["benchmark_contract_version"] == "2025-07-15"
     assert snapshot["benchmark_scope"]["split_year"] == 2015
     assert snapshot["benchmark_scope"]["required_assignment_mode"] == "training_only"
     assert snapshot["benchmark_scope"]["accepted_audit_gates"] == [
@@ -69,7 +69,7 @@ def test_release_manifest_includes_provenance_fields() -> None:
     assert provenance["git_commit"] != ""
     assert provenance["python_version"] != ""
     assert provenance["project_version"] != ""
-    assert provenance["benchmark_contract_version"] == "2026-04-10"
+    assert provenance["benchmark_contract_version"] == "2025-07-15"
     assert provenance["benchmark_scope"]["split_year"] == protocol.split_year
     assert provenance["benchmark_contract_hash"] != ""
     assert provenance["scientific_acceptance_status"] != ""

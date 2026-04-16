@@ -32,10 +32,10 @@ def _load_project_config() -> dict:
 _project_config_local = threading.local()
 
 _DEFAULT_MODEL_CONFIG = {
-    "primary_model_name": "bio_clean_priority",
+    "primary_model_name": "discovery_boosted",
     "primary_model_fallback": "parsimonious_priority",
     "conservative_model_name": "parsimonious_priority",
-    "governance_model_name": "phylo_support_fusion_priority",
+    "governance_model_name": "governance_linear",
     "governance_model_fallback": "support_synergy_priority",
     "feature_sets": {},
     "core_model_names": (),
@@ -56,10 +56,10 @@ _EXACT_COMPLEMENT_FEATURE_PAIRS: tuple[tuple[str, str], ...] = (
 _BAYESIAN_CI_Z = 1.959963984540054
 
 SINGLE_MODEL_PARETO_PARENT_MODEL_NAMES: tuple[str, ...] = (
-    "phylo_support_fusion_priority",
+    "discovery_boosted",
+    "governance_linear",
     "sovereign_precision_priority",
     "sovereign_v2_priority",
-    "discovery_12f_source",
     "support_synergy_priority",
     "knownness_robust_priority",
     "parsimonious_priority",

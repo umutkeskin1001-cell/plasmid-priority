@@ -4,9 +4,12 @@ from plasmid_priority.reporting.advanced_audits import (
     augment_scored_with_structural_audit_features,
     build_confirmatory_cohort_summary,
     build_consensus_shortlist,
+    build_cross_source_validation,
     build_false_negative_audit,
+    build_literature_validation_table,
     build_matched_stratum_propensity_audit,
     build_operational_risk_dictionary,
+    build_rolling_prospective_simulation,
 )
 from plasmid_priority.reporting.amrfinder_support import (
     build_amrfinder_concordance_tables,
@@ -134,6 +137,9 @@ __all__ = [
     "build_calibration_metric_table",
     "build_component_floor_diagnostics",
     "build_confirmatory_cohort_summary",
+    "build_cross_source_validation",
+    "build_literature_validation_table",
+    "build_rolling_prospective_simulation",
     "build_epv_audit_table",
     "compute_epv_for_model",
     "summarize_epv_concerns",

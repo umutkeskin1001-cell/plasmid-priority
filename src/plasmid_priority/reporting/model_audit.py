@@ -201,8 +201,8 @@ def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
         ),
         (
             "parsimonious_priority",
-            "legacy_published_primary",
-            "support-adjusted T/H/A plus coherence; retained as the legacy interpretable benchmark",
+            "legacy_published_conservative_fallback",
+            "support-adjusted T/H/A plus coherence; retained as the legacy interpretable benchmark and conservative fallback",
         ),
         (
             "natural_auc_priority",
@@ -253,6 +253,16 @@ def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
             "phylo_support_fusion_priority",
             "published_primary",
             "support-synergy biological core plus phylogenetically augmented host specialization, host dispersion, explicit replicon multiplicity, and orthogonal PlasmidFinder structure/support; chosen as the current primary benchmark",
+        ),
+        (
+            "governance_linear",
+            "governance_linear_primary",
+            "T/H/A biological core plus PlasmidFinder complexity, AMR class richness, pMLST coherence, and host-support composites for calibrated risk governance; current governance baseline",
+        ),
+        (
+            "discovery_boosted",
+            "discovery_boosted_primary",
+            "augmented biological core plus external host-range, backbone purity, assignment confidence, mash-based novelty, replicon architecture, and gradient-boosted integration; current primary discovery model",
         ),
         (
             "host_transfer_synergy_priority",

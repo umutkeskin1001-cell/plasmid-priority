@@ -38,11 +38,40 @@ def _extract_xy(
     scored: pd.DataFrame,
     label_col: str = "spread_label",
 ) -> tuple[pd.DataFrame, pd.Series]:
-    """Extract feature matrix X and label vector y from scored table."""
+    """Extract feature matrix X and label vector y from scored table.
+
+    Drops non-feature columns (labels, IDs, metadata) so that only
+    genuine numeric features remain in X.
+    """
     if label_col not in scored.columns:
         raise KeyError(f"Label column '{label_col}' not found")
     y = scored[label_col].astype(float)
-    drop_cols = [c for c in scored.columns if c in (label_col, "backbone_id", "knownness_score")]
+    # Non-feature columns that must be excluded even though they are numeric.
+    # ⚠ FRAGILE: new outcome/metadata columns added elsewhere must be added here
+    #   too.  Prefer deriving features from the configured feature_sets when
+    #   the model name is available.
+    _NON_FEATURE_COLUMNS = frozenset({
+        label_col,
+        "backbone_id",
+        "knownness_score",
+        "member_count_band",
+        "country_count_band",
+        "source_band",
+        "knownness_half",
+        "knownness_quartile",
+        "knownness_quartile_supported",
+        "split_year",
+        "n_new_countries",
+        "n_new_countries_future",
+        "future_new_host_genera_count",
+        "future_new_host_families_count",
+        "clinical_fraction_future",
+        "last_resort_fraction_future",
+        "mdr_proxy_fraction_future",
+        "pd_clinical_support_future",
+        "training_only_future_unseen_backbone_flag",
+    })
+    drop_cols = [c for c in scored.columns if c in _NON_FEATURE_COLUMNS]
     X = scored.drop(columns=drop_cols).select_dtypes(include="number")
     return X, y
 
@@ -59,6 +88,9 @@ def evaluate_lightgbm(
 
     Returns a ``ModelResult`` with ``status="skipped"`` if LightGBM is
     not installed.
+
+    Uses out-of-fold predictions to avoid data leakage — the reported
+    metrics reflect generalisation performance, not training-set fit.
     """
     if not LIGHTGBM_AVAILABLE:
         return ModelResult(
@@ -69,7 +101,11 @@ def evaluate_lightgbm(
             error_message="lightgbm not installed",
         )
 
-    from sklearn.model_selection import StratifiedKFold, cross_val_score
+    from sklearn.model_selection import (
+        RepeatedStratifiedKFold,
+        StratifiedKFold,
+        cross_validate,
+    )
 
     try:
         X, y = _extract_xy(scored)
@@ -85,14 +121,27 @@ def evaluate_lightgbm(
         default_params.update(params or {})
 
         clf = lgb.LGBMClassifier(**default_params)
-        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
+        # Repeated CV for stable metric estimates
+        cv_repeated = RepeatedStratifiedKFold(
+            n_splits=n_splits, n_repeats=n_repeats, random_state=seed,
+        )
+        cv_results = cross_validate(
+            clf, X, y, cv=cv_repeated,
+            scoring={"roc_auc": "roc_auc", "ap": "average_precision"},
+            return_estimator=False,
+        )
+        aucs = cv_results["test_roc_auc"]
+        aps = cv_results["test_ap"]
 
-        aucs = cross_val_score(clf, X, y, cv=cv, scoring="roc_auc")
-        aps = cross_val_score(clf, X, y, cv=cv, scoring="average_precision")
-
-        clf.fit(X, y)
-        preds = clf.predict_proba(X)[:, 1]
+        # Single-split CV for out-of-fold predictions (each sample appears
+        # exactly once in a test fold, avoiding the averaging artefact that
+        # cross_val_predict introduces with repeated CV).
+        cv_single = StratifiedKFold(
+            n_splits=n_splits, shuffle=True, random_state=seed,
+        )
+        from sklearn.model_selection import cross_val_predict as _cvp
+        preds = _cvp(clf, X, y, cv=cv_single, method="predict_proba")[:, 1]
 
         return ModelResult(
             name="lightgbm",
@@ -103,9 +152,7 @@ def evaluate_lightgbm(
             },
             predictions=pd.DataFrame(
                 {
-                    "backbone_id": scored.get(
-                        "backbone_id", pd.RangeIndex(len(preds))
-                    ),
+                    "backbone_id": scored.get("backbone_id", pd.RangeIndex(len(preds))),
                     "lightgbm": preds,
                 }
             ),
@@ -128,6 +175,9 @@ def evaluate_xgboost(
 
     Returns a ``ModelResult`` with ``status="skipped"`` if XGBoost is
     not installed.
+
+    Uses out-of-fold predictions to avoid data leakage — the reported
+    metrics reflect generalisation performance, not training-set fit.
     """
     if not XGBOOST_AVAILABLE:
         return ModelResult(
@@ -138,7 +188,11 @@ def evaluate_xgboost(
             error_message="xgboost not installed",
         )
 
-    from sklearn.model_selection import StratifiedKFold, cross_val_score
+    from sklearn.model_selection import (
+        RepeatedStratifiedKFold,
+        StratifiedKFold,
+        cross_validate,
+    )
 
     try:
         X, y = _extract_xy(scored)
@@ -154,13 +208,27 @@ def evaluate_xgboost(
         default_params.update(params or {})
 
         clf = xgb.XGBClassifier(**default_params)
-        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
-        aucs = cross_val_score(clf, X, y, cv=cv, scoring="roc_auc")
-        aps = cross_val_score(clf, X, y, cv=cv, scoring="average_precision")
+        # Repeated CV for stable metric estimates
+        cv_repeated = RepeatedStratifiedKFold(
+            n_splits=n_splits, n_repeats=n_repeats, random_state=seed,
+        )
+        cv_results = cross_validate(
+            clf, X, y, cv=cv_repeated,
+            scoring={"roc_auc": "roc_auc", "ap": "average_precision"},
+            return_estimator=False,
+        )
+        aucs = cv_results["test_roc_auc"]
+        aps = cv_results["test_ap"]
 
-        clf.fit(X, y)
-        preds = clf.predict_proba(X)[:, 1]
+        # Single-split CV for out-of-fold predictions (each sample appears
+        # exactly once in a test fold, avoiding the averaging artefact that
+        # cross_val_predict introduces with repeated CV).
+        cv_single = StratifiedKFold(
+            n_splits=n_splits, shuffle=True, random_state=seed,
+        )
+        from sklearn.model_selection import cross_val_predict as _cvp
+        preds = _cvp(clf, X, y, cv=cv_single, method="predict_proba")[:, 1]
 
         return ModelResult(
             name="xgboost",
@@ -171,9 +239,7 @@ def evaluate_xgboost(
             },
             predictions=pd.DataFrame(
                 {
-                    "backbone_id": scored.get(
-                        "backbone_id", pd.RangeIndex(len(preds))
-                    ),
+                    "backbone_id": scored.get("backbone_id", pd.RangeIndex(len(preds))),
                     "xgboost": preds,
                 }
             ),

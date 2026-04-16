@@ -8,7 +8,7 @@ This script runs the Phase 6.1 governance comparison with:
 - Per-model gate evaluation with governance thresholds
 
 Required models:
-- phylo_support_fusion_priority: current governance baseline
+- governance_linear: current governance baseline
 - governance_15f_pruned: pruning candidate (stability-first)
 
 Governance Decision Semantics:
@@ -61,12 +61,12 @@ from plasmid_priority.validation import paired_auc_delong
 
 # Phase 6.1 explicit model list (governance-only)
 GOVERNANCE_PHASE_61_MODELS = [
-    "phylo_support_fusion_priority",
+    "governance_linear",
     "governance_15f_pruned",
 ]
 
 # Governance baseline for comparison
-GOVERNANCE_BASELINE = "phylo_support_fusion_priority"
+GOVERNANCE_BASELINE = "governance_linear"
 
 # Governance candidate for evaluation
 GOVERNANCE_CANDIDATE = "governance_15f_pruned"

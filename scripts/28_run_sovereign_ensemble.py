@@ -36,11 +36,11 @@ def load_base_predictions(analysis_dir: Path) -> dict[str, pd.DataFrame]:
 
     # Extract predictions for each model
     base_models = [
-        "phylo_support_fusion_priority",
+        "governance_linear",
         "knownness_robust_priority",
         "support_synergy_priority",
         "host_transfer_synergy_priority",
-        "discovery_12f_source",
+        "discovery_boosted",
     ]
 
     predictions = {}

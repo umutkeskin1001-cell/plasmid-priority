@@ -105,7 +105,7 @@ def candidate_tick_label(row: pd.Series) -> str:
 
 def pretty_model_label(model_name: str) -> str:
     labels = {
-        "parsimonious_priority": "legacy published primary model",
+        "parsimonious_priority": "parsimonious priority model",
         "natural_auc_priority": "augmented biological model",
         "phylogeny_aware_priority": "phylogeny-aware biological model",
         "structured_signal_priority": "structure-aware biological model",
@@ -114,6 +114,9 @@ def pretty_model_label(model_name: str) -> str:
         "support_calibrated_priority": "support-calibrated biological model",
         "support_synergy_priority": "support-synergy biological model",
         "phylo_support_fusion_priority": "phylo-support fusion model",
+        "governance_linear": "governance linear model",
+        "discovery_boosted": "discovery-boosted primary model",
+        "discovery_graph_boosted": "discovery-graph-boosted model",
         "host_transfer_synergy_priority": "host-transfer synergy biological model",
         "threat_architecture_priority": "threat-architecture biological model",
         "adaptive_natural_priority": "knownness-gated natural audit",

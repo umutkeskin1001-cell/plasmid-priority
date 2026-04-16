@@ -25,7 +25,7 @@ DEFAULT_SINGLE_MODEL_OBJECTIVE_WEIGHTS: dict[str, float] = {
     "predictive_power": 0.4,
     "compute_efficiency": 0.2,
 }
-BENCHMARK_CONTRACT_VERSION = "2026-04-10"
+BENCHMARK_CONTRACT_VERSION = "2025-07-15"
 
 
 def _coerce_int(value: object, *, default: int) -> int:
@@ -284,16 +284,14 @@ class ScientificProtocol:
             min_new_countries_for_spread=_coerce_int(
                 pipeline.get("min_new_countries_for_spread"), default=3
             ),
-            primary_model_name=str(models.get("primary_model_name", "bio_clean_priority")),
+            primary_model_name=str(models.get("primary_model_name", "discovery_boosted")),
             primary_model_fallback=str(
                 models.get("primary_model_fallback", "parsimonious_priority")
             ),
             conservative_model_name=str(
                 models.get("conservative_model_name", "parsimonious_priority")
             ),
-            governance_model_name=str(
-                models.get("governance_model_name", "phylo_support_fusion_priority")
-            ),
+            governance_model_name=str(models.get("governance_model_name", "governance_linear")),
             governance_model_fallback=str(
                 models.get("governance_model_fallback", "support_synergy_priority")
             ),

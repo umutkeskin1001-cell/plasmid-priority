@@ -8,14 +8,8 @@ from typing import Any
 import pandas as pd
 
 
-def _safe_series_value(frame: pd.DataFrame, column: str, default: Any = float("nan")) -> Any:
-    if frame.empty or column not in frame.columns:
-        return default
-    return frame.iloc[0].get(column, default)
-
-
-def _metric_value(row: pd.Series, column: str) -> float:
-    return float(pd.to_numeric(pd.Series([row[column]]), errors="coerce").iloc[0])
+from plasmid_priority.shared.report_utils import safe_series_value as _safe_series_value
+from plasmid_priority.shared.report_utils import metric_value as _metric_value
 
 
 def build_consensus_report_card(
@@ -132,8 +126,7 @@ def format_consensus_report_markdown(
         roc_auc = _metric_value(row, "roc_auc")
         average_precision = _metric_value(row, "average_precision")
         lines.append(
-            f"- `{row['model_name']}`: ROC AUC `{roc_auc:.3f}`, AP "
-            f"`{average_precision:.3f}`"
+            f"- `{row['model_name']}`: ROC AUC `{roc_auc:.3f}`, AP `{average_precision:.3f}`"
         )
     lines.append("")
     return "\n".join(lines)

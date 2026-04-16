@@ -3267,11 +3267,9 @@ def _write_turkish_summary(
     support_synergy_row = (
         support_synergy.iloc[0] if not support_synergy.empty else pd.Series(dtype=object)
     )
-    phylo_support_fusion = model_metrics.loc[
-        model_metrics["model_name"] == "phylo_support_fusion_priority"
-    ].copy()
-    phylo_support_fusion_row = (
-        phylo_support_fusion.iloc[0] if not phylo_support_fusion.empty else pd.Series(dtype=object)
+    governance_linear = model_metrics.loc[model_metrics["model_name"] == "governance_linear"].copy()
+    governance_linear_row = (
+        governance_linear.iloc[0] if not governance_linear.empty else pd.Series(dtype=object)
     )
     host_transfer_synergy = model_metrics.loc[
         model_metrics["model_name"] == "host_transfer_synergy_priority"
@@ -3616,9 +3614,9 @@ def _write_turkish_summary(
         lines.append(
             f"- Support-synergy biyolojik model: `{_pretty_report_model_label('support_synergy_priority')}` | ROC AUC `{float(support_synergy_row['roc_auc']):.3f}` | AP `{float(support_synergy_row['average_precision']):.3f}`."
         )
-    if not phylo_support_fusion.empty:
+    if not governance_linear.empty:
         lines.append(
-            f"- Filogeni-destek fuzyon modeli: `{_pretty_report_model_label('phylo_support_fusion_priority')}` | ROC AUC `{float(phylo_support_fusion_row['roc_auc']):.3f}` | AP `{float(phylo_support_fusion_row['average_precision']):.3f}`."
+            f"- Yonetim-hatti dogrusal model: `{_pretty_report_model_label('governance_linear')}` | ROC AUC `{float(governance_linear_row['roc_auc']):.3f}` | AP `{float(governance_linear_row['average_precision']):.3f}`."
         )
     if not host_transfer_synergy.empty:
         lines.append(
@@ -4237,11 +4235,9 @@ def _write_jury_brief(
     support_synergy_row = (
         support_synergy.iloc[0] if not support_synergy.empty else pd.Series(dtype=object)
     )
-    phylo_support_fusion = model_metrics.loc[
-        model_metrics["model_name"] == "phylo_support_fusion_priority"
-    ].copy()
-    phylo_support_fusion_row = (
-        phylo_support_fusion.iloc[0] if not phylo_support_fusion.empty else pd.Series(dtype=object)
+    governance_linear = model_metrics.loc[model_metrics["model_name"] == "governance_linear"].copy()
+    governance_linear_row = (
+        governance_linear.iloc[0] if not governance_linear.empty else pd.Series(dtype=object)
     )
     host_transfer_synergy = model_metrics.loc[
         model_metrics["model_name"] == "host_transfer_synergy_priority"
@@ -4599,9 +4595,9 @@ def _write_jury_brief(
         lines.append(
             f"- Support-synergy biological model: `support_synergy_priority` with ROC AUC `{float(support_synergy_row['roc_auc']):.3f}` and AP `{float(support_synergy_row['average_precision']):.3f}`; this variant keeps the support-calibrated core but adds normalized pMLST prevalence, orthogonal PlasmidFinder replicon support, residualized AMR support, guarded context support, metadata support depth, external host-range magnitude, and host-range x transfer synergy to recover sparse-support errors without adding count proxies."
         )
-    if not phylo_support_fusion.empty:
+    if not governance_linear.empty:
         lines.append(
-            f"- Phylo-support fusion model: `phylo_support_fusion_priority` with ROC AUC `{float(phylo_support_fusion_row['roc_auc']):.3f}` and AP `{float(phylo_support_fusion_row['average_precision']):.3f}`; this variant keeps the support-synergy core but adds phylogenetically augmented host specialization, host dispersion, explicit replicon multiplicity, and orthogonal PlasmidFinder structure/support as the current higher-capacity headline benchmark."
+            f"- governance linear model: `governance_linear` with ROC AUC `{float(governance_linear_row['roc_auc']):.3f}` and AP `{float(governance_linear_row['average_precision']):.3f}`; this linear governance model uses the T/H/A biological core plus PlasmidFinder complexity, AMR class richness, pMLST coherence, and host-support composites for calibrated risk governance."
         )
     if not host_transfer_synergy.empty:
         lines.append(
@@ -7142,11 +7138,11 @@ def main() -> int:
 
             core_model_coefficients = pd.DataFrame()
             core_heatmap_models = [
-                "bio_clean_priority",
+                "discovery_boosted",
                 "parsimonious_priority",
                 "structured_signal_priority",
                 "support_synergy_priority",
-                "phylo_support_fusion_priority",
+                "governance_linear",
             ]
             coefficient_frames: list[pd.DataFrame] = []
             for model_name in core_heatmap_models:

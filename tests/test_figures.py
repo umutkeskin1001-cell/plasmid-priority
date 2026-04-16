@@ -17,7 +17,7 @@ from plasmid_priority.reporting.figures import (
 class FigureSmokeTests(unittest.TestCase):
     def test_pretty_model_label_covers_published_primary_model(self) -> None:
         self.assertEqual(
-            _pretty_model_label("parsimonious_priority"), "legacy published primary model"
+            _pretty_model_label("parsimonious_priority"), "parsimonious priority model"
         )
 
     def test_plot_score_distribution_writes_png(self) -> None:

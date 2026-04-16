@@ -2,16 +2,16 @@
 """Phase 5.2 Discovery Batch Execution and Reporting Pipeline.
 
 This script runs the Phase 5.2 discovery-only comparison with:
-- Explicit model list (bio_clean_priority + 3 discovery candidates)
+- Explicit model list (discovery_boosted + 3 discovery candidates)
 - Fresh baseline in the same batch with identical settings
 - Honest reporting semantics with selection bias mitigation
 - Per-candidate gate evaluation
 - Batch-level honest winner selection among discovery candidates only
 
 Required models:
-- bio_clean_priority: baseline reference (NOT part of honest selection pool)
+- discovery_boosted: baseline reference (NOT part of honest selection pool)
 - discovery_9f_source: candidate
-- discovery_12f_source: candidate
+- discovery_boosted: candidate
 - discovery_12f_class_balanced: candidate
 """
 
@@ -59,16 +59,16 @@ from plasmid_priority.validation import paired_auc_delong
 
 # Phase 5.2 explicit model list
 PHASE_52_MODELS = [
-    "bio_clean_priority",
+    "discovery_boosted",
     "discovery_9f_source",
-    "discovery_12f_source",
+    "discovery_boosted",
     "discovery_12f_class_balanced",
 ]
 
 # Discovery candidates only (baseline is reference, not part of selection pool)
 PHASE_52_DISCOVERY_CANDIDATES = [
     "discovery_9f_source",
-    "discovery_12f_source",
+    "discovery_boosted",
     "discovery_12f_class_balanced",
 ]
 
@@ -101,10 +101,10 @@ def run_preflight_checks(scored: pd.DataFrame, split_year: int) -> None:
             raise ValueError(f"Model {model_name} has track '{track}' but expected 'discovery'")
 
     # Verify baseline is discovery-safe (it should be)
-    baseline_track = get_model_track("bio_clean_priority")
+    baseline_track = get_model_track("discovery_boosted")
     if baseline_track != "discovery":
         raise ValueError(
-            f"Baseline bio_clean_priority has track '{baseline_track}' but expected 'discovery'"
+            f"Baseline discovery_boosted has track '{baseline_track}' but expected 'discovery'"
         )
 
     # 3. Feature column presence check
@@ -129,7 +129,7 @@ def run_preflight_checks(scored: pd.DataFrame, split_year: int) -> None:
 def compute_selection_adjusted_p_value(
     scored: pd.DataFrame,
     candidate_name: str,
-    baseline_name: str = "bio_clean_priority",
+    baseline_name: str = "discovery_boosted",
     n_splits: int = 5,
     n_repeats: int = 5,
     seed: int = 42,
@@ -204,7 +204,7 @@ def run_phase_52_batch(
     Returns:
         Dict with:
         - results: Dict of model_name -> ModelResult
-        - baseline_metrics: Metrics for bio_clean_priority
+        - baseline_metrics: Metrics for discovery_boosted
         - candidate_metrics: Dict of candidate metrics
         - honest_result: HonestModelResult for discovery candidates
         - gate_evaluations: Per-candidate gate results
@@ -221,7 +221,7 @@ def run_phase_52_batch(
     )
 
     # Extract baseline metrics
-    baseline_result = results["bio_clean_priority"]
+    baseline_result = results["discovery_boosted"]
     baseline_auc = baseline_result.metrics.get("roc_auc", float("nan"))
     baseline_ci_lower = baseline_result.metrics.get("roc_auc_ci_lower", float("nan"))
     baseline_ci_upper = baseline_result.metrics.get("roc_auc_ci_upper", float("nan"))
@@ -245,7 +245,7 @@ def run_phase_52_batch(
         paired_delong_p = compute_selection_adjusted_p_value(
             scored,
             model_name,
-            baseline_name="bio_clean_priority",
+            baseline_name="discovery_boosted",
             n_splits=n_splits,
             n_repeats=n_repeats,
             seed=seed,
@@ -348,7 +348,7 @@ def run_phase_52_batch(
     return {
         "results": results,
         "baseline_metrics": {
-            "model_name": "bio_clean_priority",
+            "model_name": "discovery_boosted",
             "raw_auc": baseline_auc,
             "auc_ci_lower": baseline_ci_lower,
             "auc_ci_upper": baseline_ci_upper,

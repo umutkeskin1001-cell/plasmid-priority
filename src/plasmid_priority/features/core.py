@@ -419,7 +419,7 @@ def _vectorized_context_labels(frame: pd.DataFrame) -> pd.Series:
         .str.cat(pathogenicity, sep=" | ")
     )
     combined_lower = combined.str.lower()
-    empty_mask = combined.str.strip().eq("")
+    empty_mask = combined.fillna("").str.strip().eq("")
     labels = pd.Series("other", index=frame.index, dtype=object)
     labels.loc[empty_mask] = "unknown"
     remaining = ~empty_mask
@@ -1206,7 +1206,9 @@ def build_backbone_table(
         split_year=int(split_year),
         label="build_backbone_table",
     )
-    testing = working.loc[years.notna() & (years > float(split_year)) & (years <= float(test_year_end))].copy()
+    testing = working.loc[
+        years.notna() & (years > float(split_year)) & (years <= float(test_year_end))
+    ].copy()
 
     backbone_order = working["backbone_id"].drop_duplicates()
     backbone_table = pd.DataFrame({"backbone_id": backbone_order.to_list()})

@@ -87,13 +87,13 @@ def _apply_consensus_attenuation(
     ood_scale: float,
     agreement_floor: float,
     agreement_scale: float,
-    ) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
+) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series, pd.Series]:
     index = consensus_raw.index
     confidence_attenuation = pd.Series(
         np.clip(
-        confidence_floor + confidence_scale * branch_confidence.fillna(0.0),
-        0.0,
-        1.0,
+            confidence_floor + confidence_scale * branch_confidence.fillna(0.0),
+            0.0,
+            1.0,
         ),
         index=index,
         dtype=float,
@@ -105,16 +105,20 @@ def _apply_consensus_attenuation(
     )
     agreement_attenuation = pd.Series(
         np.clip(
-        agreement_floor + agreement_scale * agreement_score.fillna(0.0),
-        0.0,
-        1.0,
+            agreement_floor + agreement_scale * agreement_score.fillna(0.0),
+            0.0,
+            1.0,
         ),
         index=index,
         dtype=float,
     )
     consensus_attenuation = pd.Series(
         np.minimum.reduce(
-            [confidence_attenuation.to_numpy(), ood_attenuation.to_numpy(), agreement_attenuation.to_numpy()]
+            [
+                confidence_attenuation.to_numpy(),
+                ood_attenuation.to_numpy(),
+                agreement_attenuation.to_numpy(),
+            ]
         ),
         index=index,
         dtype=float,
@@ -345,7 +349,15 @@ def build_research_consensus_frame(
             "agreement_scale": agreement_scale,
             "review_agreement_threshold": review_agreement_threshold,
         }
-        for confidence_floor, confidence_scale, ood_floor, ood_scale, agreement_floor, agreement_scale, review_agreement_threshold in product(
+        for (
+            confidence_floor,
+            confidence_scale,
+            ood_floor,
+            ood_scale,
+            agreement_floor,
+            agreement_scale,
+            review_agreement_threshold,
+        ) in product(
             (0.55, 0.65),
             (0.25, 0.35),
             (0.60, 0.65),
@@ -382,6 +394,13 @@ def build_research_consensus_frame(
         for _, fold_valid in fold_indices:
             fold_score = score.iloc[fold_valid]
             fold_y = y_for_tuning.reset_index(drop=True).iloc[fold_valid]
+            # Guard against NaN — sklearn metrics crash on NaN input
+            if fold_score.isna().any() or fold_y.isna().any():
+                valid_mask = fold_score.notna() & fold_y.notna()
+                fold_score = fold_score[valid_mask]
+                fold_y = fold_y[valid_mask]
+                if len(fold_score) < 4:
+                    continue
             if fold_score.nunique() < 2 or fold_y.nunique() < 2:
                 continue
             try:

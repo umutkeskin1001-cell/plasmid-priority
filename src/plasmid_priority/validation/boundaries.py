@@ -102,7 +102,9 @@ def _validate_consensus_predictions(frame: pd.DataFrame, *, label: str) -> dict[
                 "n_rows": int(len(frame)),
                 "errors": [
                     {
-                        "message": f"Consensus table column `{column}` contains values outside [0, 1]."
+                        "message": (
+                            f"Consensus table column `{column}` contains values outside [0, 1]."
+                        )
                     }
                 ],
             }
@@ -168,7 +170,11 @@ def _validate_json_artifact(path: Path) -> dict[str, Any]:
     return {"status": "pass", "table": path.name, "n_rows": 0, "errors": []}
 
 
-def validate_output_artifact(path: str | Path, *, project_root: Path | None = None) -> dict[str, Any]:
+def validate_output_artifact(
+    path: str | Path,
+    *,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
     """Validate a single output artifact by type and filename."""
     resolved = _normalize_output_path(path, project_root=project_root)
     if not resolved.exists():
@@ -233,7 +239,10 @@ def validate_script_boundary(
             mtime_ns = signature.get("mtime_ns")
             if isinstance(mtime_ns, int) and mtime_ns < max_input_mtime_ns:
                 issues.append(
-                    f"Output {resolved} is older than its recorded inputs; boundary freshness failed."
+                    (
+                        f"Output {resolved} is older than its recorded inputs;"
+                        " boundary freshness failed."
+                    )
                 )
     return {
         "status": "pass" if not issues else "fail",

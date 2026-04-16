@@ -143,7 +143,12 @@ class HarmonizeMetadataTests(unittest.TestCase):
                 use_duckdb=True,
             )
 
-        pd.testing.assert_frame_equal(duckdb_frame, pandas_frame, check_like=True)
+        # Sort both frames by sequence_accession before comparing,
+        # because DuckDB and Pandas may return rows in different orders.
+        sort_col = "sequence_accession"
+        pandas_sorted = pandas_frame.sort_values(sort_col, ignore_index=True)
+        duckdb_sorted = duckdb_frame.sort_values(sort_col, ignore_index=True)
+        pd.testing.assert_frame_equal(duckdb_sorted, pandas_sorted, check_like=True)
 
     def test_write_bronze_inventory_streams_rows_without_to_dict(self) -> None:
         plsdb_frame = pd.DataFrame(

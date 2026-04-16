@@ -222,9 +222,7 @@ class WorkflowTests(unittest.TestCase):
                     {"PLASMID_PRIORITY_DATA_ROOT": str(data_root)},
                     clear=False,
                 ),
-                mock.patch.object(
-                    run_workflow_script, "_workflow_steps", return_value=[step]
-                ),
+                mock.patch.object(run_workflow_script, "_workflow_steps", return_value=[step]),
                 mock.patch.object(run_workflow_script, "_run_step", return_value=0) as run_step,
             ):
                 result = run_workflow_script.run_workflow("pipeline", max_workers=1, resume=True)
@@ -275,9 +273,7 @@ class WorkflowTests(unittest.TestCase):
                     {"PLASMID_PRIORITY_DATA_ROOT": str(data_root)},
                     clear=False,
                 ),
-                mock.patch.object(
-                    run_workflow_script, "_workflow_steps", return_value=[step]
-                ),
+                mock.patch.object(run_workflow_script, "_workflow_steps", return_value=[step]),
                 mock.patch.object(run_workflow_script, "_run_step", return_value=0) as run_step,
             ):
                 result = run_workflow_script.run_workflow("pipeline", max_workers=1, resume=True)

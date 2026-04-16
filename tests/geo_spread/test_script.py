@@ -50,6 +50,7 @@ class _FakeGeoContext:
         self.data_dir = root / "data"
         self.pipeline_settings = _FakePipelineSettings()
         self.config = {"geo_spread": {}}
+        self.config_paths: tuple[Path, ...] = ()
 
 
 class GeoSpreadScriptTests(unittest.TestCase):

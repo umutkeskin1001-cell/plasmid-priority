@@ -1472,7 +1472,7 @@ def plot_benchmark_comparison(
         "baseline_member_count",
         "baseline_country_count",
         "baseline_both",
-        "bio_clean_priority",
+        "discovery_boosted",
         governance_model_name or "",
         primary_model_name,
     ]
@@ -1756,6 +1756,9 @@ def plot_model_family_summary(family_summary: pd.DataFrame, output_path: Path) -
         "biological_core": PALETTE["support"],
         "evidence_aware": PALETTE["high"],
         "legacy_integrated": PALETTE["accent"],
+        "governance_linear_primary": PALETTE["primary"],
+        "discovery_boosted_primary": PALETTE["high"],
+        "legacy_published_conservative_fallback": PALETTE["muted"],
     }
     ordered = family_summary.sort_values("roc_auc", ascending=False)
     colors = ordered["evidence_role"].map(palette).fillna(PALETTE["support"]).tolist()
@@ -1784,7 +1787,7 @@ def plot_model_comparison_deltas(
         "baseline_both": 0,
         "baseline_country_count": 1,
         "full_priority": 2,
-        "bio_clean_priority": 3,
+        "discovery_boosted": 3,
         "support_calibrated_priority": 11,
         "support_synergy_priority": 12,
         "T_plus_H_plus_A": 4,

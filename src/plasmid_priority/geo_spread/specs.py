@@ -209,9 +209,12 @@ class GeoSpreadFitConfig(BaseModel):
     @classmethod
     def _validate_model_type(cls, value: str) -> str:
         normalized = str(value).strip().lower()
-        if normalized not in {"logistic", "hybrid_stacked", "pairwise_rank_logistic"}:
+        if normalized not in {"logistic", "hybrid_stacked", "pairwise_rank_logistic", "lightgbm"}:
             raise ValueError(
-                "model_type must be one of: logistic, hybrid_stacked, pairwise_rank_logistic"
+                (
+                    "model_type must be one of: logistic, hybrid_stacked,"
+                    " pairwise_rank_logistic, lightgbm"
+                )
             )
         return normalized
 

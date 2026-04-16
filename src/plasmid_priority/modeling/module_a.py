@@ -20,6 +20,14 @@ try:
 except ImportError:  # pragma: no cover - optional research dependency
     ExplainableBoostingClassifier = None
 
+try:
+    import lightgbm as _lgb
+
+    _HAS_LIGHTGBM = True
+except ImportError:  # pragma: no cover - optional research dependency
+    _lgb = None
+    _HAS_LIGHTGBM = False
+
 from plasmid_priority.modeling.module_a_support import (
     ABLATION_MODEL_NAMES,
     CONSERVATIVE_MODEL_NAME,
@@ -251,6 +259,14 @@ def _compute_sample_weight(
             )
             weights *= np.asarray(pu_weight, dtype=float)
             continue
+        if token == "ipw_balanced":
+            knownness = _knownness_score_series(eligible).fillna(0.0).clip(0.0, 1.0)
+            knownness_values = knownness.to_numpy(dtype=float)
+            # Inverse probability: low knownness → high weight, high knownness → low weight
+            ipw_weights = 1.0 / (knownness_values + 0.1)
+            ipw_weights = np.clip(ipw_weights, 0.2, 5.0)
+            weights *= ipw_weights
+            continue
         raise ValueError(f"Unsupported sample_weight_mode: {mode}")
     return np.asarray(weights / max(weights.mean(), 1e-6), dtype=float)
 
@@ -399,6 +415,15 @@ def _feature_alpha_group(feature_name: str) -> str:
         return "A"
     if name.startswith("T_") or "orit" in name or "transfer" in name:
         return "T"
+    # Governance-track features: PlasmidFinder complexity, AMR class richness,
+    # pMLST coherence, host-support composites
+    if name in (
+        "plasmidfinder_complexity_norm",
+        "amr_class_richness_norm",
+        "pmlst_coherence_norm",
+        "H_support_norm",
+    ):
+        return "G"
     return "other"
 
 
@@ -415,7 +440,12 @@ def _resolve_knownness_grouped_alpha(
         grouped = bool(raw_grouped)
     has_explicit_group_alpha = any(
         key in (fit_kwargs or {})
-        for key in ("preprocess_alpha_T", "preprocess_alpha_H", "preprocess_alpha_A")
+        for key in (
+            "preprocess_alpha_T",
+            "preprocess_alpha_H",
+            "preprocess_alpha_A",
+            "preprocess_alpha_G",
+        )
     )
     if not grouped and not has_explicit_group_alpha:
         return float(base_alpha)
@@ -423,6 +453,7 @@ def _resolve_knownness_grouped_alpha(
         "T": _fit_kwarg_float(fit_kwargs, "preprocess_alpha_T", 0.1),
         "H": _fit_kwarg_float(fit_kwargs, "preprocess_alpha_H", 2.0),
         "A": _fit_kwarg_float(fit_kwargs, "preprocess_alpha_A", 1.0),
+        "G": _fit_kwarg_float(fit_kwargs, "preprocess_alpha_G", 0.5),
         "other": float(base_alpha),
     }
     return np.asarray(
@@ -729,6 +760,149 @@ def _predict_nonlinear_model(model: object, X: np.ndarray) -> np.ndarray:
     return np.asarray(cast(Any, model).predict_proba(X)[:, 1], dtype=float)
 
 
+def _fit_lightgbm_classifier(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+    sample_weight: np.ndarray | None = None,
+) -> Any:
+    """Fit a LightGBM classifier with configurable hyperparameters from fit_kwargs."""
+    if not _HAS_LIGHTGBM:
+        raise ImportError("lightgbm is required for model_type='lightgbm'")
+    import lightgbm as lgb
+
+    fit_kwargs = fit_kwargs or {}
+    clf = lgb.LGBMClassifier(
+        n_estimators=_fit_kwarg_int(fit_kwargs, "n_estimators", 500),
+        max_depth=_fit_kwarg_int(fit_kwargs, "max_depth", 5),
+        learning_rate=_fit_kwarg_float(fit_kwargs, "learning_rate", 0.05),
+        num_leaves=_fit_kwarg_int(fit_kwargs, "num_leaves", 31),
+        min_child_samples=_fit_kwarg_int(fit_kwargs, "min_child_samples", 20),
+        subsample=_fit_kwarg_float(fit_kwargs, "subsample", 0.8),
+        colsample_bytree=_fit_kwarg_float(fit_kwargs, "colsample_bytree", 0.8),
+        reg_lambda=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+        random_state=_fit_kwarg_int(fit_kwargs, "random_state", 42),
+        verbose=-1,
+        n_jobs=1,
+    )
+    clf.fit(X, y, sample_weight=sample_weight)
+    return clf
+
+
+def _fit_lightgbm_isotonic_calibrator(
+    train: pd.DataFrame,
+    columns: list[str],
+    *,
+    fit_kwargs: dict[str, object] | None = None,
+) -> IsotonicRegression | None:
+    """Inner-OOF isotonic calibration for LightGBM (no standardization)."""
+    fit_kwargs = fit_kwargs or {}
+    y = train["spread_label"].fillna(0).astype(int).to_numpy(dtype=int)
+    if len(y) < 8 or len(np.unique(y)) < 2:
+        return None
+    try:
+        fold_groups = _stratified_folds(
+            y,
+            n_splits=_fit_kwarg_int(fit_kwargs, "stack_inner_splits", 3),
+            n_repeats=1,
+            seed=_fit_kwarg_int(fit_kwargs, "stack_seed", 43),
+        )
+    except ValueError:
+        return None
+    preds = np.zeros(len(train), dtype=float)
+    counts = np.zeros(len(train), dtype=float)
+    for fold_indices in fold_groups:
+        for test_idx in fold_indices:
+            train_mask = np.ones(len(y), dtype=bool)
+            train_mask[test_idx] = False
+            inner_train = train.loc[train_mask]
+            inner_valid = train.iloc[test_idx]
+            # NO standardization for LightGBM — tree-based models are scale-invariant
+            X_inner_train, X_inner_valid = _prepare_feature_matrices(
+                inner_train, inner_valid, columns, fit_kwargs=fit_kwargs, prepared=True
+            )
+            inner_weight = _compute_sample_weight(
+                inner_train, mode=_fit_kwarg_mode(fit_kwargs), fit_kwargs=fit_kwargs
+            )
+            model = _fit_lightgbm_classifier(
+                X_inner_train, y[train_mask], fit_kwargs=fit_kwargs, sample_weight=inner_weight
+            )
+            preds[test_idx] += model.predict_proba(X_inner_valid)[:, 1]
+            counts[test_idx] += 1.0
+    if np.any(counts == 0):
+        return None
+    blend = preds / counts
+    sample_weight = _compute_sample_weight(
+        train, mode=_fit_kwarg_mode(fit_kwargs), fit_kwargs=fit_kwargs
+    )
+    calibrator = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
+    calibrator.fit(blend, y, sample_weight=sample_weight)
+    return calibrator
+
+
+def _oof_lightgbm_predictions_from_eligible(
+    eligible: pd.DataFrame,
+    *,
+    columns: list[str],
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+    fit_kwargs: dict[str, object] | None = None,
+    y_override: np.ndarray | None = None,
+    folds_per_repeat: list[list[np.ndarray]] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Pure LightGBM OOF pipeline: no standardization, optional inner-OOF isotonic calibration."""
+    if not _HAS_LIGHTGBM:
+        raise ImportError("lightgbm is required for model_type='lightgbm'")
+    fit_kwargs = fit_kwargs or {}
+    y = (
+        np.asarray(y_override, dtype=int)
+        if y_override is not None
+        else eligible["spread_label"].fillna(0).astype(int).to_numpy(dtype=int)
+    )
+    preds = np.zeros(len(eligible), dtype=float)
+    counts = np.zeros(len(eligible), dtype=float)
+    fold_groups = (
+        folds_per_repeat
+        if folds_per_repeat is not None
+        else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
+    )
+    for fold_indices in fold_groups:
+        for test_idx in fold_indices:
+            train_mask = np.ones(len(y), dtype=bool)
+            train_mask[test_idx] = False
+            train = eligible.loc[train_mask]
+            test = eligible.iloc[test_idx]
+            # Knownness residualization via _prepare_feature_matrices, NO standard scaling
+            X_train, X_test = _prepare_feature_matrices(
+                train, test, columns, fit_kwargs=fit_kwargs, prepared=True
+            )
+            train_weight = _compute_sample_weight(
+                train, mode=_fit_kwarg_mode(fit_kwargs), fit_kwargs=fit_kwargs
+            )
+            model = _fit_lightgbm_classifier(
+                X_train, y[train_mask], fit_kwargs=fit_kwargs, sample_weight=train_weight
+            )
+            raw_preds = model.predict_proba(X_test)[:, 1]
+            # Isotonic calibration when requested
+            if _fit_kwarg_str(fit_kwargs, "calibration", "").strip().lower() == "isotonic":
+                calibrator = _fit_lightgbm_isotonic_calibrator(
+                    train, columns, fit_kwargs=fit_kwargs
+                )
+                if calibrator is not None:
+                    raw_preds = calibrator.predict(raw_preds)
+            preds[test_idx] += raw_preds
+            counts[test_idx] += 1.0
+    if counts.min() == 0:
+        warnings.warn(
+            f"{int((counts == 0).sum())} sample(s) never appeared in any test fold",
+            stacklevel=2,
+        )
+        counts[counts == 0] = 1.0
+    return preds / counts, y
+
+
 def _safe_evaluate_model_name_task(
     scored: pd.DataFrame,
     model_name: str,
@@ -1002,6 +1176,17 @@ def _oof_predictions_from_eligible(
 ) -> tuple[np.ndarray, np.ndarray]:
     fit_kwargs = fit_kwargs or {}
     model_type = _model_type_name(fit_kwargs)
+    if model_type == "lightgbm":
+        return _oof_lightgbm_predictions_from_eligible(
+            eligible,
+            columns=columns,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=seed,
+            fit_kwargs=fit_kwargs,
+            y_override=y_override,
+            folds_per_repeat=folds_per_repeat,
+        )
     if model_type == "hybrid_stacked":
         hybrid_preds, hybrid_y, _ = _oof_hybrid_predictions_from_eligible(
             eligible,
@@ -1235,7 +1420,7 @@ def _evaluate_prediction_set(
             "backbone_id": index.astype(str),
             "oof_prediction": preds,
             "spread_label": y,
-            "visibility_expansion_label": y,
+            "visibility_expansion_label": y,  # kept for backward compat; always equals spread_label
         }
     )
     if prediction_detail is not None and not prediction_detail.empty:

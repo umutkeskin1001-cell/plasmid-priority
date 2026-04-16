@@ -4,6 +4,7 @@ Provides ``BranchConfig``, ``BranchBenchmarkSpec``, ``BranchFitConfig``,
 and the ``load_branch_config`` / ``resolve_branch_model_names`` helpers
 used by every branch (geo_spread, bio_transfer, clinical_hazard, consensus).
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -90,9 +91,12 @@ class BranchFitConfig(BaseModel):
     @classmethod
     def _validate_model_type(cls, value: str) -> str:
         normalized = str(value).strip().lower()
-        if normalized not in {"logistic", "hybrid_stacked", "pairwise_rank_logistic"}:
+        if normalized not in {"logistic", "hybrid_stacked", "pairwise_rank_logistic", "lightgbm"}:
             raise ValueError(
-                "model_type must be one of: logistic, hybrid_stacked, pairwise_rank_logistic"
+                (
+                    "model_type must be one of: logistic, hybrid_stacked,"
+                    " pairwise_rank_logistic, lightgbm"
+                )
             )
         return normalized
 

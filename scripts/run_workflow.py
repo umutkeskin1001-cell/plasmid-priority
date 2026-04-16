@@ -8,14 +8,18 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
-from threading import Lock
+from datetime import datetime, timezone
 from pathlib import Path
+from threading import Lock
 
 from plasmid_priority.config import DATA_ROOT_ENV_VAR
-from plasmid_priority.utils.files import atomic_write_json, path_signature_with_hash, project_python_source_paths
+from plasmid_priority.utils.files import (
+    atomic_write_json,
+    path_signature_with_hash,
+    project_python_source_paths,
+)
 from plasmid_priority.validation import validate_script_boundary
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -566,7 +570,7 @@ def run_workflow(
                             step=step,
                             step_status="failed",
                             return_code=return_code,
-                    )
+                        )
                     print(
                         f"[workflow] {step.name} failed with exit code {return_code}",
                         file=sys.stderr,

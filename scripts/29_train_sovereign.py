@@ -376,7 +376,7 @@ def main(argv: list[str] | None = None) -> int:
         write_signature_manifest(
             manifest_path,
             input_paths=[
-                path for path in [features_path, config_path, metrics_path] if path.exists()
+                path for path in [features_path, *config_paths, metrics_path] if path.exists()
             ],
             output_paths=[
                 path for path in [scorecard_path, output_file, pred_file] if path.exists()

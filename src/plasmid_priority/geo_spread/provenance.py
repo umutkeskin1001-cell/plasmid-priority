@@ -1,9 +1,11 @@
-"""Deterministic provenance helpers for the geo spread branch."""
+"""Deterministic provenance helpers for the geo spread branch.
+
+Re-exports provenance primitives from ``plasmid_priority.shared.provenance``
+instead of duplicating them locally.
+"""
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,84 +24,12 @@ from plasmid_priority.geo_spread.select import (
     GEO_SPREAD_RELIABILITY_BLEND,
 )
 from plasmid_priority.geo_spread.specs import GeoSpreadConfig, load_geo_spread_config
+from plasmid_priority.shared.provenance import (  # noqa: F401 – re-exported for backward compatibility
+    content_hash,
+    dataframe_content_hash,
+    stable_json_dumps,
+)
 from plasmid_priority.utils.files import path_signature_with_hash
-
-
-def _stable_json_payload(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            str(key): _stable_json_payload(item)
-            for key, item in sorted(value.items(), key=lambda item: str(item[0]))
-        }
-    if isinstance(value, (list, tuple)):
-        return [_stable_json_payload(item) for item in value]
-    if isinstance(value, set):
-        return [_stable_json_payload(item) for item in sorted(value, key=lambda item: str(item))]
-    if isinstance(value, pd.Timestamp):
-        return value.isoformat()
-    if isinstance(value, pd.Timedelta):
-        return value.isoformat()
-    if isinstance(value, pd.Series):
-        return _stable_json_payload(value.to_list())
-    if isinstance(value, pd.Index):
-        return _stable_json_payload(value.to_list())
-    if isinstance(value, float) and pd.isna(value):
-        return None
-    if isinstance(value, (str, int, bool)) or value is None:
-        return value
-    return str(value)
-
-
-def stable_json_dumps(value: Any) -> str:
-    """Dump a Python object to canonical JSON for hashing."""
-    return json.dumps(
-        _stable_json_payload(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    )
-
-
-def content_hash(payload: Any) -> str:
-    """Return a SHA-256 hash for any JSON-serializable payload."""
-    digest = hashlib.sha256()
-    digest.update(stable_json_dumps(payload).encode("utf-8"))
-    return digest.hexdigest()
-
-
-def dataframe_content_hash(
-    frame: pd.DataFrame,
-    *,
-    columns: Sequence[str] | None = None,
-    sort_by: Sequence[str] | str | None = None,
-) -> str:
-    """Return a deterministic hash of a dataframe's content and schema."""
-    working = frame.copy()
-    if columns is not None:
-        selected = [str(column) for column in columns if str(column) in working.columns]
-        working = working.loc[:, selected]
-    if sort_by is not None and not working.empty:
-        sort_columns = (
-            [str(sort_by)] if isinstance(sort_by, str) else [str(column) for column in sort_by]
-        )
-        present = [column for column in sort_columns if column in working.columns]
-        if present:
-            working = working.sort_values(present, kind="mergesort").reset_index(drop=True)
-    digest = hashlib.sha256()
-    digest.update("\0".join(map(str, working.columns.tolist())).encode("utf-8"))
-    digest.update("\0".join(map(str, working.dtypes.astype(str).tolist())).encode("utf-8"))
-    if working.empty:
-        digest.update(b"<empty>")
-        return digest.hexdigest()
-    normalized = working.copy()
-    for column in normalized.columns:
-        normalized[column] = normalized[column].map(
-            lambda value: (
-                stable_json_dumps(value) if not isinstance(value, (str, int, bool)) else value
-            )
-        )
-    series_hash = pd.util.hash_pandas_object(normalized, index=False).to_numpy(
-        dtype="uint64", copy=False
-    )
-    digest.update(series_hash.tobytes())
-    return digest.hexdigest()
 
 
 @dataclass(slots=True)

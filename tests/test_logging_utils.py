@@ -4,7 +4,11 @@ import io
 import json
 import logging
 
-from plasmid_priority.logging_utils import configure_logging, pop_logging_context, push_logging_context
+from plasmid_priority.logging_utils import (
+    configure_logging,
+    pop_logging_context,
+    push_logging_context,
+)
 
 
 def test_structured_logging_includes_correlation_metadata() -> None:

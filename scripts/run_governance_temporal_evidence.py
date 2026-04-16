@@ -2,7 +2,7 @@
 """Governance temporal evidence evaluation for rolling validation.
 
 Produces honest rolling/temporal validation evidence for governance models:
-- phylo_support_fusion_priority (baseline)
+- governance_linear (baseline)
 - governance_15f_pruned (challenger)
 
 This is a thin governance-specific wrapper around existing validation infrastructure.
@@ -36,7 +36,7 @@ from plasmid_priority.utils.parallel import limit_native_threads
 from plasmid_priority.validation import expected_calibration_error
 
 # Governance models to evaluate
-GOVERNANCE_BASELINE = "phylo_support_fusion_priority"
+GOVERNANCE_BASELINE = "governance_linear"
 GOVERNANCE_CHALLENGER = "governance_15f_pruned"
 GOVERNANCE_MODELS = [GOVERNANCE_BASELINE, GOVERNANCE_CHALLENGER]
 

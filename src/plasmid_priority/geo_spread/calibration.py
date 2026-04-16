@@ -1,4 +1,8 @@
-"""Calibration, uncertainty, and abstention helpers for the geo spread branch."""
+"""Calibration, uncertainty, and abstention helpers for the geo spread branch.
+
+Re-exports shared calibration primitives from ``plasmid_priority.shared.calibration``
+instead of duplicating them locally.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +11,6 @@ from typing import Any, Callable, Mapping
 
 import numpy as np
 import pandas as pd
-from sklearn.isotonic import IsotonicRegression
-from sklearn.linear_model import LogisticRegression
 
 from plasmid_priority.geo_spread.dataset import prepare_geo_spread_scored_table
 from plasmid_priority.geo_spread.select import (
@@ -17,6 +19,15 @@ from plasmid_priority.geo_spread.select import (
     GEO_SPREAD_RELIABILITY_BLEND,
 )
 from plasmid_priority.geo_spread.specs import GeoSpreadConfig, load_geo_spread_config
+from plasmid_priority.shared.calibration import (  # noqa: F401 – re-exported for backward compatibility
+    _fit_isotonic_calibrator,
+    _fit_platt_calibrator,
+    _float_option,
+    _identity_calibrator,
+    _normalize_method,
+    _prediction_frame,
+    _safe_probability,
+)
 from plasmid_priority.validation.metrics import (
     brier_score,
     calibration_curve_data,
@@ -32,75 +43,12 @@ _DERIVED_MODEL_CALIBRATION: dict[str, str] = {
 }
 
 
-def _normalize_method(value: object | None) -> str:
-    normalized = str(value or "none").strip().lower()
-    if normalized in {"", "none"}:
-        return "none"
-    if normalized not in {"platt", "isotonic"}:
-        raise ValueError("calibration method must be one of: none, platt, isotonic")
-    return normalized
-
-
-def _safe_probability(values: np.ndarray) -> np.ndarray:
-    result: np.ndarray = np.clip(np.asarray(values, dtype=float), 0.0, 1.0)
-    return result
-
-
-def _identity_calibrator(values: np.ndarray) -> np.ndarray:
-    return _safe_probability(values)
-
-
-def _float_option(payload: Mapping[str, Any], key: str, default: float) -> float:
-    try:
-        return float(payload.get(key, default))
-    except (TypeError, ValueError):
-        return float(default)
-
-
-def _prediction_frame(value: Any) -> pd.DataFrame:
-    if isinstance(value, pd.DataFrame):
-        return value
-    frame = getattr(value, "predictions", None)
-    if isinstance(frame, pd.DataFrame):
-        return frame
-    raise TypeError("Expected a dataframe or an object with a dataframe `predictions` attribute")
-
-
 def _prepare_knownness_surface(scored: pd.DataFrame | None) -> pd.DataFrame | None:
     if scored is None:
         return None
     if "knownness_score" in scored.columns:
         return scored
     return prepare_geo_spread_scored_table(scored)
-
-
-def _fit_platt_calibrator(
-    y_true: np.ndarray, y_score: np.ndarray
-) -> Callable[[np.ndarray], np.ndarray]:
-    if np.unique(y_true).size < 2 or len(y_true) < 2:
-        return _identity_calibrator
-    model = LogisticRegression(
-        C=1e6,
-        fit_intercept=True,
-        max_iter=1000,
-        random_state=0,
-        solver="lbfgs",
-    )
-    model.fit(np.asarray(y_score, dtype=float).reshape(-1, 1), np.asarray(y_true, dtype=int))
-    return lambda values: _safe_probability(
-        model.predict_proba(np.asarray(values, dtype=float).reshape(-1, 1))[:, 1]
-    )
-
-
-def _fit_isotonic_calibrator(
-    y_true: np.ndarray,
-    y_score: np.ndarray,
-) -> Callable[[np.ndarray], np.ndarray]:
-    if np.unique(y_true).size < 2 or len(y_true) < 2:
-        return _identity_calibrator
-    model = IsotonicRegression(out_of_bounds="clip")
-    model.fit(np.asarray(y_score, dtype=float), np.asarray(y_true, dtype=float))
-    return lambda values: _safe_probability(model.predict(np.asarray(values, dtype=float)))
 
 
 def _confidence_band(confidence: np.ndarray, *, index: pd.Index | None = None) -> pd.Series:
