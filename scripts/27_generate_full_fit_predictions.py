@@ -12,7 +12,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import (
     build_discovery_input_contract,
     get_conservative_model_name,
@@ -43,11 +43,11 @@ def main() -> int:
     output_dir = context.data_dir / "analysis"
     ensure_directory(output_dir)
 
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     manifest_path = context.reports_dir / "27_generate_full_fit_predictions.manifest.json"
 
     source_paths = [
-        config_path,
+        *config_paths,
         scored_path,
     ]
 

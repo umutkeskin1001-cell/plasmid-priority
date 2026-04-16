@@ -72,6 +72,22 @@ def coalescing_left_merge(
     if left.empty or right.empty:
         return left
     overlap = [column for column in right.columns if column != on and column in left.columns]
+    if right[on].is_unique:
+        keyed = right.drop_duplicates(subset=[on], keep="first").set_index(on, drop=True)
+        merged = left.copy()
+        key_values = merged[on]
+        for column in right.columns:
+            if column == on:
+                continue
+            incoming = key_values.map(keyed[column]) if column in keyed.columns else pd.Series(
+                index=merged.index, dtype=keyed.dtypes.get(column, "object")
+            )
+            if column in merged.columns:
+                merged[column] = merged[column].where(merged[column].notna(), incoming)
+            else:
+                merged[column] = incoming
+        return merged
+
     if not overlap:
         return left.merge(right, on=on, how="left")
 

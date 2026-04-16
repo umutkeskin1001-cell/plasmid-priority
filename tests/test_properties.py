@@ -12,6 +12,38 @@ from hypothesis import strategies as st
 
 from plasmid_priority.features.core import _normalized_shannon_evenness, _support_factor
 from plasmid_priority.scoring.core import _empirical_percentile, _robust_sigmoid
+from plasmid_priority.utils.dataframe import coalescing_left_merge
+
+
+@st.composite
+def _merge_case(draw) -> tuple[pd.DataFrame, pd.DataFrame]:
+    keys = list(range(6))
+    left_keys = draw(
+        st.lists(st.sampled_from(keys), min_size=1, max_size=12)
+    )
+    right_keys = draw(
+        st.lists(st.sampled_from(keys), unique=True, min_size=1, max_size=6)
+    )
+    optional_text = st.one_of(st.none(), st.text(min_size=1, max_size=3))
+    left_shared = draw(st.lists(optional_text, min_size=len(left_keys), max_size=len(left_keys)))
+    left_extra = draw(st.lists(optional_text, min_size=len(left_keys), max_size=len(left_keys)))
+    right_shared = draw(st.lists(optional_text, min_size=len(right_keys), max_size=len(right_keys)))
+    right_extra = draw(st.lists(optional_text, min_size=len(right_keys), max_size=len(right_keys)))
+    left = pd.DataFrame(
+        {
+            "backbone_id": left_keys,
+            "shared": left_shared,
+            "left_only": left_extra,
+        }
+    )
+    right = pd.DataFrame(
+        {
+            "backbone_id": right_keys,
+            "shared": right_shared,
+            "right_only": right_extra,
+        }
+    )
+    return left, right
 
 
 class TestSupportFactorProperties:
@@ -203,6 +235,27 @@ class TestNaNHandlingProperties:
         nan_positions = s_values.isna()
         if nan_positions.any():
             assert (result[nan_positions] == 0.0).all()
+
+
+class TestDataframeMergeProperties:
+    """Property-based tests for merge coalescing behavior."""
+
+    @given(case=_merge_case())
+    @settings(max_examples=100)
+    def test_coalescing_left_merge_matches_left_join_and_coalesce(
+        self, case: tuple[pd.DataFrame, pd.DataFrame]
+    ) -> None:
+        left, right = case
+        expected = left.merge(right, on="backbone_id", how="left", suffixes=("", "__incoming"))
+        for column in ("shared", "right_only"):
+            if column in left.columns and f"{column}__incoming" in expected.columns:
+                incoming = f"{column}__incoming"
+                expected[column] = expected[column].where(
+                    expected[column].notna(), expected[incoming]
+                )
+                expected = expected.drop(columns=incoming)
+        actual = coalescing_left_merge(left, right, on="backbone_id")
+        pd.testing.assert_frame_equal(actual, expected)
 
 
 # Smoke tests for quick validation

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -173,6 +174,116 @@ class WorkflowTests(unittest.TestCase):
         with mock.patch.object(run_workflow_script.os, "cpu_count", return_value=12):
             self.assertEqual(run_workflow_script._auto_job_cap(4), 3)
             self.assertEqual(run_workflow_script._auto_job_cap(1), 8)
+
+    def test_workflow_checkpoint_skips_completed_step(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_root = Path(tmp_dir)
+            logs_dir = data_root / "tmp" / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            output_path = data_root / "tmp" / "outputs" / "step-one.tsv"
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text("ok\n", encoding="utf-8")
+            step = run_workflow_script.WorkflowStep("01_check_inputs", "01_check_inputs.py")
+            checkpoint_path = data_root / "tmp" / "workflow" / "pipeline.json"
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            source_signatures = run_workflow_script._source_signatures_for_step(step)
+            summary_path = logs_dir / "01_check_inputs_summary.json"
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "script_name": "01_check_inputs",
+                        "status": "ok",
+                        "output_files_written": [str(output_path)],
+                        "input_manifest": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            checkpoint_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "pipeline",
+                        "completed_steps": ["01_check_inputs"],
+                        "steps": {
+                            "01_check_inputs": {
+                                "status": "ok",
+                                "summary_path": str(summary_path),
+                                "script_path": str(PROJECT_ROOT / "scripts" / step.script),
+                                "source_signatures": source_signatures,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict(
+                    run_workflow_script.os.environ,
+                    {"PLASMID_PRIORITY_DATA_ROOT": str(data_root)},
+                    clear=False,
+                ),
+                mock.patch.object(
+                    run_workflow_script, "_workflow_steps", return_value=[step]
+                ),
+                mock.patch.object(run_workflow_script, "_run_step", return_value=0) as run_step,
+            ):
+                result = run_workflow_script.run_workflow("pipeline", max_workers=1, resume=True)
+
+            self.assertEqual(result, 0)
+            run_step.assert_not_called()
+
+    def test_workflow_resume_reruns_invalid_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_root = Path(tmp_dir)
+            logs_dir = data_root / "tmp" / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            step = run_workflow_script.WorkflowStep("01_check_inputs", "01_check_inputs.py")
+            checkpoint_path = data_root / "tmp" / "workflow" / "pipeline.json"
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path = logs_dir / "01_check_inputs_summary.json"
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "script_name": "01_check_inputs",
+                        "status": "failed",
+                        "output_files_written": [],
+                        "input_manifest": {},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            checkpoint_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "pipeline",
+                        "completed_steps": [],
+                        "steps": {
+                            "01_check_inputs": {
+                                "status": "failed",
+                                "summary_path": str(summary_path),
+                                "script_path": str(PROJECT_ROOT / "scripts" / step.script),
+                                "source_signatures": [],
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.dict(
+                    run_workflow_script.os.environ,
+                    {"PLASMID_PRIORITY_DATA_ROOT": str(data_root)},
+                    clear=False,
+                ),
+                mock.patch.object(
+                    run_workflow_script, "_workflow_steps", return_value=[step]
+                ),
+                mock.patch.object(run_workflow_script, "_run_step", return_value=0) as run_step,
+            ):
+                result = run_workflow_script.run_workflow("pipeline", max_workers=1, resume=True)
+
+            self.assertEqual(result, 0)
+            run_step.assert_called_once()
 
     def test_validation_script_records_single_model_pareto_screen_output(self) -> None:
         fake_run = _FakeValidationRun()

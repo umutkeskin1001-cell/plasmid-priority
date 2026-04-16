@@ -4,12 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
+from threading import Lock
 from pathlib import Path
+
+from plasmid_priority.config import DATA_ROOT_ENV_VAR
+from plasmid_priority.utils.files import atomic_write_json, path_signature_with_hash, project_python_source_paths
+from plasmid_priority.validation import validate_script_boundary
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -321,6 +328,144 @@ def _workflow_steps(mode: str) -> list[WorkflowStep]:
     return _topologically_sorted(steps)
 
 
+def _workflow_data_root() -> Path:
+    raw_value = os.environ.get(DATA_ROOT_ENV_VAR)
+    if raw_value in (None, ""):
+        return (PROJECT_ROOT / "data").resolve()
+    candidate = Path(str(raw_value)).expanduser()
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
+    return candidate.resolve()
+
+
+def _workflow_checkpoint_path(mode: str) -> Path:
+    return _workflow_data_root() / "tmp" / "workflow" / f"{mode}.json"
+
+
+def _script_path(step: WorkflowStep) -> Path:
+    return PROJECT_ROOT / "scripts" / step.script
+
+
+def _source_signatures_for_step(step: WorkflowStep) -> list[dict[str, object]]:
+    source_paths = project_python_source_paths(PROJECT_ROOT, script_path=_script_path(step))
+    return [path_signature_with_hash(path, include_file_hash=True) for path in source_paths]
+
+
+def _load_workflow_checkpoint(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _current_step_summary_path(step: WorkflowStep) -> Path:
+    return _workflow_data_root() / "tmp" / "logs" / f"{step.name}_summary.json"
+
+
+def _input_manifest_matches(summary: dict[str, object]) -> bool:
+    manifest = summary.get("input_manifest")
+    if not isinstance(manifest, dict) or not manifest:
+        return True
+    for entry in manifest.values():
+        if not isinstance(entry, dict):
+            return False
+        path_value = entry.get("path")
+        if not path_value:
+            return False
+        path = Path(str(path_value))
+        if not path.exists():
+            return False
+        try:
+            current = path_signature_with_hash(path, include_file_hash=True)
+        except (OSError, ValueError):
+            return False
+        for key in ("path", "size", "mtime_ns", "kind", "sha256", "digest", "entry_count"):
+            if entry.get(key) != current.get(key):
+                return False
+    return True
+
+
+def _step_checkpoint_is_valid(step: WorkflowStep, checkpoint: dict[str, object]) -> bool:
+    step_state = checkpoint.get("steps", {})
+    if not isinstance(step_state, dict):
+        return False
+    entry = step_state.get(step.name)
+    if not isinstance(entry, dict):
+        return False
+    if str(entry.get("status", "")).lower() != "ok":
+        return False
+    summary_path = Path(str(entry.get("summary_path", _current_step_summary_path(step))))
+    if not summary_path.exists():
+        return False
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(summary, dict) or str(summary.get("status", "")).lower() != "ok":
+        return False
+    if not _input_manifest_matches(summary):
+        return False
+    output_files = summary.get("output_files_written", [])
+    if not isinstance(output_files, list):
+        return False
+    for output_value in output_files:
+        output_path = Path(str(output_value))
+        if not output_path.is_absolute():
+            output_path = PROJECT_ROOT / output_path
+        if not output_path.exists():
+            return False
+    source_signatures = entry.get("source_signatures", [])
+    current_source_signatures = _source_signatures_for_step(step)
+    return source_signatures == current_source_signatures
+
+
+def _write_workflow_checkpoint(
+    path: Path,
+    *,
+    mode: str,
+    completed_steps: list[str],
+    step: WorkflowStep | None = None,
+    step_status: str | None = None,
+    return_code: int | None = None,
+) -> None:
+    checkpoint = _load_workflow_checkpoint(path)
+    steps = checkpoint.get("steps", {})
+    if not isinstance(steps, dict):
+        steps = {}
+    if step is not None and step_status is not None:
+        summary_path = _current_step_summary_path(step)
+        step_payload: dict[str, object] = {
+            "status": step_status,
+            "summary_path": str(summary_path),
+            "script_path": str(_script_path(step)),
+            "source_signatures": _source_signatures_for_step(step),
+        }
+        if return_code is not None:
+            step_payload["return_code"] = int(return_code)
+        if summary_path.exists():
+            try:
+                summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                summary = {}
+            if isinstance(summary, dict):
+                step_payload["summary_status"] = summary.get("status")
+                step_payload["output_files_written"] = summary.get("output_files_written", [])
+                step_payload["input_manifest"] = summary.get("input_manifest", {})
+        steps[step.name] = step_payload
+    checkpoint.update(
+        {
+            "mode": mode,
+            "completed_steps": completed_steps,
+            "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "steps": steps,
+        }
+    )
+    atomic_write_json(path, checkpoint)
+
+
 def _auto_job_cap(max_workers: int) -> int:
     cpu_total = os.cpu_count() or 1
     return max(1, min(8, cpu_total // max(max_workers, 1)))
@@ -334,11 +479,31 @@ def _run_step(step: WorkflowStep, *, auto_job_cap: int | None = None) -> int:
         env.update(dict(step.env))
     if auto_job_cap is not None and "PLASMID_PRIORITY_MAX_JOBS" not in env:
         env["PLASMID_PRIORITY_MAX_JOBS"] = str(int(auto_job_cap))
-    completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False, env=env)
+    timeout_seconds = max(
+        1,
+        int(os.environ.get("PLASMID_PRIORITY_STEP_TIMEOUT_SECONDS", "86400")),
+    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=False,
+            env=env,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        print(f"[workflow] {step.name} timed out after {timeout_seconds}s", file=sys.stderr)
+        return 124
     return int(completed.returncode)
 
 
-def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = False) -> int:
+def run_workflow(
+    mode: str,
+    *,
+    max_workers: int | None = None,
+    dry_run: bool = False,
+    resume: bool = True,
+) -> int:
     steps = _workflow_steps(mode)
     if dry_run:
         for step in steps:
@@ -347,6 +512,14 @@ def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = F
             print(f"{step.name}{dep_text}: {step.script}{arg_text}")
         return 0
 
+    checkpoint_path = _workflow_checkpoint_path(mode)
+    checkpoint = _load_workflow_checkpoint(checkpoint_path) if resume else {}
+    completed: set[str] = set()
+    if resume and checkpoint:
+        for step in steps:
+            if _step_checkpoint_is_valid(step, checkpoint):
+                completed.add(step.name)
+
     if mode in SEQUENTIAL_WORKFLOW_MODES:
         max_workers = 1
     elif max_workers is None:
@@ -354,9 +527,9 @@ def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = F
     max_workers = max(1, min(int(max_workers), len(steps)))
     auto_job_cap = _auto_job_cap(max_workers)
     order = {step.name: index for index, step in enumerate(steps)}
-    pending = {step.name: step for step in steps}
-    completed: set[str] = set()
+    pending = {step.name: step for step in steps if step.name not in completed}
     running: dict[Future[int], WorkflowStep] = {}
+    checkpoint_lock = Lock()
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         while pending or running:
@@ -385,14 +558,72 @@ def run_workflow(mode: str, *, max_workers: int | None = None, dry_run: bool = F
                 step = running.pop(future)
                 return_code = int(future.result())
                 if return_code != 0:
+                    with checkpoint_lock:
+                        _write_workflow_checkpoint(
+                            checkpoint_path,
+                            mode=mode,
+                            completed_steps=sorted(completed, key=lambda name: order[name]),
+                            step=step,
+                            step_status="failed",
+                            return_code=return_code,
+                    )
                     print(
                         f"[workflow] {step.name} failed with exit code {return_code}",
                         file=sys.stderr,
                         flush=True,
                     )
                     return return_code
+                summary_path = _current_step_summary_path(step)
+                try:
+                    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    with checkpoint_lock:
+                        _write_workflow_checkpoint(
+                            checkpoint_path,
+                            mode=mode,
+                            completed_steps=sorted(completed, key=lambda name: order[name]),
+                            step=step,
+                            step_status="failed",
+                            return_code=return_code,
+                        )
+                    print(
+                        f"[workflow] {step.name} did not write a readable summary: {exc}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    return 1
+                boundary_result = validate_script_boundary(summary, project_root=PROJECT_ROOT)
+                if boundary_result.get("status") != "pass":
+                    with checkpoint_lock:
+                        _write_workflow_checkpoint(
+                            checkpoint_path,
+                            mode=mode,
+                            completed_steps=sorted(completed, key=lambda name: order[name]),
+                            step=step,
+                            step_status="failed",
+                            return_code=return_code,
+                        )
+                    issues = [
+                        entry.get("message", str(entry))
+                        for entry in boundary_result.get("errors", [])
+                    ]
+                    print(
+                        f"[workflow] {step.name} failed boundary validation: {'; '.join(issues)}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    return 1
                 completed.add(step.name)
                 pending.pop(step.name, None)
+                with checkpoint_lock:
+                    _write_workflow_checkpoint(
+                        checkpoint_path,
+                        mode=mode,
+                        completed_steps=sorted(completed, key=lambda name: order[name]),
+                        step=step,
+                        step_status="ok",
+                        return_code=return_code,
+                    )
 
     return 0
 
@@ -406,8 +637,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run", action="store_true", help="Print resolved steps without executing scripts."
     )
+    parser.add_argument(
+        "--no-resume",
+        action="store_true",
+        help="Disable automatic checkpoint resume and rerun every step from scratch.",
+    )
     args = parser.parse_args(argv)
-    return run_workflow(args.mode, max_workers=args.max_workers, dry_run=args.dry_run)
+    return run_workflow(
+        args.mode,
+        max_workers=args.max_workers,
+        dry_run=args.dry_run,
+        resume=not args.no_resume,
+    )
 
 
 if __name__ == "__main__":

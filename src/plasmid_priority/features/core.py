@@ -477,12 +477,10 @@ def _training_period_records(
     label: str,
 ) -> pd.DataFrame:
     working = records.copy()
-    years = pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
-    training = working.loc[years <= split_year].copy()
+    years = pd.to_numeric(working["resolved_year"], errors="coerce")
+    training = working.loc[years.notna() & (years <= float(split_year))].copy()
     if not training.empty:
-        max_year = int(
-            pd.to_numeric(training["resolved_year"], errors="coerce").fillna(0).astype(int).max()
-        )
+        max_year = int(pd.to_numeric(training["resolved_year"], errors="coerce").dropna().max())
         if max_year > int(split_year):
             raise ValueError(
                 f"{label} contains training rows newer than split_year={int(split_year)}; "
@@ -1202,13 +1200,13 @@ def build_backbone_table(
 
     working = records.copy()
     working["backbone_id"] = working["backbone_id"].astype(str)
-    years = pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
+    years = pd.to_numeric(working["resolved_year"], errors="coerce")
     training = _training_period_records(
         working,
         split_year=int(split_year),
         label="build_backbone_table",
     )
-    testing = working.loc[(years > split_year) & (years <= test_year_end)].copy()
+    testing = working.loc[years.notna() & (years > float(split_year)) & (years <= float(test_year_end))].copy()
 
     backbone_order = working["backbone_id"].drop_duplicates()
     backbone_table = pd.DataFrame({"backbone_id": backbone_order.to_list()})

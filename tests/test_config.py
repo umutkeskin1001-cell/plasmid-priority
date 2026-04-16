@@ -14,6 +14,7 @@ from plasmid_priority.config import (
     build_context,
     find_project_root,
     load_data_contract,
+    load_project_config,
     resolve_data_root,
 )
 
@@ -21,7 +22,7 @@ from plasmid_priority.config import (
 class ConfigTests(unittest.TestCase):
     def test_find_project_root_from_nested_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
+            root = Path(tmp_dir).resolve()
             (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
             (root / "data/manifests").mkdir(parents=True)
             (root / "data/manifests/data_contract.json").write_text(
@@ -86,6 +87,52 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(
             bool(models["fit_config"]["regime_stability_priority"]["preprocess_alpha_grouped"])
         )
+
+    def test_load_project_config_merges_layered_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+            (root / "config.yaml").write_text(
+                "pipeline:\n  split_year: 2014\nmodels:\n  primary_model_name: root_model\n",
+                encoding="utf-8",
+            )
+            (root / "config").mkdir(parents=True)
+            (root / "config" / "10_models.yaml").write_text(
+                "models:\n  primary_model_name: layered_model\n  governance_model_name: layered_governance\n",
+                encoding="utf-8",
+            )
+            (root / "config" / "20_pipeline.yaml").write_text(
+                "pipeline:\n  split_year: 2017\n  host_evenness_bias_power: 0.25\n",
+                encoding="utf-8",
+            )
+            (root / "data/manifests").mkdir(parents=True)
+            (root / "data/manifests/data_contract.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "created_on": "2026-03-22",
+                        "download_date": "2026-03-22",
+                        "assets": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            project_config = load_project_config(root)
+            context = build_context(root)
+            self.assertEqual(project_config.pipeline.split_year, 2017)
+            self.assertEqual(project_config.pipeline.host_evenness_bias_power, 0.25)
+            self.assertEqual(context.config["models"]["primary_model_name"], "layered_model")
+            self.assertEqual(
+                context.config["models"]["governance_model_name"], "layered_governance"
+            )
+            self.assertEqual(
+                context.config_paths,
+                (
+                    (root / "config.yaml").resolve(),
+                    (root / "config" / "10_models.yaml").resolve(),
+                    (root / "config" / "20_pipeline.yaml").resolve(),
+                ),
+            )
 
     def test_context_uses_explicit_external_data_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

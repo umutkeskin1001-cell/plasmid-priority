@@ -28,7 +28,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     assert_all_discovery_safe,
@@ -538,7 +538,8 @@ def main(argv: list[str] | None = None) -> int:
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/run_phase_52_discovery.py",
     )
-    input_paths = [scored_path, context.root / "config.yaml"]
+    config_paths = context_config_paths(context)
+    input_paths = [scored_path, *config_paths]
     cache_metadata = {
         "phase": "5.2",
         "models": PHASE_52_MODELS,
@@ -549,7 +550,8 @@ def main(argv: list[str] | None = None) -> int:
 
     with ManagedScriptRun(context, "run_phase_52_discovery") as run:
         run.record_input(scored_path)
-        run.record_input(context.root / "config.yaml")
+        for path in config_paths:
+            run.record_input(path)
 
         # Check cache
         if load_signature_manifest(

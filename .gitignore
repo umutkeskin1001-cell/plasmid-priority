@@ -23,6 +23,11 @@ htmlcov/
 .ipynb_checkpoints/
 pip-wheel-metadata/
 docs/
+!docs/
+docs/*
+!docs/index.md
+!docs/runbooks/
+!docs/runbooks/**
 *.egg-info/
 dist/
 build/

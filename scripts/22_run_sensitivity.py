@@ -18,7 +18,11 @@ from plasmid_priority.backbone import (
     assign_backbone_ids_training_only,
     compute_backbone_coherence,
 )
-from plasmid_priority.config import DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD, build_context
+from plasmid_priority.config import (
+    DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD,
+    build_context,
+    context_config_paths,
+)
 from plasmid_priority.features import (
     build_backbone_table,
     build_training_canonical_table,
@@ -575,7 +579,7 @@ def main() -> int:
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
     backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
     amr_hits_path = context.data_dir / "silver/plasmid_amr_hits.tsv"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     manifest_path = context.data_dir / "analysis/22_run_sensitivity.manifest.json"
     output_path = context.data_dir / "analysis/sensitivity_summary.json"
     rolling_output_path = context.data_dir / "analysis/rolling_temporal_validation.tsv"
@@ -595,7 +599,7 @@ def main() -> int:
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/22_run_sensitivity.py",
     )
-    input_paths = [scored_path, backbones_path, amr_hits_path, config_path]
+    input_paths = [scored_path, backbones_path, amr_hits_path, *config_paths]
     cache_metadata = {
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
@@ -606,7 +610,7 @@ def main() -> int:
     }
 
     with ManagedScriptRun(context, "22_run_sensitivity") as run:
-        for path in (scored_path, backbones_path, amr_hits_path, config_path):
+        for path in (scored_path, backbones_path, amr_hits_path, *config_paths):
             run.record_input(path)
         run.record_output(output_path)
         run.record_output(rolling_output_path)

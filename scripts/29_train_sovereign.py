@@ -13,7 +13,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     evaluate_model_name,
@@ -230,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
     data_root = ctx.data_dir
     analysis_dir = data_root / "analysis"
     manifest_path = analysis_dir / "29_train_sovereign.manifest.json"
-    config_path = ctx.root / "config.yaml"
+    config_paths = context_config_paths(ctx)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/29_train_sovereign.py",
@@ -255,7 +255,8 @@ def main(argv: list[str] | None = None) -> int:
 
     with ManagedScriptRun(ctx, "29_train_sovereign") as run:
         run.record_input(features_path)
-        run.record_input(config_path)
+        for path in config_paths:
+            run.record_input(path)
         metrics_path = analysis_dir / "module_a_metrics.json"
         if metrics_path.exists():
             run.record_input(metrics_path)
@@ -263,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.force and load_signature_manifest(
             manifest_path,
             input_paths=[
-                path for path in [features_path, config_path, metrics_path] if path.exists()
+                path for path in [features_path, *config_paths, metrics_path] if path.exists()
             ],
             source_paths=source_paths,
             metadata=cache_metadata,

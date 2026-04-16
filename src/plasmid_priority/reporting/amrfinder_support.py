@@ -196,7 +196,13 @@ def run_amrfinder_probe(
         "--output",
         str(output_path),
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=True)
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=600,
+    )
     return {
         "database_dir": str(database_dir),
         "stdout": result.stdout,

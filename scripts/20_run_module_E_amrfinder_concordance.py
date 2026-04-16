@@ -13,7 +13,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import get_active_model_names, get_primary_model_name
 from plasmid_priority.reporting import (
     ManagedScriptRun,
@@ -58,7 +58,7 @@ def main() -> int:
     amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
     metrics_path = context.data_dir / "analysis/module_a_metrics.json"
     predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     manifest_path = (
         context.data_dir / "analysis/20_run_module_e_amrfinder_concordance.manifest.json"
     )
@@ -83,7 +83,7 @@ def main() -> int:
         amr_consensus_path,
         metrics_path,
         predictions_path,
-        config_path,
+        *config_paths,
         all_plasmids_fasta,
         amrfinder_db_root,
     ]

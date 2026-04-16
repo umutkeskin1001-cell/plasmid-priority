@@ -52,6 +52,10 @@ from plasmid_priority.validation.schemas import (
     validate_scored_backbones,
     validate_tables_from_paths,
 )
+from plasmid_priority.validation.boundaries import (
+    validate_output_artifact,
+    validate_script_boundary,
+)
 from plasmid_priority.validation.vif import (
     build_vif_audit_table,
     compute_vif_values,
@@ -106,4 +110,6 @@ __all__ = [
     "validate_harmonized_plasmids",
     "validate_scored_backbones",
     "validate_tables_from_paths",
+    "validate_output_artifact",
+    "validate_script_boundary",
 ]

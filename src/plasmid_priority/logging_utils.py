@@ -11,7 +11,71 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Any
+
+_correlation_id: ContextVar[str] = ContextVar("plasmid_priority_correlation_id", default="-")
+_run_id: ContextVar[str] = ContextVar("plasmid_priority_run_id", default="-")
+_script_name: ContextVar[str] = ContextVar("plasmid_priority_script_name", default="-")
+
+
+@dataclass(frozen=True)
+class _LoggingContextTokens:
+    correlation_id: object | None = None
+    run_id: object | None = None
+    script_name: object | None = None
+
+
+def current_correlation_id() -> str:
+    return _correlation_id.get()
+
+
+def current_run_id() -> str:
+    return _run_id.get()
+
+
+def current_script_name() -> str:
+    return _script_name.get()
+
+
+def push_logging_context(
+    *,
+    correlation_id: str | None = None,
+    run_id: str | None = None,
+    script_name: str | None = None,
+) -> _LoggingContextTokens:
+    """Set per-run logging metadata and return tokens for restoration."""
+    return _LoggingContextTokens(
+        correlation_id=_correlation_id.set(correlation_id or "-"),
+        run_id=_run_id.set(run_id or "-"),
+        script_name=_script_name.set(script_name or "-"),
+    )
+
+
+def pop_logging_context(tokens: _LoggingContextTokens | None) -> None:
+    """Restore the previous logging metadata context."""
+    if tokens is None:
+        return
+    if tokens.script_name is not None:
+        _script_name.reset(tokens.script_name)
+    if tokens.run_id is not None:
+        _run_id.reset(tokens.run_id)
+    if tokens.correlation_id is not None:
+        _correlation_id.reset(tokens.correlation_id)
+
+
+class _ContextInjectionFilter(logging.Filter):
+    """Attach correlation metadata to every log record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not hasattr(record, "correlation_id"):
+            record.correlation_id = current_correlation_id()
+        if not hasattr(record, "run_id"):
+            record.run_id = current_run_id()
+        if not hasattr(record, "script_name"):
+            record.script_name = current_script_name()
+        return True
 
 
 class StructuredFormatter(logging.Formatter):
@@ -28,6 +92,9 @@ class StructuredFormatter(logging.Formatter):
             "level": record.levelname,
             "logger": record.name,
             "msg": record.getMessage(),
+            "correlation_id": getattr(record, "correlation_id", current_correlation_id()),
+            "run_id": getattr(record, "run_id", current_run_id()),
+            "script_name": getattr(record, "script_name", current_script_name()),
         }
         if record.exc_info and record.exc_info[0] is not None:
             payload["exc"] = self.formatException(record.exc_info)
@@ -51,21 +118,26 @@ def configure_logging(
         structured: If True, emit JSON-lines via ``StructuredFormatter``.
         stream: Output stream (defaults to ``sys.stderr``).
     """
-    handler = logging.StreamHandler(stream or sys.stderr)
-    if structured:
-        handler.setFormatter(StructuredFormatter(datefmt="%Y-%m-%dT%H:%M:%S"))
-    else:
-        handler.setFormatter(
-            logging.Formatter(
-                fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
     root = logging.getLogger()
     root.setLevel(level)
-    # Avoid duplicate handlers on repeated calls
+    formatter: logging.Formatter
+    if structured:
+        formatter = StructuredFormatter(datefmt="%Y-%m-%dT%H:%M:%S")
+    else:
+        formatter = logging.Formatter(
+            fmt="%(asctime)s | %(levelname)s | %(name)s | %(correlation_id)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
     if not root.handlers:
+        handler = logging.StreamHandler(stream or sys.stderr)
+        handler.addFilter(_ContextInjectionFilter())
+        handler.setFormatter(formatter)
         root.addHandler(handler)
+        return
+
+    for handler in root.handlers:
+        handler.addFilter(_ContextInjectionFilter())
+        handler.setFormatter(formatter)
 
 
 def get_logger(name: str) -> logging.Logger:

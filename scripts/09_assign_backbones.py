@@ -9,7 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 from plasmid_priority.backbone import assign_backbone_ids, assign_backbone_ids_training_only
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import ensure_directory
@@ -29,12 +29,13 @@ def main(argv: list[str] | None = None) -> int:
     context = build_context(PROJECT_ROOT)
     dedup_path = context.data_dir / "silver/plasmid_deduplicated.tsv"
     output_path = context.data_dir / "silver/plasmid_backbones.tsv"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     ensure_directory(output_path.parent)
 
     with ManagedScriptRun(context, "09_assign_backbones") as run:
         run.record_input(dedup_path)
-        run.record_input(config_path)
+        for path in config_paths:
+            run.record_input(path)
         run.record_output(output_path)
         records = read_tsv(dedup_path)
         if args.all_records:

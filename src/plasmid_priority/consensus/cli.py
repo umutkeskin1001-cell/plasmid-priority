@@ -61,6 +61,21 @@ def _branch_paths(context_root: Path, data_root: Path) -> dict[str, Path]:
     }
 
 
+def _sync_config_layers(
+    context_root: Path,
+    runtime_root: Path,
+    config_paths: tuple[Path, ...],
+) -> list[Path]:
+    synced_paths: list[Path] = []
+    for config_path in config_paths:
+        destination = runtime_root / config_path.relative_to(context_root)
+        ensure_directory(destination.parent)
+        if config_path.exists():
+            destination.write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+        synced_paths.append(destination)
+    return synced_paths
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the consensus branch.")
     parser.parse_args(argv)
@@ -76,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
         paths["branch_config_path"].write_text(
             paths["root_config_path"].read_text(encoding="utf-8"), encoding="utf-8"
         )
+    config_snapshot_paths = _sync_config_layers(
+        context.root, paths["runtime_dir"], context.config_paths
+    )
 
     metrics_path = paths["analysis_dir"] / "consensus_metrics.json"
     summary_path = paths["analysis_dir"] / "consensus_model_summary.tsv"
@@ -110,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             paths["geo_predictions_path"],
             paths["bio_predictions_path"],
             paths["clinical_predictions_path"],
-            paths["branch_config_path"],
+            *config_snapshot_paths,
         ):
             run.record_input(input_path)
         for output_path in (
@@ -135,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
                 paths["geo_predictions_path"],
                 paths["bio_predictions_path"],
                 paths["clinical_predictions_path"],
-                paths["branch_config_path"],
+                *config_snapshot_paths,
             ],
             source_paths=source_paths,
             metadata=cache_metadata,

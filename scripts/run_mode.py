@@ -49,7 +49,14 @@ def _run_workflow_command(
         command.append("--dry-run")
     env = os.environ.copy()
     env[DATA_ROOT_ENV_VAR] = str(data_root)
-    completed = subprocess.run(command, cwd=PROJECT_ROOT, check=False, env=env)
+    timeout_seconds = max(1, int(os.environ.get("PLASMID_PRIORITY_WORKFLOW_TIMEOUT_SECONDS", "86400")))
+    completed = subprocess.run(
+        command,
+        cwd=PROJECT_ROOT,
+        check=False,
+        env=env,
+        timeout=timeout_seconds,
+    )
     return int(completed.returncode)
 
 

@@ -27,6 +27,8 @@ plugins:
 
 nav:
   - Home: index.md
+  - Runbooks:
+    - Deployment and rollback: runbooks/deployment.md
   - API Reference:
     - exceptions: api/exceptions.md
     - logging_utils: api/logging_utils.md

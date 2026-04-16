@@ -35,11 +35,36 @@ class ConsensusFuseTests(unittest.TestCase):
             float(fused.loc[0, "consensus_score"]), float(fused.loc[1, "consensus_score"])
         )
         self.assertIn("consensus_attenuation", fused.columns)
+        self.assertIn("consensus_uncertainty", fused.columns)
+        self.assertIn("consensus_score_lower", fused.columns)
+        self.assertIn("consensus_score_upper", fused.columns)
         self.assertTrue(
             (
                 (fused["consensus_attenuation"] >= 0.0) & (fused["consensus_attenuation"] <= 1.0)
             ).all()
         )
+        self.assertTrue((fused["consensus_score_lower"] <= fused["consensus_score"]).all())
+        self.assertTrue((fused["consensus_score"] <= fused["consensus_score_upper"]).all())
+
+    def test_disagreement_increases_uncertainty(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "backbone_id": ["bb1", "bb2"],
+                "spread_label": [1, 0],
+                "p_geo": [0.95, 0.10],
+                "p_bio_transfer": [0.94, 0.15],
+                "p_clinical_hazard": [0.93, 0.20],
+                "confidence_geo": [0.95, 0.95],
+                "confidence_bio_transfer": [0.95, 0.95],
+                "confidence_clinical_hazard": [0.95, 0.95],
+                "ood_geo": [False, False],
+                "ood_bio_transfer": [False, False],
+                "ood_clinical_hazard": [False, False],
+            }
+        )
+        fused = build_operational_consensus_frame(frame)
+        self.assertGreater(float(fused.loc[1, "consensus_uncertainty"]), 0.0)
+        self.assertLessEqual(float(fused.loc[1, "consensus_score_lower"]), float(fused.loc[1, "consensus_score"]))
 
     def test_merge_branch_predictions_aligns_on_backbone_id(self) -> None:
         geo = pd.DataFrame(

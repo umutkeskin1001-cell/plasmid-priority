@@ -10,7 +10,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import get_primary_model_name
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.files import atomic_write_json, ensure_directory
@@ -83,7 +83,7 @@ def main() -> int:
     text_output_path = context.reports_dir / "tubitak_final_metrics.txt"
     manifest_path = text_output_path.with_suffix(text_output_path.suffix + ".manifest.json")
     ensure_directory(text_output_path.parent)
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     source_paths = [
         PROJECT_ROOT / "scripts/25_export_tubitak_summary.py",
         *sorted((context.root / "src/plasmid_priority").rglob("*.py")),
@@ -91,9 +91,10 @@ def main() -> int:
 
     with ManagedScriptRun(context, "25_export_tubitak_summary") as run:
         input_paths = [audit_json]
-        input_paths.append(config_path)
+        input_paths.extend(config_paths)
         run.record_input(audit_json)
-        run.record_input(config_path)
+        for path in config_paths:
+            run.record_input(path)
         if permutation_summary_path.exists():
             input_paths.append(permutation_summary_path)
             run.record_input(permutation_summary_path)

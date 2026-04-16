@@ -15,7 +15,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     NOVELTY_SPECIALIST_FEATURES,
@@ -300,7 +300,7 @@ def main(argv: list[str] | None = None) -> int:
     mash_pairs_path = context.data_dir / "raw/plsdb_mashdb_sim.tsv"
     metrics_path = context.data_dir / "analysis/module_a_metrics.json"
     module_a_predictions = context.data_dir / "analysis/module_a_predictions.tsv"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     manifest_path = context.data_dir / "analysis/21_run_validation.manifest.json"
     source_output = context.data_dir / "analysis/source_stratified_consistency.tsv"
     calibration_output = context.data_dir / "analysis/calibration_table.tsv"
@@ -365,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
         amr_consensus_path,
         metrics_path,
         module_a_predictions,
-        config_path,
+        *config_paths,
     ]
     for optional_input in (raw_amr_path, mash_pairs_path):
         if optional_input.exists():
@@ -393,7 +393,7 @@ def main(argv: list[str] | None = None) -> int:
             amr_consensus_path,
             metrics_path,
             module_a_predictions,
-            config_path,
+            *config_paths,
         ):
             run.record_input(path)
         for optional_input in (raw_amr_path, mash_pairs_path):

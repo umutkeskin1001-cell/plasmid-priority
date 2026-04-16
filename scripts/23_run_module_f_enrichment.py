@@ -7,7 +7,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.reporting import (
     ManagedScriptRun,
     build_backbone_identity_table,
@@ -28,7 +28,7 @@ def main() -> int:
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
     backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
     amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     manifest_path = context.data_dir / "analysis/23_run_module_f_enrichment.manifest.json"
     identity_output = context.data_dir / "analysis/module_f_backbone_identity.tsv"
     enrichment_output = context.data_dir / "analysis/module_f_enrichment.tsv"
@@ -38,7 +38,7 @@ def main() -> int:
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/23_run_module_f_enrichment.py",
     )
-    input_paths = [scored_path, backbones_path, amr_consensus_path, config_path]
+    input_paths = [scored_path, backbones_path, amr_consensus_path, *config_paths]
     cache_metadata = {
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
@@ -49,7 +49,7 @@ def main() -> int:
     }
 
     with ManagedScriptRun(context, "23_run_module_f_enrichment") as run:
-        for path in (scored_path, backbones_path, amr_consensus_path, config_path):
+        for path in (scored_path, backbones_path, amr_consensus_path, *config_paths):
             run.record_input(path)
         for path in (identity_output, enrichment_output, top_hits_output):
             run.record_output(path)

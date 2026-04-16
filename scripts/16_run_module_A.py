@@ -11,7 +11,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     assert_feature_columns_present,
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     metrics_path = context.data_dir / "analysis/module_a_metrics.json"
     predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
     manifest_path = context.data_dir / "analysis/16_run_module_a.manifest.json"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     raw_amr_path = context.data_dir / "raw/amr.tsv"
     mash_pairs_path = context.data_dir / "raw/plsdb_mashdb_sim.tsv"
     ensure_directory(metrics_path.parent)
@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/16_run_module_A.py",
     )
-    input_paths = [scored_path, config_path]
+    input_paths = [scored_path, *config_paths]
     for optional_input in (backbones_path, raw_amr_path, mash_pairs_path):
         if optional_input.exists():
             input_paths.append(optional_input)
@@ -94,7 +94,8 @@ def main(argv: list[str] | None = None) -> int:
 
     with ManagedScriptRun(context, "16_run_module_A") as run:
         run.record_input(scored_path)
-        run.record_input(config_path)
+        for path in config_paths:
+            run.record_input(path)
         run.record_output(metrics_path)
         run.record_output(predictions_path)
         if load_signature_manifest(

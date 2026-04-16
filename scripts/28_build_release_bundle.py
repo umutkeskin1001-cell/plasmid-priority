@@ -69,6 +69,7 @@ def _git_commit(project_root: Path) -> str:
             check=True,
             capture_output=True,
             text=True,
+            timeout=30,
         )
     except Exception:
         return "unknown"

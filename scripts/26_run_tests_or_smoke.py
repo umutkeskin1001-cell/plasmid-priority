@@ -71,6 +71,7 @@ def run_unit_tests() -> TestRunSummary:
         capture_output=True,
         text=True,
         check=False,
+        timeout=max(1, int(os.environ.get("PLASMID_PRIORITY_TEST_TIMEOUT_SECONDS", "86400"))),
     )
     tests_run, test_failures, test_errors = _extract_pytest_counts(junit_path)
     junit_path.unlink(missing_ok=True)
@@ -91,6 +92,7 @@ def _run_cli_smoke(script_name: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        timeout=max(1, int(os.environ.get("PLASMID_PRIORITY_SCRIPT_TIMEOUT_SECONDS", "3600"))),
     )
 
 

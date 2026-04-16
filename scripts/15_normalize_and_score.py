@@ -11,7 +11,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     build_discovery_input_contract,
@@ -52,7 +52,7 @@ def main() -> int:
     t_path = context.data_dir / "features/feature_T.tsv"
     h_path = context.data_dir / "features/feature_H.tsv"
     a_path = context.data_dir / "features/feature_A.tsv"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     manifest_path = context.data_dir / "scores/15_normalize_and_score.manifest.json"
     scored_tsv = context.data_dir / "scores/backbone_scored.tsv"
     scored_parquet = context.data_dir / "scores/backbone_scored.parquet"
@@ -61,7 +61,7 @@ def main() -> int:
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/15_normalize_and_score.py",
     )
-    input_paths = [backbone_path, t_path, h_path, a_path, config_path]
+    input_paths = [backbone_path, t_path, h_path, a_path, *config_paths]
     cache_metadata = {
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
@@ -72,7 +72,7 @@ def main() -> int:
     }
 
     with ManagedScriptRun(context, "15_normalize_and_score") as run:
-        for path in (backbone_path, t_path, h_path, a_path, config_path):
+        for path in (backbone_path, t_path, h_path, a_path, *config_paths):
             run.record_input(path)
         run.record_output(scored_tsv)
         run.record_output(scored_parquet)

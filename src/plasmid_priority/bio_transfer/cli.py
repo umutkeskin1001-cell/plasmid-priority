@@ -56,6 +56,19 @@ def _sync_file(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
+def _sync_config_layers(
+    context_root: Path,
+    runtime_root: Path,
+    config_paths: tuple[Path, ...],
+) -> list[Path]:
+    synced_paths: list[Path] = []
+    for config_path in config_paths:
+        destination = runtime_root / config_path.relative_to(context_root)
+        _sync_file(config_path, destination)
+        synced_paths.append(destination)
+    return synced_paths
+
+
 def _branch_paths(context_root: Path, data_root: Path) -> dict[str, Path]:
     branch_root = data_root / "bio_transfer"
     return {
@@ -88,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
     _sync_file(paths["legacy_scored_path"], paths["branch_scored_path"])
     _sync_file(paths["legacy_records_path"], paths["branch_records_path"])
     _sync_file(paths["root_config_path"], paths["branch_config_path"])
+    config_snapshot_paths = _sync_config_layers(
+        context.root, paths["runtime_dir"], context.config_paths
+    )
 
     metrics_path = paths["analysis_dir"] / "bio_transfer_metrics.json"
     summary_path = paths["analysis_dir"] / "bio_transfer_model_summary.tsv"
@@ -123,7 +139,8 @@ def main(argv: list[str] | None = None) -> int:
     with ManagedScriptRun(context, "run_bio_transfer_branch") as run:
         run.record_input(paths["branch_scored_path"])
         run.record_input(paths["branch_records_path"])
-        run.record_input(paths["branch_config_path"])
+        for config_path in config_snapshot_paths:
+            run.record_input(config_path)
         for output_path in (
             metrics_path,
             summary_path,
@@ -143,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             input_paths=[
                 paths["branch_scored_path"],
                 paths["branch_records_path"],
-                paths["branch_config_path"],
+                *config_snapshot_paths,
             ],
             source_paths=source_paths,
             metadata=cache_metadata,

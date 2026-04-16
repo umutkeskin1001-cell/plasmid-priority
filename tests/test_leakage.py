@@ -11,6 +11,8 @@ import unittest
 import numpy as np
 import pandas as pd
 
+from plasmid_priority.features.core import _training_period_records
+
 
 class TestTemporalLeakage(unittest.TestCase):
     """Ensure the training/test split is honored throughout the pipeline."""
@@ -125,6 +127,20 @@ class TestTemporalLeakage(unittest.TestCase):
             expected,
             "spread_label threshold must be ≥3 new countries.",
         )
+
+    def test_training_period_records_ignore_missing_years(self) -> None:
+        records = pd.DataFrame(
+            {
+                "resolved_year": [2010, None, 2016],
+                "backbone_id": ["BB1", "BB2", "BB3"],
+            }
+        )
+        training = _training_period_records(
+            records,
+            split_year=2015,
+            label="test_training_period_records_ignore_missing_years",
+        )
+        self.assertListEqual(training["backbone_id"].tolist(), ["BB1"])
 
 
 if __name__ == "__main__":

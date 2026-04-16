@@ -7,6 +7,10 @@ import os
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
+from typing import Any, Mapping
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
 
 from plasmid_priority.protocol import _coerce_float, _coerce_int
 from plasmid_priority.schemas import DataAssetSpec, DataContract
@@ -33,6 +37,82 @@ class PipelineSettings:
     host_evenness_bias_power: float
     host_phylo_breadth_weight: float
     host_phylo_dispersion_weight: float
+
+
+class PipelineConfig(BaseModel):
+    """Typed pipeline configuration surface."""
+
+    model_config = ConfigDict(extra="allow")
+
+    split_year: int = DEFAULT_PIPELINE_SPLIT_YEAR
+    min_new_countries_for_spread: int = DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD
+    horizon_years: int = 5
+    min_new_host_genera_for_transfer: int = 2
+    min_new_host_families_for_transfer: int = 1
+    clinical_escalation_thresholds: dict[str, float] = Field(default_factory=dict)
+    consensus_weights: dict[str, float] = Field(default_factory=dict)
+    ood_thresholds: dict[str, float] = Field(default_factory=dict)
+    host_evenness_bias_power: float = DEFAULT_HOST_EVENNESS_BIAS_POWER
+    host_phylo_breadth_weight: float = DEFAULT_HOST_PHYLO_BREADTH_WEIGHT
+    host_phylo_dispersion_weight: float = DEFAULT_HOST_PHYLO_DISPERSION_WEIGHT
+
+
+class ProjectConfig(BaseModel):
+    """Typed layered project configuration."""
+
+    model_config = ConfigDict(extra="allow")
+
+    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
+    models: dict[str, Any] = Field(default_factory=dict)
+
+
+def _read_yaml(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle) or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _deep_merge(base: Mapping[str, Any], overlay: Mapping[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(base)
+    for key, value in overlay.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, Mapping):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _project_config_layers(project_root: Path) -> list[Path]:
+    config_dir = project_root / "config"
+    paths = [project_root / "config.yaml"]
+    if config_dir.exists():
+        paths.extend(sorted(config_dir.glob("*.yaml")))
+    return paths
+
+
+def load_project_config(project_root: Path | None = None) -> ProjectConfig:
+    """Load and merge layered project configuration files."""
+    root = find_project_root(project_root)
+    payload: dict[str, Any] = {}
+    for config_path in _project_config_layers(root):
+        payload = _deep_merge(payload, _read_yaml(config_path))
+    return ProjectConfig.model_validate(payload)
+
+
+def context_config_paths(context: Any) -> tuple[Path, ...]:
+    """Return the config paths associated with a project-like context.
+
+    Older test doubles and lightweight callers may only expose ``root``.
+    """
+    config_paths = getattr(context, "config_paths", None)
+    if config_paths:
+        return tuple(Path(path) for path in config_paths)
+    root = getattr(context, "root", None)
+    if root is None:
+        return tuple()
+    return (Path(root) / "config.yaml",)
 
 
 def _pipeline_settings_from_config(config: dict | None) -> PipelineSettings:
@@ -112,17 +192,19 @@ class ProjectContext:
 
     @cached_property
     def config(self) -> dict:
-        import yaml
+        return self.project_config.model_dump(mode="python")
 
-        config_path = self.root / "config.yaml"
-        if not config_path.exists():
-            return {}
-        with config_path.open("r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
+    @cached_property
+    def project_config(self) -> ProjectConfig:
+        return load_project_config(self.root)
 
     @cached_property
     def pipeline_settings(self) -> PipelineSettings:
         return _pipeline_settings_from_config(self.config)
+
+    @property
+    def config_paths(self) -> tuple[Path, ...]:
+        return tuple(_project_config_layers(self.root))
 
     @property
     def reports_dir(self) -> Path:

@@ -9,7 +9,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     build_coefficient_stability_table,
@@ -56,7 +56,7 @@ def main() -> int:
     backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
     predictions_path = context.data_dir / "analysis/module_a_predictions.tsv"
     adaptive_predictions_path = context.data_dir / "analysis/adaptive_gated_predictions.tsv"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     manifest_path = context.data_dir / "analysis/27_run_advanced_audits.manifest.json"
     raw_dir = context.asset_path("plsdb_meta_tables_dir")
     assembly_path = raw_dir / "assembly.csv"
@@ -108,7 +108,7 @@ def main() -> int:
         changes_path,
         raw_amr_path,
         mash_pairs_path,
-        config_path,
+        *config_paths,
     ]
     cache_metadata = {
         "pipeline_settings": {
@@ -131,7 +131,7 @@ def main() -> int:
             changes_path,
             raw_amr_path,
             mash_pairs_path,
-            config_path,
+            *config_paths,
         ):
             if path.exists():
                 run.record_input(path)

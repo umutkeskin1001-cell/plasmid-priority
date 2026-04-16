@@ -9,7 +9,7 @@ import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
+from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import (
@@ -34,7 +34,7 @@ def main() -> int:
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
     backbones_path = context.data_dir / "silver/plasmid_backbones.tsv"
     amr_consensus_path = context.data_dir / "silver/plasmid_amr_consensus.tsv"
-    config_path = context.root / "config.yaml"
+    config_paths = context_config_paths(context)
     manifest_path = context.data_dir / "analysis/17_run_module_b.manifest.json"
     output_path = context.data_dir / "analysis/module_b_amr_class_comparison.tsv"
     ensure_directory(output_path.parent)
@@ -42,7 +42,7 @@ def main() -> int:
         PROJECT_ROOT,
         script_path=PROJECT_ROOT / "scripts/17_run_module_B.py",
     )
-    input_paths = [scored_path, backbones_path, amr_consensus_path, config_path]
+    input_paths = [scored_path, backbones_path, amr_consensus_path, *config_paths]
     cache_metadata = {
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
@@ -53,7 +53,7 @@ def main() -> int:
     }
 
     with ManagedScriptRun(context, "17_run_module_B") as run:
-        for path in (scored_path, backbones_path, amr_consensus_path, config_path):
+        for path in (scored_path, backbones_path, amr_consensus_path, *config_paths):
             run.record_input(path)
         run.record_output(output_path)
         if load_signature_manifest(
