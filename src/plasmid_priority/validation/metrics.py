@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+import warnings
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
 
 def _calibration_bins(
@@ -139,6 +141,38 @@ def log_loss(y_true: np.ndarray, y_score: np.ndarray, *, eps: float = 1e-15) -> 
         return float("nan")
     loss = -(y_true * np.log(y_score) + (1.0 - y_true) * np.log(1.0 - y_score))
     return float(np.mean(loss))
+
+
+def calibration_slope_intercept(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+) -> tuple[float, float]:
+    """Estimate logistic calibration slope and intercept on log-odds.
+
+    The ideal calibration line has slope 1.0 and intercept 0.0.
+    """
+    y_true = np.asarray(y_true, dtype=int)
+    y_prob = np.asarray(y_prob, dtype=float)
+    if len(y_true) == 0 or len(y_true) != len(y_prob):
+        return float("nan"), float("nan")
+    if np.unique(y_true).size < 2:
+        return float("nan"), float("nan")
+
+    clipped = np.clip(y_prob, 1e-7, 1.0 - 1e-7)
+    log_odds = np.log(clipped / (1.0 - clipped)).reshape(-1, 1)
+    try:
+        reg = LogisticRegression(
+            penalty=None,
+            fit_intercept=True,
+            solver="lbfgs",
+            max_iter=1000,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", FutureWarning)
+            reg.fit(log_odds, y_true)
+    except (ValueError, RuntimeError, np.linalg.LinAlgError):
+        return float("nan"), float("nan")
+    return float(reg.coef_[0][0]), float(reg.intercept_[0])
 
 
 def calibration_curve_data(

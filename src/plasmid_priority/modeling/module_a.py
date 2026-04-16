@@ -259,10 +259,11 @@ def _compute_sample_weight(
             )
             weights *= np.asarray(pu_weight, dtype=float)
             continue
-        if token == "ipw_balanced":
+        if token in {"inverse_knownness_weighting", "ipw_balanced"}:
             knownness = _knownness_score_series(eligible).fillna(0.0).clip(0.0, 1.0)
             knownness_values = knownness.to_numpy(dtype=float)
-            # Inverse probability: low knownness → high weight, high knownness → low weight
+            # Knownness-inverse heuristic: low-knownness backbones get higher weight.
+            # Note: this is not propensity-score IPW.
             ipw_weights = 1.0 / (knownness_values + 0.1)
             ipw_weights = np.clip(ipw_weights, 0.2, 5.0)
             weights *= ipw_weights
@@ -534,46 +535,45 @@ def _select_knownness_residualizer_alpha(
     for alpha in alpha_grid:
         preds = np.zeros(len(working), dtype=float)
         counts = np.zeros(len(working), dtype=float)
-        for fold_indices in fold_groups:
-            for test_idx in fold_indices:
-                train_mask = np.ones(len(y), dtype=bool)
-                train_mask[test_idx] = False
-                inner_train = working.loc[train_mask]
-                inner_valid = working.iloc[test_idx]
-                coefficients = _fit_knownness_residualizer(
-                    inner_train,
-                    columns,
-                    alpha=alpha,
-                    prepared=True,
-                )
-                X_train = _apply_knownness_residualizer(
-                    inner_train,
-                    columns,
-                    coefficients,
-                    prepared=True,
-                )
-                X_valid = _apply_knownness_residualizer(
-                    inner_valid,
-                    columns,
-                    coefficients,
-                    prepared=True,
-                )
-                train_weight = _compute_sample_weight(
-                    inner_train,
-                    mode=_fit_kwarg_mode(fit_kwargs),
-                    fit_kwargs=fit_kwargs,
-                )
-                X_train_scaled, mean, std = _standardize_fit(X_train)
-                X_valid_scaled = _standardize_apply(X_valid, mean, std)
-                beta = _fit_logistic_regression(
-                    X_train_scaled,
-                    y[train_mask],
-                    l2=l2_value,
-                    max_iter=max_iter,
-                    sample_weight=train_weight,
-                )
-                preds[test_idx] += _predict_logistic(X_valid_scaled, beta)
-                counts[test_idx] += 1.0
+        for _, test_idx in fold_groups:
+            train_mask = np.ones(len(y), dtype=bool)
+            train_mask[test_idx] = False
+            inner_train = working.loc[train_mask]
+            inner_valid = working.iloc[test_idx]
+            coefficients = _fit_knownness_residualizer(
+                inner_train,
+                columns,
+                alpha=alpha,
+                prepared=True,
+            )
+            X_train = _apply_knownness_residualizer(
+                inner_train,
+                columns,
+                coefficients,
+                prepared=True,
+            )
+            X_valid = _apply_knownness_residualizer(
+                inner_valid,
+                columns,
+                coefficients,
+                prepared=True,
+            )
+            train_weight = _compute_sample_weight(
+                inner_train,
+                mode=_fit_kwarg_mode(fit_kwargs),
+                fit_kwargs=fit_kwargs,
+            )
+            X_train_scaled, mean, std = _standardize_fit(X_train)
+            X_valid_scaled = _standardize_apply(X_valid, mean, std)
+            beta = _fit_logistic_regression(
+                X_train_scaled,
+                y[train_mask],
+                l2=l2_value,
+                max_iter=max_iter,
+                sample_weight=train_weight,
+            )
+            preds[test_idx] += _predict_logistic(X_valid_scaled, beta)
+            counts[test_idx] += 1.0
         valid_mask = counts > 0
         if not np.any(valid_mask):
             continue
@@ -812,24 +812,23 @@ def _fit_lightgbm_isotonic_calibrator(
         return None
     preds = np.zeros(len(train), dtype=float)
     counts = np.zeros(len(train), dtype=float)
-    for fold_indices in fold_groups:
-        for test_idx in fold_indices:
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            inner_train = train.loc[train_mask]
-            inner_valid = train.iloc[test_idx]
-            # NO standardization for LightGBM — tree-based models are scale-invariant
-            X_inner_train, X_inner_valid = _prepare_feature_matrices(
-                inner_train, inner_valid, columns, fit_kwargs=fit_kwargs, prepared=True
-            )
-            inner_weight = _compute_sample_weight(
-                inner_train, mode=_fit_kwarg_mode(fit_kwargs), fit_kwargs=fit_kwargs
-            )
-            model = _fit_lightgbm_classifier(
-                X_inner_train, y[train_mask], fit_kwargs=fit_kwargs, sample_weight=inner_weight
-            )
-            preds[test_idx] += model.predict_proba(X_inner_valid)[:, 1]
-            counts[test_idx] += 1.0
+    for _, test_idx in fold_groups:
+        train_mask = np.ones(len(y), dtype=bool)
+        train_mask[test_idx] = False
+        inner_train = train.loc[train_mask]
+        inner_valid = train.iloc[test_idx]
+        # NO standardization for LightGBM — tree-based models are scale-invariant
+        X_inner_train, X_inner_valid = _prepare_feature_matrices(
+            inner_train, inner_valid, columns, fit_kwargs=fit_kwargs, prepared=True
+        )
+        inner_weight = _compute_sample_weight(
+            inner_train, mode=_fit_kwarg_mode(fit_kwargs), fit_kwargs=fit_kwargs
+        )
+        model = _fit_lightgbm_classifier(
+            X_inner_train, y[train_mask], fit_kwargs=fit_kwargs, sample_weight=inner_weight
+        )
+        preds[test_idx] += model.predict_proba(X_inner_valid)[:, 1]
+        counts[test_idx] += 1.0
     if np.any(counts == 0):
         return None
     blend = preds / counts
@@ -850,7 +849,7 @@ def _oof_lightgbm_predictions_from_eligible(
     seed: int,
     fit_kwargs: dict[str, object] | None = None,
     y_override: np.ndarray | None = None,
-    folds_per_repeat: list[list[np.ndarray]] | None = None,
+    folds_per_repeat: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Pure LightGBM OOF pipeline: no standardization, optional inner-OOF isotonic calibration."""
     if not _HAS_LIGHTGBM:
@@ -868,8 +867,7 @@ def _oof_lightgbm_predictions_from_eligible(
         if folds_per_repeat is not None
         else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
     )
-    for fold_indices in fold_groups:
-        for test_idx in fold_indices:
+    for _, test_idx in fold_groups:
             train_mask = np.ones(len(y), dtype=bool)
             train_mask[test_idx] = False
             train = eligible.loc[train_mask]
@@ -909,7 +907,7 @@ def _safe_evaluate_model_name_task(
     n_splits: int,
     n_repeats: int,
     seed: int,
-    fold_groups: list[list[np.ndarray]] | None = None,
+    fold_groups: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> tuple[str, ModelResult]:
     try:
         return (
@@ -956,42 +954,41 @@ def _fit_hybrid_isotonic_calibrator(
         return None
     preds = np.zeros(len(train), dtype=float)
     counts = np.zeros(len(train), dtype=float)
-    for fold_indices in fold_groups:
-        for test_idx in fold_indices:
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            inner_train = train.loc[train_mask]
-            inner_valid = train.iloc[test_idx]
-            X_inner_train, X_inner_valid = _prepare_feature_matrices(
-                inner_train,
-                inner_valid,
-                columns,
-                fit_kwargs=fit_kwargs,
-                prepared=True,
-            )
-            inner_weight = _compute_sample_weight(
-                inner_train,
-                mode=_fit_kwarg_mode(fit_kwargs),
-                fit_kwargs=fit_kwargs,
-            )
-            beta, mean, std = _fit_standardized_model(
-                X_inner_train,
-                y[train_mask],
-                l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
-                max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
-                sample_weight=inner_weight,
-                fit_backend=_fit_backend_name(fit_kwargs),
-            )
-            logistic_valid = _predict_calibrated(_standardize_apply(X_inner_valid, mean, std), beta)
-            nonlinear_model, _, _ = _fit_nonlinear_model(
-                X_inner_train,
-                y[train_mask],
-                fit_kwargs=fit_kwargs,
-                sample_weight=inner_weight,
-            )
-            nonlinear_valid = _predict_nonlinear_model(nonlinear_model, X_inner_valid)
-            preds[test_idx] += 0.5 * (logistic_valid + nonlinear_valid)
-            counts[test_idx] += 1.0
+    for _, test_idx in fold_groups:
+        train_mask = np.ones(len(y), dtype=bool)
+        train_mask[test_idx] = False
+        inner_train = train.loc[train_mask]
+        inner_valid = train.iloc[test_idx]
+        X_inner_train, X_inner_valid = _prepare_feature_matrices(
+            inner_train,
+            inner_valid,
+            columns,
+            fit_kwargs=fit_kwargs,
+            prepared=True,
+        )
+        inner_weight = _compute_sample_weight(
+            inner_train,
+            mode=_fit_kwarg_mode(fit_kwargs),
+            fit_kwargs=fit_kwargs,
+        )
+        beta, mean, std = _fit_standardized_model(
+            X_inner_train,
+            y[train_mask],
+            l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+            sample_weight=inner_weight,
+            fit_backend=_fit_backend_name(fit_kwargs),
+        )
+        logistic_valid = _predict_calibrated(_standardize_apply(X_inner_valid, mean, std), beta)
+        nonlinear_model, _, _ = _fit_nonlinear_model(
+            X_inner_train,
+            y[train_mask],
+            fit_kwargs=fit_kwargs,
+            sample_weight=inner_weight,
+        )
+        nonlinear_valid = _predict_nonlinear_model(nonlinear_model, X_inner_valid)
+        preds[test_idx] += 0.5 * (logistic_valid + nonlinear_valid)
+        counts[test_idx] += 1.0
     if np.any(counts == 0):
         return None
     blend = preds / counts
@@ -1084,7 +1081,7 @@ def _oof_hybrid_predictions_from_eligible(
     seed: int,
     fit_kwargs: dict[str, object] | None = None,
     y_override: np.ndarray | None = None,
-    folds_per_repeat: list[list[np.ndarray]] | None = None,
+    folds_per_repeat: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
     fit_kwargs = fit_kwargs or {}
     y = (
@@ -1106,44 +1103,43 @@ def _oof_hybrid_predictions_from_eligible(
         if folds_per_repeat is not None
         else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
     )
-    for fold_indices in fold_groups:
-        for test_idx in fold_indices:
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            train = eligible.loc[train_mask]
-            test = eligible.iloc[test_idx]
-            fold_predictions = _fit_predict_hybrid_stacked(
-                train,
-                test,
-                columns,
-                fit_kwargs=fit_kwargs,
-                l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
-                max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+    for _, test_idx in fold_groups:
+        train_mask = np.ones(len(y), dtype=bool)
+        train_mask[test_idx] = False
+        train = eligible.loc[train_mask]
+        test = eligible.iloc[test_idx]
+        fold_predictions = _fit_predict_hybrid_stacked(
+            train,
+            test,
+            columns,
+            fit_kwargs=fit_kwargs,
+            l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+            max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+        )
+        preds[test_idx] += fold_predictions["prediction"].to_numpy(dtype=float)
+        logistic_base[test_idx] += fold_predictions["logistic_base_prediction"].to_numpy(
+            dtype=float
+        )
+        nonlinear_base[test_idx] += fold_predictions["nonlinear_base_prediction"].to_numpy(
+            dtype=float
+        )
+        agreement[test_idx] += fold_predictions["agreement_score"].to_numpy(dtype=float)
+        review[test_idx] += (
+            fold_predictions["agreement_review_flag"].astype(float).to_numpy(dtype=float)
+        )
+        if "nonlinear_backend_requested" in fold_predictions.columns:
+            nonlinear_backend_requested[test_idx] = str(
+                fold_predictions["nonlinear_backend_requested"].iloc[0]
             )
-            preds[test_idx] += fold_predictions["prediction"].to_numpy(dtype=float)
-            logistic_base[test_idx] += fold_predictions["logistic_base_prediction"].to_numpy(
-                dtype=float
+        if "nonlinear_backend_resolved" in fold_predictions.columns:
+            nonlinear_backend_resolved[test_idx] = str(
+                fold_predictions["nonlinear_backend_resolved"].iloc[0]
             )
-            nonlinear_base[test_idx] += fold_predictions["nonlinear_base_prediction"].to_numpy(
-                dtype=float
+        if "nonlinear_backend_resolution_status" in fold_predictions.columns:
+            nonlinear_backend_resolution_status[test_idx] = str(
+                fold_predictions["nonlinear_backend_resolution_status"].iloc[0]
             )
-            agreement[test_idx] += fold_predictions["agreement_score"].to_numpy(dtype=float)
-            review[test_idx] += (
-                fold_predictions["agreement_review_flag"].astype(float).to_numpy(dtype=float)
-            )
-            if "nonlinear_backend_requested" in fold_predictions.columns:
-                nonlinear_backend_requested[test_idx] = str(
-                    fold_predictions["nonlinear_backend_requested"].iloc[0]
-                )
-            if "nonlinear_backend_resolved" in fold_predictions.columns:
-                nonlinear_backend_resolved[test_idx] = str(
-                    fold_predictions["nonlinear_backend_resolved"].iloc[0]
-                )
-            if "nonlinear_backend_resolution_status" in fold_predictions.columns:
-                nonlinear_backend_resolution_status[test_idx] = str(
-                    fold_predictions["nonlinear_backend_resolution_status"].iloc[0]
-                )
-            counts[test_idx] += 1.0
+        counts[test_idx] += 1.0
     if counts.min() == 0:
         warnings.warn(
             f"{int((counts == 0).sum())} sample(s) never appeared in any test fold",
@@ -1174,7 +1170,7 @@ def _oof_predictions_from_eligible(
     seed: int,
     fit_kwargs: dict[str, object] | None = None,
     y_override: np.ndarray | None = None,
-    folds_per_repeat: list[list[np.ndarray]] | None = None,
+    folds_per_repeat: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     fit_kwargs = fit_kwargs or {}
     model_type = _model_type_name(fit_kwargs)
@@ -1213,45 +1209,44 @@ def _oof_predictions_from_eligible(
         if folds_per_repeat is not None
         else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
     )
-    for fold_indices in fold_groups:
-        for test_idx in fold_indices:
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            train = eligible.loc[train_mask]
-            test = eligible.iloc[test_idx]
-            X_train, X_test = _prepare_feature_matrices(
-                train,
-                test,
-                columns,
+    for _, test_idx in fold_groups:
+        train_mask = np.ones(len(y), dtype=bool)
+        train_mask[test_idx] = False
+        train = eligible.loc[train_mask]
+        test = eligible.iloc[test_idx]
+        X_train, X_test = _prepare_feature_matrices(
+            train,
+            test,
+            columns,
+            fit_kwargs=fit_kwargs,
+            prepared=True,
+        )
+        train_weight = _compute_sample_weight(
+            train,
+            mode=_fit_kwarg_mode(fit_kwargs),
+            fit_kwargs=fit_kwargs,
+        )
+        if model_type == "pairwise_rank_logistic":
+            beta, mean, std, _ = _fit_pairwise_rank_model(
+                X_train,
+                y[train_mask],
                 fit_kwargs=fit_kwargs,
-                prepared=True,
+                sample_weight=train_weight,
             )
-            train_weight = _compute_sample_weight(
-                train,
-                mode=_fit_kwarg_mode(fit_kwargs),
-                fit_kwargs=fit_kwargs,
+            X_test_scaled = _standardize_apply(X_test, mean, std)
+        else:
+            X_train_scaled, mean, std = _standardize_fit(X_train)
+            X_test_scaled = _standardize_apply(X_test, mean, std)
+            beta = _fit_logistic_regression(
+                X_train_scaled,
+                y[train_mask],
+                l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+                sample_weight=train_weight,
+                fit_backend=_fit_backend_name(fit_kwargs),
             )
-            if model_type == "pairwise_rank_logistic":
-                beta, mean, std, _ = _fit_pairwise_rank_model(
-                    X_train,
-                    y[train_mask],
-                    fit_kwargs=fit_kwargs,
-                    sample_weight=train_weight,
-                )
-                X_test_scaled = _standardize_apply(X_test, mean, std)
-            else:
-                X_train_scaled, mean, std = _standardize_fit(X_train)
-                X_test_scaled = _standardize_apply(X_test, mean, std)
-                beta = _fit_logistic_regression(
-                    X_train_scaled,
-                    y[train_mask],
-                    l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
-                    max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
-                    sample_weight=train_weight,
-                    fit_backend=_fit_backend_name(fit_kwargs),
-                )
-            preds[test_idx] += _predict_logistic(X_test_scaled, beta)
-            counts[test_idx] += 1
+        preds[test_idx] += _predict_logistic(X_test_scaled, beta)
+        counts[test_idx] += 1
     if counts.min() == 0:
         warnings.warn(
             f"{int((counts == 0).sum())} sample(s) never appeared in any test fold",
@@ -1270,7 +1265,7 @@ def _oof_predictions_with_detail_from_eligible(
     seed: int,
     fit_kwargs: dict[str, object] | None = None,
     y_override: np.ndarray | None = None,
-    folds_per_repeat: list[list[np.ndarray]] | None = None,
+    folds_per_repeat: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame | None]:
     fit_kwargs = fit_kwargs or {}
     if _model_type_name(fit_kwargs) == "hybrid_stacked":
@@ -1303,7 +1298,7 @@ def _evaluate_model_name_task(
     n_splits: int,
     n_repeats: int,
     seed: int,
-    fold_groups: list[list[np.ndarray]] | None = None,
+    fold_groups: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> tuple[str, ModelResult]:
     return _safe_evaluate_model_name_task(scored, model_name, n_splits, n_repeats, seed, fold_groups)
 
@@ -1316,7 +1311,7 @@ def _build_dropout_feature_row(
     feature_name: str,
     feature_rank: int,
     y: np.ndarray,
-    fold_groups: list[list[np.ndarray]],
+    fold_groups: list[tuple[np.ndarray, np.ndarray]],
     fit_kwargs: dict[str, object],
     n_splits: int,
     n_repeats: int,
@@ -2488,7 +2483,7 @@ def evaluate_model_name(
     seed: int = 42,
     fit_config: dict[str, object] | None = None,
     include_ci: bool = True,
-    fold_groups: list[list[np.ndarray]] | None = None,
+    fold_groups: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> ModelResult:
     """Evaluate a single named model on the eligible cohort using OOF predictions."""
     _ensure_config_loaded()
@@ -2876,14 +2871,15 @@ def build_coefficient_stability_table(
         mode=_fit_kwarg_mode(fit_kwargs),
         fit_kwargs=fit_kwargs,
     )
-    tasks = [
-        (repeat_index, fold_index, test_idx)
-        for repeat_index, fold_indices in enumerate(
-            _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed),
-            start=1,
-        )
-        for fold_index, test_idx in enumerate(fold_indices, start=1)
-    ]
+    _, class_counts = np.unique(y, return_counts=True)
+    effective_splits = min(max(int(n_splits), 2), int(class_counts.min()))
+    tasks: list[tuple[int, int, np.ndarray]] = []
+    for split_index, (_, test_idx) in enumerate(
+        _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
+    ):
+        repeat_index = split_index // effective_splits + 1
+        fold_index = split_index % effective_splits + 1
+        tasks.append((repeat_index, fold_index, test_idx))
 
     def _coefficient_rows(task: tuple[int, int, np.ndarray]) -> list[dict[str, object]]:
         repeat_index, fold_index, test_idx = task
@@ -3047,48 +3043,50 @@ def build_logistic_convergence_audit(
             fit_kwargs=fit_kwargs,
         )
         model_rows: list[dict[str, object]] = []
-        for repeat_index, fold_indices in enumerate(
-            _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed),
-            start=1,
+        _, class_counts = np.unique(y, return_counts=True)
+        effective_splits = min(max(int(n_splits), 2), int(class_counts.min()))
+        for split_index, (_, test_idx) in enumerate(
+            _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
         ):
-            for fold_index, test_idx in enumerate(fold_indices, start=1):
-                train_mask = np.ones(len(y), dtype=bool)
-                train_mask[test_idx] = False
-                train_weight = sample_weight[train_mask] if sample_weight is not None else None
-                train = eligible.loc[train_mask]
-                X_train, _ = _prepare_feature_matrices(
-                    train,
-                    train,
-                    columns,
+            repeat_index = split_index // effective_splits + 1
+            fold_index = split_index % effective_splits + 1
+            train_mask = np.ones(len(y), dtype=bool)
+            train_mask[test_idx] = False
+            train_weight = sample_weight[train_mask] if sample_weight is not None else None
+            train = eligible.loc[train_mask]
+            X_train, _ = _prepare_feature_matrices(
+                train,
+                train,
+                columns,
+                fit_kwargs=fit_kwargs,
+                prepared=True,
+            )
+            if _model_type_name(fit_kwargs) == "pairwise_rank_logistic":
+                X_train_scaled, _, _ = _standardize_fit(X_train)
+                pair_X, pair_y, pair_weight = _build_pairwise_rank_dataset(
+                    X_train_scaled,
+                    y[train_mask],
+                    sample_weight=train_weight,
                     fit_kwargs=fit_kwargs,
-                    prepared=True,
                 )
-                if _model_type_name(fit_kwargs) == "pairwise_rank_logistic":
-                    X_train_scaled, _, _ = _standardize_fit(X_train)
-                    pair_X, pair_y, pair_weight = _build_pairwise_rank_dataset(
-                        X_train_scaled,
-                        y[train_mask],
-                        sample_weight=train_weight,
-                        fit_kwargs=fit_kwargs,
-                    )
-                    _, diagnostics = _fit_logistic_regression_with_diagnostics(
-                        pair_X,
-                        pair_y,
-                        l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
-                        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
-                        sample_weight=pair_weight,
-                        fit_backend=_fit_backend_name(fit_kwargs),
-                    )
-                else:
-                    X_train_scaled, _, _ = _standardize_fit(X_train)
-                    _, diagnostics = _fit_logistic_regression_with_diagnostics(
-                        X_train_scaled,
-                        y[train_mask],
-                        l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
-                        max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
-                        sample_weight=train_weight,
-                        fit_backend=_fit_backend_name(fit_kwargs),
-                    )
+                _, diagnostics = _fit_logistic_regression_with_diagnostics(
+                    pair_X,
+                    pair_y,
+                    l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                    max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+                    sample_weight=pair_weight,
+                    fit_backend=_fit_backend_name(fit_kwargs),
+                )
+            else:
+                X_train_scaled, _, _ = _standardize_fit(X_train)
+                _, diagnostics = _fit_logistic_regression_with_diagnostics(
+                    X_train_scaled,
+                    y[train_mask],
+                    l2=_fit_kwarg_float(fit_kwargs, "l2", 1.0),
+                    max_iter=_fit_kwarg_int(fit_kwargs, "max_iter", 100),
+                    sample_weight=train_weight,
+                    fit_backend=_fit_backend_name(fit_kwargs),
+                )
                 model_rows.append(
                     {
                         "model_name": model_name,
@@ -3154,7 +3152,7 @@ def run_module_a(
                     future_to_name = {
                         executor.submit(
                             _evaluate_model_name_task,
-                            scored[list(set(MODULE_A_FEATURE_SETS[name] + ["spread_label", "backbone_id", "log1p_member_count_train", "log1p_n_countries_train", "refseq_share_train"]))],
+                            scored,
                             name,
                             n_splits,
                             n_repeats,
@@ -3201,7 +3199,7 @@ def run_module_a(
             )
             for name in selected_model_names:
                 resolved_name, result = _safe_evaluate_model_name_task(
-                    scored[list(set(MODULE_A_FEATURE_SETS[name] + ["spread_label", "backbone_id", "log1p_member_count_train", "log1p_n_countries_train", "refseq_share_train"]))],
+                    scored,
                     name,
                     n_splits,
                     n_repeats,

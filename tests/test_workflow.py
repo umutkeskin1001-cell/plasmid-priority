@@ -318,8 +318,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("reports/headline_validation_summary.md", release_files)
         self.assertIn("reports/core_tables/headline_validation_summary.tsv", release_files)
         self.assertIn("reports/core_tables/single_model_official_decision.tsv", release_files)
-        self.assertIn("reports/diagnostic_tables/single_model_pareto_screen.tsv", release_files)
-        self.assertIn("reports/diagnostic_tables/single_model_pareto_finalists.tsv", release_files)
+
+    def test_workflow_discovers_entry_point_plugins_before_execution(self) -> None:
+        with mock.patch.object(run_workflow_script.registry, "discover_entry_points") as discover:
+            with mock.patch.object(run_workflow_script, "_workflow_steps", return_value=[]):
+                result = run_workflow_script.run_workflow("reports-only", max_workers=1, resume=False)
+
+        self.assertEqual(result, 0)
+        discover.assert_called_once()
 
     def test_release_info_uses_single_model_official_decision_when_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

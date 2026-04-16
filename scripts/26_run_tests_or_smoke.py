@@ -15,6 +15,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from plasmid_priority.config import build_context
+from plasmid_priority.harmonize import build_plsdb_canonical_metadata
+from plasmid_priority.io import iter_fasta_summaries
+from plasmid_priority.qc import run_input_checks
+from plasmid_priority.reporting import ManagedScriptRun
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -145,17 +151,35 @@ def run_smoke_checks() -> int:
     return 0
 
 
-def run_tests() -> int:
+def _run_cli_smoke(context: object | None = None) -> subprocess.CompletedProcess[None]:
+    """Run the CLI smoke checks as a subprocess-compatible result."""
+    del context
+    return subprocess.CompletedProcess(args=["smoke"], returncode=run_smoke_checks())
+
+
+def run_unit_tests() -> subprocess.CompletedProcess[None]:
     """Run pytest test suite."""
     print("\n=== Running test suite ===\n")
-    result = subprocess.run(
+    return subprocess.run(
         [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short"],
         cwd=str(PROJECT_ROOT),
     )
-    return result.returncode
 
 
-def main() -> int:
+def run_tests() -> int:
+    """Backward-compatible wrapper around run_unit_tests()."""
+    return run_unit_tests().returncode
+
+
+def _has_missing_required_raw_inputs(report) -> bool:
+    for result in getattr(report, "errors", []):
+        path = Path(str(getattr(result, "path", "")))
+        if getattr(result, "required", False) and getattr(result, "stage", "") == "raw" and not path.exists():
+            return True
+    return False
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Plasmid Priority smoke test and test runner."
     )
@@ -169,16 +193,50 @@ def main() -> int:
         action="store_true",
         help="Run only smoke checks, skip test suite (default behavior).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    rc = run_smoke_checks()
-    if rc != 0:
-        return rc
+    context = build_context(PROJECT_ROOT)
+    with ManagedScriptRun(context, "26_run_tests_or_smoke") as run:
+        report = run_input_checks(context)
 
-    if args.with_tests:
-        rc = run_tests()
+        missing_required_raw_inputs = _has_missing_required_raw_inputs(report)
+        if missing_required_raw_inputs:
+            run.set_metric("smoke_skipped_missing_required_inputs", 1)
+            run.warn("Missing required raw input(s); skipping CLI smoke checks.")
 
-    return rc
+        if not getattr(report, "ok", True):
+            invalid_errors = [
+                result
+                for result in getattr(report, "errors", [])
+                if not (
+                    getattr(result, "required", False)
+                    and getattr(result, "stage", "") == "raw"
+                    and not Path(str(getattr(result, "path", ""))).exists()
+                )
+            ]
+            if invalid_errors:
+                raise RuntimeError("Input validation failed. See validation report for details.")
+
+        if args.with_tests:
+            test_result = run_unit_tests()
+            tests_run = getattr(test_result, "tests_run", None)
+            if tests_run is None:
+                tests_run = 1 if getattr(test_result, "returncode", 1) == 0 else 0
+            run.set_metric("tests_run", int(tests_run))
+            if getattr(test_result, "returncode", 0) != 0:
+                return int(getattr(test_result, "returncode", 1))
+        else:
+            run.set_metric("tests_run", 0)
+
+        if missing_required_raw_inputs:
+            if not args.with_tests:
+                raise RuntimeError("Required raw inputs are missing.")
+            return 0
+
+        smoke_result = _run_cli_smoke(context)
+        if getattr(smoke_result, "returncode", 0) != 0:
+            return int(getattr(smoke_result, "returncode", 1))
+        return 0
 
 
 if __name__ == "__main__":

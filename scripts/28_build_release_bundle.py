@@ -7,12 +7,16 @@ import hashlib
 import shutil
 import subprocess
 import sys
-import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 from pandas.errors import EmptyDataError
+
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - compatibility for older test runtimes
+    import tomli as tomllib
 
 from plasmid_priority.config import build_context
 from plasmid_priority.protocol import ScientificProtocol, build_protocol_hash

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 DEFAULT_SELECTION_ADJUSTED_P_MAX = 0.01
@@ -65,18 +65,63 @@ def _deduplicate(names: Iterable[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(name) for name in names if str(name)))
 
 
+def _coerce_float_mapping(value: object) -> dict[str, float]:
+    if not isinstance(value, Mapping):
+        return {}
+    result: dict[str, float] = {}
+    for key, raw in value.items():
+        try:
+            result[str(key)] = float(raw)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _coerce_string_mapping(value: object) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        return {}
+    result: dict[str, str] = {}
+    for key, raw in value.items():
+        key_text = str(key).strip()
+        if not key_text:
+            continue
+        result[key_text] = str(raw)
+    return result
+
+
+def _coerce_rules_mapping(value: object) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        return {}
+    return {str(key): raw for key, raw in value.items()}
+
+
+def _default_eligibility_rules() -> dict[str, Any]:
+    return {
+        "required_assignment_mode": "training_only",
+        "require_training_only_assignment": True,
+        "require_temporal_metadata": True,
+    }
+
+
 def build_protocol_snapshot(protocol: "ScientificProtocol") -> dict[str, Any]:
     return {
         "benchmark_contract_version": protocol.benchmark_contract_version,
         "benchmark_scope": protocol.benchmark_scope,
         "acceptance_thresholds": protocol.acceptance_thresholds,
         "ablation_model_names": list(protocol.ablation_model_names),
+        "clinical_escalation_thresholds": protocol.clinical_escalation_thresholds,
         "conservative_model_name": protocol.conservative_model_name,
         "core_model_names": list(protocol.core_model_names),
+        "eligibility_rules": protocol.eligibility_rules,
+        "forbidden_features": list(protocol.forbidden_features),
         "governance_model_fallback": protocol.governance_model_fallback,
         "governance_model_name": protocol.governance_model_name,
         "governance_model_policy": protocol.governance_model_policy,
+        "horizon_years": int(protocol.horizon_years),
+        "label_proxy_caveats": protocol.label_proxy_caveats,
         "min_new_countries_for_spread": int(protocol.min_new_countries_for_spread),
+        "min_new_host_families_for_transfer": int(protocol.min_new_host_families_for_transfer),
+        "min_new_host_genera_for_transfer": int(protocol.min_new_host_genera_for_transfer),
         "official_model_names": list(protocol.official_model_names),
         "outcome_definition": protocol.outcome_definition,
         "primary_model_fallback": protocol.primary_model_fallback,
@@ -112,6 +157,13 @@ class ScientificProtocol:
     core_model_names: tuple[str, ...]
     research_model_names: tuple[str, ...]
     ablation_model_names: tuple[str, ...]
+    min_new_host_genera_for_transfer: int = 2
+    min_new_host_families_for_transfer: int = 1
+    horizon_years: int = 5
+    clinical_escalation_thresholds: dict[str, float] = field(default_factory=dict)
+    forbidden_features: tuple[str, ...] = field(default_factory=tuple)
+    label_proxy_caveats: dict[str, str] = field(default_factory=dict)
+    eligibility_rules: dict[str, Any] = field(default_factory=dict)
     matched_knownness_gap_min: float = DEFAULT_MATCHED_KNOWNNESS_GAP_MIN
     source_holdout_gap_min: float = DEFAULT_SOURCE_HOLDOUT_GAP_MIN
     spatial_holdout_gap_min: float = DEFAULT_SPATIAL_HOLDOUT_GAP_MIN
@@ -124,6 +176,9 @@ class ScientificProtocol:
             "outcome_label": "spread_label",
             "split_year": int(self.split_year),
             "min_new_countries_for_spread": int(self.min_new_countries_for_spread),
+            "min_new_host_genera_for_transfer": int(self.min_new_host_genera_for_transfer),
+            "min_new_host_families_for_transfer": int(self.min_new_host_families_for_transfer),
+            "horizon_years": int(self.horizon_years),
         }
 
     @property
@@ -132,14 +187,28 @@ class ScientificProtocol:
 
     @property
     def benchmark_scope(self) -> dict[str, object]:
+        required_assignment_mode = str(
+            self.eligibility_rules.get("required_assignment_mode", "training_only")
+        )
+        require_temporal_metadata = bool(
+            self.eligibility_rules.get("require_temporal_metadata", True)
+        )
         return {
             "split_year": int(self.split_year),
-            "required_assignment_mode": "training_only",
+            "required_assignment_mode": required_assignment_mode,
             "outcome_definition": self.outcome_definition,
+            "eligibility_rules": self.eligibility_rules,
             "eligible_cohort": {
                 "temporal_split_year": int(self.split_year),
                 "min_new_countries_for_spread": int(self.min_new_countries_for_spread),
-                "requires_temporal_metadata": True,
+                "min_new_host_genera_for_transfer": int(self.min_new_host_genera_for_transfer),
+                "min_new_host_families_for_transfer": int(self.min_new_host_families_for_transfer),
+                "horizon_years": int(self.horizon_years),
+                "requires_temporal_metadata": require_temporal_metadata,
+                "require_training_only_assignment": bool(
+                    self.eligibility_rules.get("require_training_only_assignment", True)
+                ),
+                "forbidden_features": list(self.forbidden_features),
             },
             "official_model_names": list(self.official_model_names),
             "accepted_audit_gates": list(self.acceptance_thresholds.keys()),
@@ -211,6 +280,12 @@ class ScientificProtocol:
             )
         if not self.official_model_names:
             raise ValueError("Scientific protocol must define at least one official model name.")
+        if int(self.horizon_years) <= 0:
+            raise ValueError("horizon_years must be positive.")
+        if int(self.min_new_host_genera_for_transfer) <= 0:
+            raise ValueError("min_new_host_genera_for_transfer must be positive.")
+        if int(self.min_new_host_families_for_transfer) <= 0:
+            raise ValueError("min_new_host_families_for_transfer must be positive.")
         if not -1.0 <= float(self.matched_knownness_gap_min) <= 1.0:
             raise ValueError("matched_knownness_gap_min must be in the interval [-1, 1].")
         if not -1.0 <= float(self.source_holdout_gap_min) <= 1.0:
@@ -221,6 +296,12 @@ class ScientificProtocol:
             raise ValueError("ece_max must be in the interval [0, 1].")
         if not 0.0 < float(self.selection_adjusted_p_max) <= 1.0:
             raise ValueError("selection_adjusted_p_max must be in the interval (0, 1].")
+        if any(not str(name).strip() for name in self.forbidden_features):
+            raise ValueError("forbidden_features cannot contain empty names.")
+        if any(not str(key).strip() for key in self.label_proxy_caveats):
+            raise ValueError("label_proxy_caveats cannot contain empty keys.")
+        if not isinstance(self.eligibility_rules, dict):
+            raise ValueError("eligibility_rules must be a mapping.")
 
     def resolve_primary_model_name(
         self,
@@ -283,6 +364,21 @@ class ScientificProtocol:
             split_year=_coerce_int(pipeline.get("split_year"), default=2015),
             min_new_countries_for_spread=_coerce_int(
                 pipeline.get("min_new_countries_for_spread"), default=3
+            ),
+            min_new_host_genera_for_transfer=_coerce_int(
+                pipeline.get("min_new_host_genera_for_transfer"), default=2
+            ),
+            min_new_host_families_for_transfer=_coerce_int(
+                pipeline.get("min_new_host_families_for_transfer"), default=1
+            ),
+            horizon_years=_coerce_int(pipeline.get("horizon_years"), default=5),
+            clinical_escalation_thresholds=_coerce_float_mapping(
+                pipeline.get("clinical_escalation_thresholds")
+            ),
+            forbidden_features=_coerce_name_tuple(pipeline.get("forbidden_features")),
+            label_proxy_caveats=_coerce_string_mapping(pipeline.get("label_proxy_caveats")),
+            eligibility_rules=_coerce_rules_mapping(
+                pipeline.get("eligibility_rules") or _default_eligibility_rules()
             ),
             primary_model_name=str(models.get("primary_model_name", "discovery_boosted")),
             primary_model_fallback=str(

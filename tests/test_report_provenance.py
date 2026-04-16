@@ -46,6 +46,17 @@ def test_protocol_snapshot_includes_single_model_selection_weights() -> None:
     assert snapshot["benchmark_contract_version"] == "2025-07-15"
     assert snapshot["benchmark_scope"]["split_year"] == 2015
     assert snapshot["benchmark_scope"]["required_assignment_mode"] == "training_only"
+    assert snapshot["eligibility_rules"] == {
+        "required_assignment_mode": "training_only",
+        "require_training_only_assignment": True,
+        "require_temporal_metadata": True,
+    }
+    assert snapshot["horizon_years"] == 5
+    assert snapshot["min_new_host_genera_for_transfer"] == 2
+    assert snapshot["min_new_host_families_for_transfer"] == 1
+    assert snapshot["clinical_escalation_thresholds"] == {}
+    assert snapshot["forbidden_features"] == []
+    assert snapshot["label_proxy_caveats"] == {}
     assert snapshot["benchmark_scope"]["accepted_audit_gates"] == [
         "matched_knownness_gap_min",
         "source_holdout_gap_min",

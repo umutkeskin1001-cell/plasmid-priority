@@ -76,11 +76,9 @@ class ExperimentAcceptanceGates:
         selection_adjusted_p_max: Maximum acceptable p-value (default 0.05)
         require_leakage_pass: Whether leakage review is required (default True)
         rolling_origin_gap_max: Max rolling-origin gap for governance (default 0.040)
-            Note: This is a placeholder contract; enforced only when rolling_origin
-            infrastructure exists (Phase 0).
+            Evaluated against rolling-origin validation artifacts.
         hybrid_review_fraction_max: Max review fraction for hybrid models (default 0.25)
-            Note: This is a placeholder contract; enforced only when hybrid
-            calibration infrastructure exists.
+            Evaluated when hybrid review evidence is available.
     """
 
     ece_max: float = 0.10
@@ -210,13 +208,11 @@ def evaluate_experiment_gates(
 
     leakage_pass = selected.leakage_review_pass if gates.require_leakage_pass else None
 
-    # Placeholder contract: rolling_origin_gap
     if rolling_origin_gap is not None and gates.rolling_origin_gap_max is not None:
         rolling_pass = rolling_origin_gap <= gates.rolling_origin_gap_max
     else:
         rolling_pass = None
 
-    # Placeholder contract: hybrid_review_fraction
     if hybrid_review_fraction is not None and gates.hybrid_review_fraction_max is not None:
         hybrid_pass = hybrid_review_fraction <= gates.hybrid_review_fraction_max
     else:

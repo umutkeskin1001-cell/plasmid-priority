@@ -31,7 +31,7 @@ order; `b`-suffixed scripts are optional or parallel alternatives to the same sl
 | `23_run_module_f_enrichment.py` | Plasmid enrichment scoring | `data/scores/backbone_scored.tsv` | `data/analysis/enrichment_*.tsv` | 1-5 min |
 | `24_build_reports.py` | Build all reports, tables, and figures | `data/analysis/*.{json,tsv}` | `reports/**/*` | 5-20 min |
 | `25_export_tubitak_summary.py` | Export TÜBİTAK-ready headline metrics | `data/analysis/module_a_metrics.json`, `data/analysis/permutation_null_summary.tsv` | `reports/tubitak_final_metrics.txt` | <5 s |
-| `26_run_tests_or_smoke.py` | Run test suite or smoke check (CI entry point) | — | run summary | 30-120 s |
+| `26_run_tests_or_smoke.py` | Manual/Optional: run test suite or smoke check (CI entry point) | — | run summary | 30-120 s |
 | `27_generate_full_fit_predictions.py` | Generate predictions from full-data model fit | `data/scores/backbone_scored.tsv` | `data/analysis/full_fit_predictions.tsv` | 5-15 min |
 | `27b_run_advanced_audits.py` | Advanced audit suite (lead-time bias, spatial holdout) | `data/scores/backbone_scored.tsv`, `data/analysis/*.tsv` | `data/analysis/advanced_audit_*.tsv` | 10-30 min |
 | `28_build_release_bundle.py` | Build signed release bundle for archiving | `reports/**/*` | `reports/release/bundle/*` | 1-5 min |

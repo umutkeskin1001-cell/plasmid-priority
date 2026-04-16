@@ -11,6 +11,7 @@ from plasmid_priority.validation import (
     bootstrap_spearman_ci,
     brier_decomposition,
     calibration_curve_data,
+    calibration_slope_intercept,
     expected_calibration_error,
     log_loss,
     max_calibration_error,
@@ -55,6 +56,16 @@ class ValidationMetricTests(unittest.TestCase):
         self.assertAlmostEqual(float(decomposition["reliability"]), 0.0)
         self.assertGreater(float(decomposition["resolution"]), 0.0)
         self.assertAlmostEqual(float(decomposition["uncertainty"]), 0.25)
+
+    def test_calibration_slope_intercept_are_finite_for_nontrivial_predictions(self) -> None:
+        y_true = np.array([0, 0, 1, 1, 0, 1, 0, 1])
+        y_score = np.array([0.1, 0.2, 0.75, 0.85, 0.3, 0.65, 0.25, 0.9])
+
+        slope, intercept = calibration_slope_intercept(y_true, y_score)
+
+        self.assertTrue(np.isfinite(slope))
+        self.assertTrue(np.isfinite(intercept))
+        self.assertGreater(slope, 0.0)
 
     def test_log_loss_and_ndcg_reward_better_rankings(self) -> None:
         y_true = np.array([1, 0, 1, 0])

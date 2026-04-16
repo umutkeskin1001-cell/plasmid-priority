@@ -35,6 +35,7 @@ from plasmid_priority.utils.files import (
     project_python_source_paths,
     write_signature_manifest,
 )
+from plasmid_priority.validation import calibration_slope_intercept
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -172,16 +173,31 @@ def main(argv: list[str] | None = None) -> int:
             "primary_model_name": get_primary_model_name(list(results)),
             "conservative_model_name": get_conservative_model_name(list(results)),
         }
-        metrics_payload.update(
-            {
-                name: {
-                    **result.metrics,
-                    "status": result.status,
-                    "error_message": result.error_message,
-                }
-                for name, result in results.items()
+        for name, result in results.items():
+            result_metrics = {
+                **result.metrics,
+                "status": result.status,
+                "error_message": result.error_message,
             }
-        )
+            if not result.predictions.empty:
+                calibration_frame = result.predictions.loc[
+                    result.predictions["spread_label"].notna()
+                    & result.predictions["oof_prediction"].notna()
+                ].copy()
+                if not calibration_frame.empty and calibration_frame["spread_label"].nunique() >= 2:
+                    slope, intercept = calibration_slope_intercept(
+                        calibration_frame["spread_label"].astype(int).to_numpy(),
+                        calibration_frame["oof_prediction"].astype(float).to_numpy(),
+                    )
+                    result_metrics["calibration_slope"] = float(slope)
+                    result_metrics["calibration_intercept"] = float(intercept)
+                else:
+                    result_metrics["calibration_slope"] = None
+                    result_metrics["calibration_intercept"] = None
+            else:
+                result_metrics["calibration_slope"] = None
+                result_metrics["calibration_intercept"] = None
+            metrics_payload[name] = result_metrics
         predictions = []
         for name, result in results.items():
             preds = result.predictions.copy()

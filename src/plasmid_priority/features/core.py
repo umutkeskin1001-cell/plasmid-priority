@@ -1301,7 +1301,7 @@ def build_backbone_table(
     if not training.empty:
         training_backbone_ids = training["backbone_id"].astype(str)
         purity_cols = ["genus", "TAXONOMY_family", "predicted_mobility", "primary_replicon"]
-        components = training[purity_cols].fillna("").astype(str)
+        components = training.reindex(columns=purity_cols, fill_value="").fillna("").astype(str)
         for col in purity_cols:
             components[col] = components[col].str.strip()
         mask = components.ne("")

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import pandas as pd
 
 from plasmid_priority.config import ProjectContext
 from plasmid_priority.io.fasta import peek_first_header
@@ -134,6 +137,68 @@ def _check_fasta_header(path: Path) -> list[str]:
     return [f"First FASTA header: {header[:120]}"]
 
 
+def verify_asset_fingerprint(asset_key: str, path: Path, expected_sha256: str) -> None:
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != expected_sha256:
+        raise ValueError(
+            f"Asset {asset_key} hash mismatch: expected {expected_sha256[:12]}..., "
+            f"got {actual[:12]}..."
+        )
+
+
+def _load_raw_asset_fingerprints(context: ProjectContext) -> pd.DataFrame:
+    fingerprint_path = context.root / "data" / "fingerprints" / "raw_assets.tsv"
+    if not fingerprint_path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(fingerprint_path, sep="\t")
+
+
+def _check_raw_asset_fingerprints(context: ProjectContext) -> list[AssetCheckResult]:
+    fingerprint_table = _load_raw_asset_fingerprints(context)
+    if fingerprint_table.empty:
+        return []
+    results: list[AssetCheckResult] = []
+    for row in fingerprint_table.to_dict(orient="records"):
+        asset_key = str(row.get("asset_key", "")).strip()
+        if not asset_key:
+            continue
+        raw_path = Path(str(row.get("path", ""))).expanduser()
+        if not raw_path.is_absolute():
+            raw_path = (context.root / raw_path).resolve()
+        expected_sha256 = str(row.get("sha256", "")).strip()
+        details = [f"Fingerprint manifest entry found for {asset_key}."]
+        if not raw_path.exists():
+            results.append(
+                AssetCheckResult(
+                    key=f"raw_fingerprint:{asset_key}",
+                    path=str(raw_path),
+                    status="error",
+                    required=True,
+                    stage="raw",
+                    details=["Fingerprint target missing."],
+                )
+            )
+            continue
+        try:
+            verify_asset_fingerprint(asset_key, raw_path, expected_sha256)
+            details.append(f"SHA-256 verified for {asset_key}.")
+            status = "ok"
+        except ValueError as exc:
+            details.append(str(exc))
+            status = "error"
+        results.append(
+            AssetCheckResult(
+                key=f"raw_fingerprint:{asset_key}",
+                path=str(raw_path),
+                status=status,
+                required=True,
+                stage="raw",
+                details=details,
+            )
+        )
+    return results
+
+
 def _run_asset_specific_checks(asset: DataAssetSpec, path: Path) -> tuple[str, list[str]]:
     details: list[str] = []
     status = "ok"
@@ -205,6 +270,7 @@ def run_input_checks(context: ProjectContext) -> ValidationReport:
     """Validate all declared assets against the local repository state."""
     results: list[AssetCheckResult] = []
 
+    results.extend(_check_raw_asset_fingerprints(context))
     for asset in context.contract.assets:
         path = asset.resolved_path(context.root, context.data_dir)
 

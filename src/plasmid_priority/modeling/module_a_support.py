@@ -1088,12 +1088,11 @@ def _bayesian_prediction_summary(
 
 def _stratified_folds(
     y: np.ndarray, *, n_splits: int, n_repeats: int, seed: int
-) -> list[list[np.ndarray]]:
+) -> list[tuple[np.ndarray, np.ndarray]]:
     """Build repeated stratified folds while respecting rare-class support."""
     y = np.asarray(y, dtype=int)
-    n_repeats = max(int(n_repeats), 1)
     if y.size == 0:
-        return [[] for _ in range(n_repeats)]
+        return []
     _, class_counts = np.unique(y, return_counts=True)
     if len(class_counts) < 2:
         raise ValueError("Repeated stratified folds require both outcome classes.")
@@ -1101,13 +1100,7 @@ def _stratified_folds(
     if effective_splits < 2:
         raise ValueError("Repeated stratified folds require at least two members in every class.")
     skf = RepeatedStratifiedKFold(n_splits=effective_splits, n_repeats=n_repeats, random_state=seed)
-    folds_per_repeat: list[list[np.ndarray]] = [[] for _ in range(n_repeats)]
-
-    all_splits = list(skf.split(np.zeros(len(y), dtype=int), y))
-    for i, (_, test_idx) in enumerate(all_splits):
-        repeat_idx = i // effective_splits
-        folds_per_repeat[repeat_idx].append(test_idx)
-    return folds_per_repeat
+    return [(train_idx, test_idx) for train_idx, test_idx in skf.split(np.zeros(len(y), dtype=int), y)]
 
 
 def _oof_predictions(
@@ -1123,24 +1116,23 @@ def _oof_predictions(
 ) -> np.ndarray:
     preds = np.zeros(len(y), dtype=float)
     counts = np.zeros(len(y), dtype=float)
-    for fold_indices in _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed):
-        for test_idx in fold_indices:
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            X_train, X_test = X[train_mask], X[test_idx]
-            y_train = y[train_mask]
-            train_weight = sample_weight[train_mask] if sample_weight is not None else None
-            X_train_scaled, mean, std = _standardize_fit(X_train)
-            X_test_scaled = _standardize_apply(X_test, mean, std)
-            beta = _fit_logistic_regression(
-                X_train_scaled,
-                y_train,
-                l2=l2,
-                max_iter=max_iter,
-                sample_weight=train_weight,
-            )
-            preds[test_idx] += _predict_logistic(X_test_scaled, beta)
-            counts[test_idx] += 1
+    for train_idx, test_idx in _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed):
+        train_mask = np.ones(len(y), dtype=bool)
+        train_mask[test_idx] = False
+        X_train, X_test = X[train_mask], X[test_idx]
+        y_train = y[train_mask]
+        train_weight = sample_weight[train_mask] if sample_weight is not None else None
+        X_train_scaled, mean, std = _standardize_fit(X_train)
+        X_test_scaled = _standardize_apply(X_test, mean, std)
+        beta = _fit_logistic_regression(
+            X_train_scaled,
+            y_train,
+            l2=l2,
+            max_iter=max_iter,
+            sample_weight=train_weight,
+        )
+        preds[test_idx] += _predict_logistic(X_test_scaled, beta)
+        counts[test_idx] += 1
     if counts.min() == 0:
         warnings.warn(
             f"{int((counts == 0).sum())} sample(s) never appeared in any test fold",

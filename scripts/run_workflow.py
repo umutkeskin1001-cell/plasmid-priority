@@ -14,7 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 
-from plasmid_priority.config import DATA_ROOT_ENV_VAR
+from plasmid_priority.config import DATA_ROOT_ENV_VAR, build_context
+from plasmid_priority.modeling.plugin_system import registry
+from plasmid_priority.pipeline.step_contract import StepResult, write_step_result
+from plasmid_priority.protocol import build_protocol_hash, ScientificProtocol
 from plasmid_priority.utils.files import (
     atomic_write_json,
     path_signature_with_hash,
@@ -508,6 +511,10 @@ def run_workflow(
     dry_run: bool = False,
     resume: bool = True,
 ) -> int:
+    context = build_context(PROJECT_ROOT)
+    protocol = ScientificProtocol.from_config(context.config)
+    protocol_hash = build_protocol_hash(protocol)
+    registry.discover_entry_points()
     steps = _workflow_steps(mode)
     if dry_run:
         for step in steps:
@@ -596,6 +603,37 @@ def run_workflow(
                         flush=True,
                     )
                     return 1
+                step_result_path = write_step_result(
+                    StepResult(
+                        step_name=step.name,
+                        status="ok",
+                        inputs={
+                            key: str(value.get("sha256") or value.get("digest") or value.get("size"))
+                            for key, value in dict(summary.get("input_manifest", {})).items()
+                            if isinstance(value, dict)
+                        },
+                        outputs={
+                            key: str(value.get("sha256") or value.get("digest") or value.get("size"))
+                            for key, value in dict(summary.get("output_manifest", {})).items()
+                            if isinstance(value, dict)
+                        },
+                        protocol_hash=protocol_hash,
+                        rows_in=sum(int(v) for v in dict(summary.get("n_rows_in", {})).values())
+                        if isinstance(summary.get("n_rows_in"), dict)
+                        else None,
+                        rows_out=sum(int(v) for v in dict(summary.get("n_rows_out", {})).values())
+                        if isinstance(summary.get("n_rows_out"), dict)
+                        else None,
+                        warnings=[str(item) for item in summary.get("warnings", [])],
+                        scientific_notes=[str(item) for item in summary.get("notes", [])],
+                        metadata={
+                            "run_id": summary.get("run_id"),
+                            "correlation_id": summary.get("correlation_id"),
+                            "summary_path": str(summary_path),
+                        },
+                    ),
+                    context.logs_dir,
+                )
                 boundary_result = validate_script_boundary(summary, project_root=PROJECT_ROOT)
                 if boundary_result.get("status") != "pass":
                     with checkpoint_lock:
@@ -628,6 +666,7 @@ def run_workflow(
                         step_status="ok",
                         return_code=return_code,
                     )
+                print(f"[workflow] wrote step contract: {step_result_path}", flush=True)
 
     return 0
 

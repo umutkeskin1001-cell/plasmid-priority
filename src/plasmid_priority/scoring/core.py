@@ -682,7 +682,11 @@ def build_scored_backbone_table(
     scored["A_content_raw"] = (
         0.5 * scored["amr_class_richness_norm"] + 0.5 * scored["amr_gene_burden_norm"]
     )
-    scored["A_eff"] = scored["A_raw"] * scored["amr_support_factor"].fillna(0.0)
+    if "A_raw" not in scored.columns:
+        scored["A_raw"] = scored["A_content_raw"]
+    scored["A_eff"] = scored["A_raw"] * scored.get(
+        "amr_support_factor", pd.Series(0.0, index=scored.index, dtype=float)
+    ).fillna(0.0)
 
     ref = scored.loc[training_mask].copy()
 

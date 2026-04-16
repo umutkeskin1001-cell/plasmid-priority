@@ -72,6 +72,7 @@ from plasmid_priority.validation import (
     average_precision,
     average_precision_enrichment,
     average_precision_lift,
+    calibration_slope_intercept,
     brier_score,
     expected_calibration_error,
     max_calibration_error,
@@ -1713,23 +1714,7 @@ def _calibration_metrics_from_arrays(
     y = np.asarray(y, dtype=int)
     preds = _clip_probability_array(preds)
 
-    # Compute calibration slope and intercept via linear regression
-    calibration_slope = float("nan")
-    calibration_intercept = float("nan")
-    if len(y) > 1 and np.unique(y).size > 1:
-        try:
-            from sklearn.linear_model import LinearRegression
-
-            reg = LinearRegression()
-            reg.fit(preds.reshape(-1, 1), y)
-            calibration_slope = float(reg.coef_[0])
-            calibration_intercept = float(reg.intercept_)
-        except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-            import warnings
-
-            warnings.warn(f"Calibration slope/intercept calculation failed: {e}")
-            calibration_slope = float("nan")
-            calibration_intercept = float("nan")
+    calibration_slope, calibration_intercept = calibration_slope_intercept(y, preds)
 
     return {
         "calibration_method": method,
@@ -1763,23 +1748,22 @@ def _nested_calibrated_predictions(
         return preds
     calibrated = np.zeros(len(preds), dtype=float)
     counts = np.zeros(len(preds), dtype=float)
-    for fold_indices in _stratified_folds(
+    for _, test_idx in _stratified_folds(
         np.asarray(y, dtype=int),
         n_splits=n_splits,
         n_repeats=n_repeats,
         seed=seed,
     ):
-        for test_idx in fold_indices:
-            train_mask = np.ones(len(preds), dtype=bool)
-            train_mask[test_idx] = False
-            calibrator = _fit_calibration_transform(y[train_mask], preds[train_mask], method=method)
-            fold_preds = _apply_calibration_transform(
-                preds[test_idx],
-                method=method,
-                calibrator=calibrator,
-            )
-            calibrated[test_idx] += fold_preds
-            counts[test_idx] += 1.0
+        train_mask = np.ones(len(preds), dtype=bool)
+        train_mask[test_idx] = False
+        calibrator = _fit_calibration_transform(y[train_mask], preds[train_mask], method=method)
+        fold_preds = _apply_calibration_transform(
+            preds[test_idx],
+            method=method,
+            calibrator=calibrator,
+        )
+        calibrated[test_idx] += fold_preds
+        counts[test_idx] += 1.0
     counts[counts == 0] = 1.0
     return _clip_probability_array(calibrated / counts)
 
@@ -3180,26 +3164,25 @@ def build_logistic_implementation_audit(
     l2_value = _fit_kwarg_float(fit_kwargs, "l2", 1.0)
     c_value = 1e6 if l2_value <= 0 else 1.0 / l2_value
     max_iter = max(_fit_kwarg_int(fit_kwargs, "max_iter", 100), 1000)
-    for fold_indices in _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed):
-        for test_idx in fold_indices:
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            X_train, X_test = X[train_mask], X[test_idx]
-            y_train = y[train_mask]
-            train_weight = sample_weight[train_mask] if sample_weight is not None else None
-            X_train_scaled, mean, std = _standardize_fit(X_train)
-            X_test_scaled = _standardize_apply(X_test, mean, std)
-            from sklearn.linear_model import LogisticRegression
+    for _, test_idx in _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed):
+        train_mask = np.ones(len(y), dtype=bool)
+        train_mask[test_idx] = False
+        X_train, X_test = X[train_mask], X[test_idx]
+        y_train = y[train_mask]
+        train_weight = sample_weight[train_mask] if sample_weight is not None else None
+        X_train_scaled, mean, std = _standardize_fit(X_train)
+        X_test_scaled = _standardize_apply(X_test, mean, std)
+        from sklearn.linear_model import LogisticRegression
 
-            model = LogisticRegression(
-                C=c_value,
-                solver="lbfgs",
-                fit_intercept=True,
-                max_iter=max_iter,
-            )
-            model.fit(X_train_scaled, y_train, sample_weight=train_weight)
-            sklearn_preds[test_idx] += model.predict_proba(X_test_scaled)[:, 1]
-            counts[test_idx] += 1
+        model = LogisticRegression(
+            C=c_value,
+            solver="lbfgs",
+            fit_intercept=True,
+            max_iter=max_iter,
+        )
+        model.fit(X_train_scaled, y_train, sample_weight=train_weight)
+        sklearn_preds[test_idx] += model.predict_proba(X_test_scaled)[:, 1]
+        counts[test_idx] += 1
     counts[counts == 0] = 1.0
     sklearn_preds = sklearn_preds / counts
 
@@ -4856,6 +4839,9 @@ def build_model_selection_scorecard(
                 pd.Series([finalist_metrics.get("matched_knownness_weighted_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
+        matched_knownness_available = pd.notna(row.get("matched_knownness_weighted_roc_auc"))
+        if pd.isna(row["matched_knownness_weighted_roc_auc"]):
+            row["matched_knownness_weighted_roc_auc"] = float(row["roc_auc"])
         source_rows = group_holdout.loc[
             (
                 group_holdout.get("group_column", pd.Series(dtype=str)).astype(str)
@@ -4880,16 +4866,22 @@ def build_model_selection_scorecard(
                 pd.Series([finalist_metrics.get("source_holdout_weighted_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
+        source_holdout_available = pd.notna(row.get("source_holdout_weighted_roc_auc"))
+        if pd.isna(row["source_holdout_weighted_roc_auc"]):
+            row["source_holdout_weighted_roc_auc"] = float(row["roc_auc"])
+        spatial_holdout_available = pd.notna(row.get("spatial_holdout_roc_auc", np.nan))
         if pd.isna(row.get("spatial_holdout_roc_auc", np.nan)) and not finalist_metrics.empty:
             row["spatial_holdout_roc_auc"] = pd.to_numeric(
                 pd.Series([finalist_metrics.get("spatial_holdout_weighted_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
+        ece_available = pd.notna(row.get("ece", np.nan))
         if pd.isna(row.get("ece", np.nan)) and not finalist_metrics.empty:
             row["ece"] = pd.to_numeric(
                 pd.Series([finalist_metrics.get("ece", np.nan)]),
                 errors="coerce",
             ).iloc[0]
+        selection_adjusted_available = pd.notna(row.get("selection_adjusted_empirical_p_roc_auc", np.nan))
         if (
             pd.isna(row.get("selection_adjusted_empirical_p_roc_auc", np.nan))
             and not finalist_metrics.empty
@@ -4898,6 +4890,11 @@ def build_model_selection_scorecard(
                 pd.Series([finalist_metrics.get("selection_adjusted_empirical_p_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
+        row["_selection_metrics_matched_knownness_available"] = matched_knownness_available
+        row["_selection_metrics_source_holdout_available"] = source_holdout_available
+        row["_selection_metrics_spatial_holdout_available"] = spatial_holdout_available
+        row["_selection_metrics_ece_available"] = ece_available
+        row["_selection_metrics_selection_adjusted_available"] = selection_adjusted_available
         rows.append(row)
 
     scorecard = pd.DataFrame(rows)
@@ -5025,6 +5022,27 @@ def build_model_selection_scorecard(
     scorecard["calibration_gate_pass"] = ece_series.notna() & ece_series.le(
         FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"]
     )
+    calibration_slope = pd.to_numeric(
+        scorecard.get("calibration_slope", pd.Series(np.nan, index=scorecard.index)),
+        errors="coerce",
+    )
+    calibration_intercept = pd.to_numeric(
+        scorecard.get("calibration_intercept", pd.Series(np.nan, index=scorecard.index)),
+        errors="coerce",
+    )
+    scorecard["calibration_slope_gate_pass"] = calibration_slope.notna() & calibration_slope.sub(
+        1.0
+    ).abs().le(0.15)
+    scorecard["calibration_intercept_gate_pass"] = calibration_intercept.notna() & (
+        calibration_intercept.abs().le(0.1)
+    )
+    scorecard["calibration_gate_pass"] = (
+        scorecard["calibration_gate_pass"]
+        & (
+            (~calibration_slope.notna() | scorecard["calibration_slope_gate_pass"])
+            & (~calibration_intercept.notna() | scorecard["calibration_intercept_gate_pass"])
+        )
+    )
     scorecard["selection_adjusted_gate_pass"] = selection_adjusted_p.notna() & (
         selection_adjusted_p.le(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["selection_adjusted_p_max"])
     )
@@ -5083,15 +5101,21 @@ def build_model_selection_scorecard(
         "not_scored",
     )
     scorecard["selection_metrics_complete"] = (
-        scorecard["matched_knownness_weighted_roc_auc"].notna()
-        & scorecard["source_holdout_weighted_roc_auc"].notna()
+        scorecard.pop("_selection_metrics_matched_knownness_available").fillna(False).astype(bool)
+        & scorecard.pop("_selection_metrics_source_holdout_available").fillna(False).astype(bool)
+    )
+    scorecard = scorecard.drop(
+        columns=[
+            "_selection_metrics_spatial_holdout_available",
+            "_selection_metrics_ece_available",
+            "_selection_metrics_selection_adjusted_available",
+        ],
+        errors="ignore",
     )
     spatial_holdout_values = pd.to_numeric(
         scorecard.get("spatial_holdout_roc_auc", pd.Series(np.nan, index=scorecard.index)),
         errors="coerce",
     )
-    if spatial_holdout_values.notna().any():
-        scorecard["selection_metrics_complete"] &= spatial_holdout_values.notna()
     ece_values = pd.to_numeric(
         scorecard.get(
             "ece",
@@ -5099,8 +5123,6 @@ def build_model_selection_scorecard(
         ),
         errors="coerce",
     )
-    if ece_values.notna().any():
-        scorecard["selection_metrics_complete"] &= ece_values.notna()
     selection_adjusted_values = pd.to_numeric(
         scorecard.get(
             "selection_adjusted_empirical_p_roc_auc",
@@ -5108,8 +5130,6 @@ def build_model_selection_scorecard(
         ),
         errors="coerce",
     )
-    if selection_adjusted_values.notna().any():
-        scorecard["selection_metrics_complete"] &= selection_adjusted_values.notna()
     scorecard["scientific_acceptance_failed_criteria"] = scorecard.apply(
         _scientific_acceptance_reason, axis=1
     )
@@ -5496,8 +5516,17 @@ def build_single_model_finalist_audit(
     heavy["spatial_holdout_gate_pass"] = pd.to_numeric(
         heavy["spatial_holdout_gap"], errors="coerce"
     ).ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["spatial_holdout_gap_min"])
+    calibration_slope = pd.to_numeric(
+        heavy.get("calibration_slope", pd.Series(np.nan, index=heavy.index)), errors="coerce"
+    )
+    calibration_intercept = pd.to_numeric(
+        heavy.get("calibration_intercept", pd.Series(np.nan, index=heavy.index)),
+        errors="coerce",
+    )
     heavy["calibration_gate_pass"] = pd.to_numeric(heavy["ece"], errors="coerce").le(
         FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"]
+    ) & calibration_slope.notna() & calibration_slope.sub(1.0).abs().le(0.15) & (
+        calibration_intercept.notna() & calibration_intercept.abs().le(0.1)
     )
     heavy["selection_adjusted_gate_pass"] = pd.to_numeric(
         heavy["selection_adjusted_empirical_p_roc_auc"], errors="coerce"
@@ -5507,6 +5536,8 @@ def build_single_model_finalist_audit(
         "source_holdout_gap",
         "spatial_holdout_gap",
         "ece",
+        "calibration_slope",
+        "calibration_intercept",
         "selection_adjusted_empirical_p_roc_auc",
     ]
     heavy["scientific_acceptance_scored"] = heavy[required_columns].notna().all(axis=1)

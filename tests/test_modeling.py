@@ -1255,7 +1255,7 @@ class ModelingTests(unittest.TestCase):
         self.assertLess(float(weights[0]), float(weights[1]))
         self.assertLess(float(weights[0]), float(weights[2]))
 
-    def test_ipw_balanced_gives_higher_weight_to_low_knownness_samples(self) -> None:
+    def test_inverse_knownness_weighting_gives_higher_weight_to_low_knownness_samples(self) -> None:
         eligible = pd.DataFrame(
             {
                 "backbone_id": ["bb_low", "bb_high", "bb_pos_low", "bb_pos_high"],
@@ -1265,7 +1265,9 @@ class ModelingTests(unittest.TestCase):
                 "refseq_share_train": [0.05, 0.95, 0.1, 0.9],
             }
         )
-        weights = module_a_impl._compute_sample_weight(eligible, mode="ipw_balanced")
+        weights = module_a_impl._compute_sample_weight(
+            eligible, mode="inverse_knownness_weighting"
+        )
         assert weights is not None
         self.assertEqual(len(weights), 4)
         self.assertTrue(np.isfinite(weights).all())
@@ -1273,7 +1275,7 @@ class ModelingTests(unittest.TestCase):
         # Low-knownness negative should have higher weight than high-knownness negative
         self.assertGreater(float(weights[0]), float(weights[1]))
 
-    def test_ipw_balanced_combines_with_class_balanced(self) -> None:
+    def test_inverse_knownness_weighting_combines_with_class_balanced(self) -> None:
         eligible = pd.DataFrame(
             {
                 "backbone_id": [f"bb_{i}" for i in range(12)],
@@ -1323,10 +1325,12 @@ class ModelingTests(unittest.TestCase):
             }
         )
         weights_combined = module_a_impl._compute_sample_weight(
-            eligible, mode="class_balanced+ipw_balanced"
+            eligible, mode="class_balanced+inverse_knownness_weighting"
         )
         weights_class_only = module_a_impl._compute_sample_weight(eligible, mode="class_balanced")
-        weights_ipw_only = module_a_impl._compute_sample_weight(eligible, mode="ipw_balanced")
+        weights_ipw_only = module_a_impl._compute_sample_weight(
+            eligible, mode="inverse_knownness_weighting"
+        )
         assert weights_combined is not None
         assert weights_class_only is not None
         assert weights_ipw_only is not None

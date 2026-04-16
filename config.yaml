@@ -9,6 +9,12 @@ pipeline:
     last_resort_fraction_gain: 0.1
     mdr_proxy_fraction_gain: 0.1
     pd_clinical_support_gain: 0.1
+  forbidden_features: []
+  label_proxy_caveats: {}
+  eligibility_rules:
+    required_assignment_mode: training_only
+    require_training_only_assignment: true
+    require_temporal_metadata: true
   # Consensus weights for branch fusion (geo_spread, bio_transfer, clinical_hazard).
   # Rationale:
   #   geo (0.50): Geographic spread is the most directly measurable and reliable signal.
@@ -157,7 +163,7 @@ models:
   fit_config:
     governance_linear:
       l2: 3.0
-      sample_weight_mode: class_balanced+ipw_balanced
+      sample_weight_mode: class_balanced+inverse_knownness_weighting
       preprocess_mode: knownness_residualized
       preprocess_alpha: auto
       preprocess_alpha_grid:
@@ -183,7 +189,7 @@ models:
       subsample: 0.8
       colsample_bytree: 0.8
       l2: 1.0
-      sample_weight_mode: class_balanced+ipw_balanced
+      sample_weight_mode: class_balanced+inverse_knownness_weighting
       preprocess_mode: knownness_residualized
       preprocess_alpha: auto
       preprocess_alpha_grid:
@@ -209,7 +215,7 @@ models:
       subsample: 0.8
       colsample_bytree: 0.8
       l2: 1.0
-      sample_weight_mode: class_balanced+ipw_balanced
+      sample_weight_mode: class_balanced+inverse_knownness_weighting
       preprocess_mode: knownness_residualized
       preprocess_alpha: auto
       preprocess_alpha_grid:

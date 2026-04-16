@@ -20,6 +20,7 @@ from plasmid_priority.validation.metrics import (
     brier_decomposition,
     brier_score,
     calibration_curve_data,
+    calibration_slope_intercept,
     decision_utility_summary,
     expected_calibration_error,
     fdr_adjust_model_comparison,
@@ -34,6 +35,11 @@ from plasmid_priority.validation.metrics import (
     positive_prevalence,
     roc_auc_score,
     weighted_classification_cost,
+)
+from plasmid_priority.validation.rolling_origin import (
+    RollingOriginSplitResult,
+    RollingOriginValidationReport,
+    run_rolling_origin_validation,
 )
 from plasmid_priority.validation.missingness import (
     audit_backbone_tables,
@@ -76,6 +82,7 @@ __all__ = [
     "build_outcome_permutation_falsification",
     "build_vif_audit_table",
     "calibration_curve_data",
+    "calibration_slope_intercept",
     "compute_vif_values",
     "decision_utility_summary",
     "expected_calibration_error",
@@ -93,6 +100,9 @@ __all__ = [
     "summarize_falsification_findings",
     "summarize_vif_concerns",
     "weighted_classification_cost",
+    "RollingOriginSplitResult",
+    "RollingOriginValidationReport",
+    "run_rolling_origin_validation",
     "audit_backbone_tables",
     "audit_missingness",
     "format_missingness_report",
