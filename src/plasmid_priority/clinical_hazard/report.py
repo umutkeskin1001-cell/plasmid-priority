@@ -7,9 +7,8 @@ from typing import Any
 
 import pandas as pd
 
-
-from plasmid_priority.shared.report_utils import safe_series_value as _safe_series_value
 from plasmid_priority.shared.report_utils import metric_value as _metric_value
+from plasmid_priority.shared.report_utils import safe_series_value as _safe_series_value
 
 
 def build_clinical_hazard_report_card(

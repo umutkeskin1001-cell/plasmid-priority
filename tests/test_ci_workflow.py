@@ -10,19 +10,43 @@ CI_WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
 
 
 class CiWorkflowTests(unittest.TestCase):
-    def test_ci_installs_dev_dependencies(self) -> None:
+    def _get_install_step(self) -> dict:
         workflow = yaml.safe_load(CI_WORKFLOW_PATH.read_text(encoding="utf-8"))
         steps = workflow["jobs"]["quality"]["steps"]
-        install_step = next(
-            step for step in steps if step["name"] == "Install package and dev tooling"
-        )
-        self.assertIn('-e ".[analysis,dev]"', install_step["run"])
+        return next(step for step in steps if step["name"] == "Install package and dev tooling")
+
+    def test_ci_installs_dev_dependencies(self) -> None:
+        install_step = self._get_install_step()
+        self.assertIn('-e ".[analysis,dev,tree-models]"', install_step["run"])
+
+    def test_ci_installs_tree_models(self) -> None:
+        """Primary model (discovery_boosted/LightGBM) must be installed in CI."""
+        install_step = self._get_install_step()
+        self.assertIn("tree-models", install_step["run"], (
+            "CI must install tree-models extra so LightGBM (primary model) is tested. "
+            "Without this, CI silently tests a different model than production."
+        ))
+
+    def test_ci_verifies_lightgbm_import(self) -> None:
+        """CI must verify LightGBM can be imported after installation."""
+        install_step = self._get_install_step()
+        self.assertIn("import lightgbm", install_step["run"], (
+            "CI install step must verify LightGBM importability with: "
+            "python -c 'import lightgbm'"
+        ))
 
     def test_ci_runs_make_quality(self) -> None:
         workflow = yaml.safe_load(CI_WORKFLOW_PATH.read_text(encoding="utf-8"))
         steps = workflow["jobs"]["quality"]["steps"]
         run_commands = {str(step.get("run", "")).strip() for step in steps}
         self.assertIn("make quality", run_commands)
+
+    def test_ci_uses_multiple_python_versions(self) -> None:
+        """CI must test on at least Python 3.12."""
+        workflow = yaml.safe_load(CI_WORKFLOW_PATH.read_text(encoding="utf-8"))
+        matrix = workflow["jobs"]["quality"]["strategy"]["matrix"]
+        python_versions = matrix.get("python-version", [])
+        self.assertIn("3.12", python_versions, "CI must test on Python 3.12")
 
 
 if __name__ == "__main__":

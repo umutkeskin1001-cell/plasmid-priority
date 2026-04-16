@@ -1,4 +1,5 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
+NJOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 1)
 
 .PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local test test-cov smoke code-review-graph-check pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci security
 
@@ -33,7 +34,7 @@ test:
 	$(PYTHON) -m pytest tests/ -x -q --tb=short
 
 test-cov:
-	$(PYTHON) -m pytest tests/ -x -q --tb=short --cov=src/plasmid_priority --cov-report=term-missing --cov-fail-under=70
+	$(PYTHON) -m pytest tests/ -x -q --tb=short --cov=src/plasmid_priority --cov-report=term-missing --cov-report=html:htmlcov --cov-fail-under=80
 
 lint:
 	$(PYTHON) -m ruff check src/ scripts/ tests/
@@ -45,12 +46,12 @@ typecheck:
 	$(PYTHON) -m mypy src/plasmid_priority/
 
 check: lint test
-	@echo "Tüm kontroller geçti."
+	@echo "All checks passed."
 
 verify-pipeline:
 	$(PYTHON) scripts/01_check_inputs.py
 	$(PYTHON) -m pytest tests/ -x -q --tb=short
-	@echo "Pipeline doğrulama tamamlandı."
+	@echo "Pipeline verification complete."
 
 smoke:
 	$(PYTHON) scripts/26_run_tests_or_smoke.py --with-tests
@@ -62,7 +63,7 @@ security:
 	$(PYTHON) -m pip_audit --desc
 
 quality: check typecheck smoke security
-	@echo "Kalite kapilari gecti."
+	@echo "All quality gates passed."
 
 ci: check typecheck
 

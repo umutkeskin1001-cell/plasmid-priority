@@ -1,5 +1,9 @@
 # Plasmid Priority
 
+> ⚠️ **Scientific Boundary Notice**: This is a **retrospective genomic surveillance** tool.
+> It does **NOT** make clinical diagnoses, treatment recommendations, or real-time patient management decisions.
+> All outputs are epidemiological signals intended for interpretation by trained specialists.
+
 Plasmid Priority is a retrospective genomic surveillance prioritization framework for operational plasmid backbone classes. It now exposes three split-safe prediction branches:
 
 - `geo_spread`: retrospective new-country visibility increase
@@ -44,7 +48,7 @@ Supportive layers include the WHO Medically Important Antimicrobials document, P
 - `data/experiments/`: exploratory search outputs and non-canonical experiment artifacts
 - `tests/`: unit and smoke-level checks
 
-## Bu Çalışmanın Katkısı
+## Bu Çalışmanın Katkısı / Contribution
 
 Plasmid omurga düzeyinde biyolojik sürveyans önceliklendirmesi, çoğu zaman tür veya tekil plazmid odaklı çerçevelerin gölgesinde kalmaktadır. Bu depo, omurga sınıfını doğrudan analiz birimi yaparak bu boşluğu hedefler.
 
@@ -70,10 +74,21 @@ uv sync
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[analysis]"  # Installs the package and analysis dependencies
+# Install all dependencies including primary model (LightGBM)
+pip install -e ".[analysis,dev,tree-models]"
 python scripts/01_check_inputs.py
 python scripts/26_run_tests_or_smoke.py --with-tests
 ```
+
+## External Dependency Risk Matrix
+
+| Dependency | Role | Risk if Missing | Fallback |
+|------------|------|-----------------|----------|
+| `lightgbm>=4.0` | Primary model backend | `discovery_boosted` silently uses `hist_gbm` | `HistGradientBoostingClassifier` |
+| `interpret>=0.7.8` (EBM) | Interpretable nonlinear model | EBM falls back to `hist_gbm` | `HistGradientBoostingClassifier` |
+| `firthlogist` | Firth-penalized logistic | Governance model uses standard logistic | Standard logistic regression |
+| `PLASMID_PRIORITY_DATA_ROOT` | Large data directory | Pipeline fails fast with clear error | None — required |
+| AMRFinderPlus binary | AMR concordance probe | Probe skipped gracefully | Marked as absent in report |
 
 ## Current Scope
 

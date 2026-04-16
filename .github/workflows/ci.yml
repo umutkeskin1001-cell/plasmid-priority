@@ -27,7 +27,8 @@ jobs:
       - name: Install package and dev tooling
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[analysis,dev]"
+          python -m pip install -e ".[analysis,dev,tree-models]"
+          python -c "import lightgbm; print('LightGBM OK:', lightgbm.__version__)"
 
       - name: Compile Python sources
         run: python -m compileall -q src scripts tests

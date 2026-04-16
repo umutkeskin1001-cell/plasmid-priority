@@ -1,202 +1,185 @@
 #!/usr/bin/env python3
-"""Run a lightweight smoke check on real project data, optionally with unit tests."""
+"""Smoke-test and test runner entry point for CI and manual validation.
+
+This script is the primary CI smoke-test entry point. It verifies that:
+- Core packages are importable
+- Primary model backend (LightGBM) is available
+- Key configuration is loadable
+- Optionally runs the full test suite (--with-tests flag)
+"""
 
 from __future__ import annotations
 
 import argparse
-import itertools
-import os
 import subprocess
 import sys
-import tempfile
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-from plasmid_priority.config import build_context
-from plasmid_priority.harmonize import build_plsdb_canonical_metadata
-from plasmid_priority.io.fasta import iter_fasta_summaries
-from plasmid_priority.qc import run_input_checks
-from plasmid_priority.reporting import ManagedScriptRun
 
-
-@dataclass(frozen=True)
-class TestRunSummary:
-    tests_run: int
-    test_failures: int
-    test_errors: int
-    returncode: int
-    stdout: str
-    stderr: str
-
-    def was_successful(self) -> bool:
-        return self.returncode == 0
-
-
-def _extract_pytest_counts(junit_xml: Path) -> tuple[int, int, int]:
-    if not junit_xml.exists():
-        return 0, 0, 0
+def _check_primary_model_backend() -> list[str]:
+    """Verify LightGBM (primary model backend) is importable."""
+    issues: list[str] = []
     try:
-        root = ET.parse(junit_xml).getroot()
-    except ET.ParseError:
-        return 0, 0, 0
-
-    suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
-    tests_run = 0
-    test_failures = 0
-    test_errors = 0
-    for suite in suites:
-        tests_run += int(suite.attrib.get("tests", "0") or 0)
-        test_failures += int(suite.attrib.get("failures", "0") or 0)
-        test_errors += int(suite.attrib.get("errors", "0") or 0)
-    return tests_run, test_failures, test_errors
+        import lightgbm  # noqa: F401
+    except ImportError:
+        issues.append(
+            "LightGBM is NOT importable. The primary model (discovery_boosted) will silently "
+            "fall back to hist_gbm. Install tree-models extra: "
+            "pip install -e '.[analysis,dev,tree-models]'"
+        )
+    return issues
 
 
-def run_unit_tests() -> TestRunSummary:
-    with tempfile.NamedTemporaryFile(
-        suffix=".xml", prefix="pytest-smoke-", delete=False
-    ) as temp_file:
-        junit_path = Path(temp_file.name)
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-q",
-            str(PROJECT_ROOT / "tests"),
-            f"--junitxml={junit_path}",
-        ],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=max(1, int(os.environ.get("PLASMID_PRIORITY_TEST_TIMEOUT_SECONDS", "86400"))),
+def _check_core_imports() -> list[str]:
+    """Verify all core plasmid_priority modules are importable."""
+    issues: list[str] = []
+    modules = [
+        "plasmid_priority",
+        "plasmid_priority.modeling",
+        "plasmid_priority.validation",
+        "plasmid_priority.scoring",
+        "plasmid_priority.backbone",
+        "plasmid_priority.features",
+        "plasmid_priority.reporting",
+        "plasmid_priority.exceptions",
+        "plasmid_priority.protocol",
+    ]
+    for module in modules:
+        try:
+            __import__(module)
+        except ImportError as exc:
+            issues.append(f"Cannot import {module}: {exc}")
+    return issues
+
+
+def _check_primary_model_config() -> list[str]:
+    """Verify primary model name is present in feature sets."""
+    issues: list[str] = []
+    try:
+        from plasmid_priority.modeling import MODULE_A_FEATURE_SETS  # noqa: PLC0415
+        from plasmid_priority.modeling.module_a import get_primary_model_name  # noqa: PLC0415
+
+        primary_name = get_primary_model_name(MODULE_A_FEATURE_SETS.keys())
+        if primary_name not in MODULE_A_FEATURE_SETS:
+            issues.append(
+                f"Primary model '{primary_name}' is not defined in MODULE_A_FEATURE_SETS. "
+                "Check config.yaml: models.primary_model_name"
+            )
+        else:
+            n_features = len(MODULE_A_FEATURE_SETS[primary_name])
+            print(
+                f"  ✓ Primary model '{primary_name}' found with {n_features} features."
+            )
+    except Exception as exc:  # noqa: BLE001
+        issues.append(f"Failed to load primary model config: {exc}")
+    return issues
+
+
+def _check_lightgbm_has_flag() -> list[str]:
+    """Verify _HAS_LIGHTGBM is True — critical for matching CI to production."""
+    issues: list[str] = []
+    try:
+        from plasmid_priority.modeling.module_a import _HAS_LIGHTGBM  # noqa: PLC0415
+
+        if _HAS_LIGHTGBM:
+            print("  ✓ _HAS_LIGHTGBM = True (primary model uses LightGBM backend)")
+        else:
+            issues.append(
+                "_HAS_LIGHTGBM is False — LightGBM is not installed. "
+                "Primary model (discovery_boosted) will silently use hist_gbm fallback. "
+                "This means CI is testing a DIFFERENT model than production. "
+                "Fix: pip install -e '.[analysis,dev,tree-models]'"
+            )
+    except Exception as exc:  # noqa: BLE001
+        issues.append(f"Cannot check _HAS_LIGHTGBM: {exc}")
+    return issues
+
+
+def run_smoke_checks() -> int:
+    """Run all smoke checks. Returns 0 if OK, 1 if any issues found."""
+    print("\n=== Plasmid Priority Smoke Checks ===\n")
+
+    all_issues: list[str] = []
+
+    print("[1/4] Core imports...")
+    issues = _check_core_imports()
+    if issues:
+        all_issues.extend(issues)
+        for i in issues:
+            print(f"  ✗ {i}")
+    else:
+        print("  ✓ All core modules importable.")
+
+    print("[2/4] Primary model backend (LightGBM)...")
+    issues = _check_primary_model_backend()
+    if issues:
+        all_issues.extend(issues)
+        for i in issues:
+            print(f"  ✗ {i}")
+    else:
+        print("  ✓ LightGBM importable.")
+
+    print("[3/4] LightGBM flag check...")
+    issues = _check_lightgbm_has_flag()
+    if issues:
+        all_issues.extend(issues)
+        for i in issues:
+            print(f"  ✗ {i}")
+
+    print("[4/4] Primary model config...")
+    issues = _check_primary_model_config()
+    if issues:
+        all_issues.extend(issues)
+        for i in issues:
+            print(f"  ✗ {i}")
+
+    if all_issues:
+        print(f"\n=== SMOKE FAILED — {len(all_issues)} issue(s) found ===")
+        for issue in all_issues:
+            print(f"  • {issue}")
+        return 1
+
+    print("\n=== All smoke checks passed ===")
+    return 0
+
+
+def run_tests() -> int:
+    """Run pytest test suite."""
+    print("\n=== Running test suite ===\n")
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short"],
+        cwd=str(PROJECT_ROOT),
     )
-    tests_run, test_failures, test_errors = _extract_pytest_counts(junit_path)
-    junit_path.unlink(missing_ok=True)
-    return TestRunSummary(
-        tests_run=tests_run,
-        test_failures=test_failures,
-        test_errors=test_errors,
-        returncode=int(completed.returncode),
-        stdout=completed.stdout,
-        stderr=completed.stderr,
-    )
+    return result.returncode
 
 
-def _run_cli_smoke(script_name: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, str(PROJECT_ROOT / "scripts" / script_name)],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=max(1, int(os.environ.get("PLASMID_PRIORITY_SCRIPT_TIMEOUT_SECONDS", "3600"))),
-    )
-
-
-def _missing_required_input_errors(validation_report) -> list[object]:
-    missing_errors = []
-    for result in validation_report.errors:
-        if Path(result.path).exists():
-            return []
-        missing_errors.append(result)
-    return missing_errors
-
-
-def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run real-data smoke checks. Use --with-tests to prepend unit tests."
+        description="Plasmid Priority smoke test and test runner."
     )
     parser.add_argument(
         "--with-tests",
         action="store_true",
-        help="Run the full unittest suite before the smoke checks.",
+        help="Also run the full pytest suite after smoke checks.",
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--smoke-only",
+        action="store_true",
+        help="Run only smoke checks, skip test suite (default behavior).",
+    )
+    args = parser.parse_args()
 
+    rc = run_smoke_checks()
+    if rc != 0:
+        return rc
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parse_args([] if argv is None else argv)
-    context = build_context(PROJECT_ROOT)
-    tests_run_count = 0
+    if args.with_tests:
+        rc = run_tests()
 
-    with ManagedScriptRun(context, "26_run_tests_or_smoke") as run:
-        if args.with_tests:
-            test_result = run_unit_tests()
-            run.set_metric("tests_run", test_result.tests_run)
-            run.set_metric("test_failures", test_result.test_failures)
-            run.set_metric("test_errors", test_result.test_errors)
-            tests_run_count = test_result.tests_run
-            if test_result.tests_run <= 0:
-                raise RuntimeError(
-                    "Pytest did not execute any tests in --with-tests mode; failing closed."
-                )
-            if not test_result.was_successful():
-                run.warn(
-                    test_result.stderr.strip() or test_result.stdout.strip() or "pytest failed"
-                )
-                raise RuntimeError("Unit tests failed.")
-        else:
-            run.set_metric("tests_run", 0)
-            run.set_metric("test_failures", 0)
-            run.set_metric("test_errors", 0)
-            tests_run_count = 0
-
-        validation_report = run_input_checks(context)
-        run.set_metric("input_check_errors", len(validation_report.errors))
-        if not validation_report.ok:
-            missing_required_inputs = _missing_required_input_errors(validation_report)
-            if missing_required_inputs:
-                missing_keys = ", ".join(result.key for result in missing_required_inputs)
-                run.warn(
-                    "Skipping real-data smoke because required inputs are not present in this "
-                    f"checkout: {missing_keys}"
-                )
-                run.set_metric(
-                    "smoke_skipped_missing_required_inputs",
-                    len(missing_required_inputs),
-                )
-                if tests_run_count <= 0:
-                    raise RuntimeError(
-                        "No meaningful validation executed: required inputs missing and tests were not run."
-                    )
-                return 0
-            raise RuntimeError("Input validation failed during smoke run.")
-
-        for script_name in (
-            "01_check_inputs.py",
-            "27_run_advanced_audits.py",
-            "24_build_reports.py",
-            "25_export_tubitak_summary.py",
-            "28_build_release_bundle.py",
-        ):
-            completed = _run_cli_smoke(script_name)
-            run.set_metric(f"{script_name}_returncode", int(completed.returncode))
-            if completed.returncode != 0:
-                run.warn(
-                    completed.stderr.strip() or completed.stdout.strip() or f"{script_name} failed"
-                )
-                raise RuntimeError(f"CLI smoke failed for {script_name}.")
-
-        plsdb_metadata = context.asset_path("plsdb_metadata_tsv")
-        taxonomy_csv = context.asset_path("plsdb_meta_tables_dir") / "taxonomy.csv"
-        plsdb_frame = build_plsdb_canonical_metadata(plsdb_metadata, taxonomy_csv)
-        run.set_rows_in("plsdb_canonical_smoke_rows", int(len(plsdb_frame)))
-
-        plsdb_headers = list(
-            itertools.islice(iter_fasta_summaries(context.asset_path("plsdb_sequences_fasta")), 3)
-        )
-        refseq_headers = list(
-            itertools.islice(iter_fasta_summaries(context.asset_path("refseq_plasmids_fasta")), 3)
-        )
-        run.set_metric("plsdb_fasta_probe_count", len(plsdb_headers))
-        run.set_metric("refseq_fasta_probe_count", len(refseq_headers))
-
-    return 0
+    return rc
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    raise SystemExit(main())

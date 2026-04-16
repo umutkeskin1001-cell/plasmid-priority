@@ -1300,18 +1300,31 @@ def build_backbone_table(
     purity_table = pd.DataFrame({"backbone_id": backbone_order.astype(str).to_list()})
     if not training.empty:
         training_backbone_ids = training["backbone_id"].astype(str)
-        genus_purity = _grouped_dominant_share(
-            training_backbone_ids, _series_or_default(training, "genus")
-        )
-        family_purity = _grouped_dominant_share(
-            training_backbone_ids, _series_or_default(training, "TAXONOMY_family")
-        )
-        mobility_purity = _grouped_dominant_share(
-            training_backbone_ids, _series_or_default(training, "predicted_mobility")
-        )
-        replicon_purity = _grouped_dominant_share(
-            training_backbone_ids, _series_or_default(training, "primary_replicon")
-        )
+        purity_cols = ["genus", "TAXONOMY_family", "predicted_mobility", "primary_replicon"]
+        components = training[purity_cols].fillna("").astype(str)
+        for col in purity_cols:
+            components[col] = components[col].str.strip()
+        mask = components.ne("")
+        if bool(mask.any().any()):
+            counts = (
+                pd.DataFrame({
+                    "backbone_id": training["backbone_id"].values.repeat(len(purity_cols)),
+                    "feature": np.tile(purity_cols, len(training)),
+                    "value": components.values.flatten()
+                }).loc[mask.values.flatten()]
+                .groupby(["backbone_id", "feature", "value"], sort=False)
+                .size()
+            )
+            totals = counts.groupby(["backbone_id", "feature"], sort=False).sum()
+            maxima = counts.groupby(["backbone_id", "feature"], sort=False).max()
+            shares = (maxima / totals).unstack(level=1)
+        else:
+            shares = pd.DataFrame(columns=purity_cols, dtype=float)
+
+        genus_purity = shares["genus"].dropna() if "genus" in shares else pd.Series(dtype=float)
+        family_purity = shares["TAXONOMY_family"].dropna() if "TAXONOMY_family" in shares else pd.Series(dtype=float)
+        mobility_purity = shares["predicted_mobility"].dropna() if "predicted_mobility" in shares else pd.Series(dtype=float)
+        replicon_purity = shares["primary_replicon"].dropna() if "primary_replicon" in shares else pd.Series(dtype=float)
 
         pmlst_scheme_series = _clean_text_series(_series_or_default(training, "PMLST_scheme"))
         pmlst_st_series = _clean_text_series(_series_or_default(training, "PMLST_sequence_type"))

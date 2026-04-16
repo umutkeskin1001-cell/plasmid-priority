@@ -909,6 +909,7 @@ def _safe_evaluate_model_name_task(
     n_splits: int,
     n_repeats: int,
     seed: int,
+    fold_groups: list[list[np.ndarray]] | None = None,
 ) -> tuple[str, ModelResult]:
     try:
         return (
@@ -919,6 +920,7 @@ def _safe_evaluate_model_name_task(
                 n_splits=n_splits,
                 n_repeats=n_repeats,
                 seed=seed,
+                fold_groups=fold_groups,
             ),
         )
     except (ValueError, RuntimeError, KeyError, TypeError, np.linalg.LinAlgError) as exc:
@@ -1301,8 +1303,9 @@ def _evaluate_model_name_task(
     n_splits: int,
     n_repeats: int,
     seed: int,
+    fold_groups: list[list[np.ndarray]] | None = None,
 ) -> tuple[str, ModelResult]:
-    return _safe_evaluate_model_name_task(scored, model_name, n_splits, n_repeats, seed)
+    return _safe_evaluate_model_name_task(scored, model_name, n_splits, n_repeats, seed, fold_groups)
 
 
 def _build_dropout_feature_row(
@@ -1352,6 +1355,8 @@ def _evaluate_prediction_set(
     extra_metrics: dict[str, float | int | bool] | None = None,
     prediction_detail: pd.DataFrame | None = None,
 ) -> ModelResult:
+    if knownness_score is not None:
+        assert len(knownness_score) == len(y), "knownness_score must align with y array for post-hoc novelty stratification."
     prevalence = positive_prevalence(y)
     ap = average_precision(y, preds)
     precision_at_10, recall_at_10 = _top_k_precision_recall(y, preds, top_k=10)
@@ -2244,31 +2249,51 @@ def build_single_model_pareto_screen(
                 result.metrics.get("expected_calibration_error", np.nan),
             )
         )
-        matched_knownness_weighted_roc_auc = _knownness_matched_weighted_roc_auc(
-            scored,
-            prediction_frame,
-        )
-        source_holdout_weighted_roc_auc = _grouped_prediction_weighted_roc_auc(
-            scored,
-            prediction_frame,
-            group_columns=("dominant_source",),
-            min_group_size=min_group_size,
-            max_groups_per_column=max_groups_per_column,
-        )
-        blocked_holdout_weighted_roc_auc = _grouped_prediction_weighted_roc_auc(
-            scored,
-            prediction_frame,
-            group_columns=("dominant_source", "dominant_region_train"),
-            min_group_size=min_group_size,
-            max_groups_per_column=max_groups_per_column,
-        )
-        spatial_holdout_weighted_roc_auc = _grouped_prediction_weighted_roc_auc(
-            scored,
-            prediction_frame,
-            group_columns=("dominant_region_train",),
-            min_group_size=min_group_size,
-            max_groups_per_column=max_groups_per_column,
-        )
+        if prediction_frame.empty:
+            matched_knownness_weighted_roc_auc = float("nan")
+            source_holdout_weighted_roc_auc = float("nan")
+            blocked_holdout_weighted_roc_auc = float("nan")
+            spatial_holdout_weighted_roc_auc = float("nan")
+        else:
+            merged_for_score = scored.loc[scored["spread_label"].notna()].copy()
+            merged_for_score = merged_for_score.merge(
+                prediction_frame[["backbone_id", "oof_prediction"]],
+                on="backbone_id",
+                how="inner",
+                validate="1:1"
+            )
+            matched_knownness_weighted_roc_auc = _knownness_matched_weighted_roc_auc(
+                scored,
+                prediction_frame,
+            )
+            from plasmid_priority.modeling.module_a import _grouped_prediction_weighted_roc_auc
+            def local_grouped_auc(group_cols):
+                rows = []
+                for group_col in group_cols:
+                    if group_col not in merged_for_score.columns:
+                        continue
+                    working = merged_for_score.copy()
+                    working[group_col] = working[group_col].fillna("unknown").astype(str)
+                    counts = working[group_col].value_counts()
+                    selected_groups = counts.index.tolist() if group_col == "dominant_source" else counts.loc[counts >= min_group_size].head(max_groups_per_column).index.tolist()
+                    for group_value in selected_groups:
+                        frame = working.loc[working[group_col] == group_value]
+                        if len(frame) < min_group_size or frame["spread_label"].astype(int).nunique() < 2:
+                            continue
+                        from sklearn.metrics import roc_auc_score
+                        rows.append({
+                            "n_backbones": int(len(frame)),
+                            "roc_auc": float(roc_auc_score(frame["spread_label"].astype(int).to_numpy(), frame["oof_prediction"].astype(float).to_numpy()))
+                        })
+                if not rows: return float("nan")
+                summary = pd.DataFrame(rows)
+                weights = pd.to_numeric(summary["n_backbones"], errors="coerce").fillna(0.0)
+                aucs = pd.to_numeric(summary["roc_auc"], errors="coerce")
+                return float(np.average(aucs, weights=weights)) if float(weights.sum()) > 0.0 else float(aucs.mean())
+
+            source_holdout_weighted_roc_auc = local_grouped_auc(("dominant_source",))
+            blocked_holdout_weighted_roc_auc = local_grouped_auc(("dominant_source", "dominant_region_train"))
+            spatial_holdout_weighted_roc_auc = local_grouped_auc(("dominant_region_train",))
         screen_fit_seconds = float(max(time.perf_counter() - started_at, 0.0))
         return {
             "model_name": model_name,
@@ -2463,12 +2488,16 @@ def evaluate_model_name(
     seed: int = 42,
     fit_config: dict[str, object] | None = None,
     include_ci: bool = True,
+    fold_groups: list[list[np.ndarray]] | None = None,
 ) -> ModelResult:
     """Evaluate a single named model on the eligible cohort using OOF predictions."""
     _ensure_config_loaded()
     columns = MODULE_A_FEATURE_SETS[model_name]
+    assert "knownness_score" not in columns, "knownness_score is a stratification post-hoc metric, not a training feature."
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
+    from plasmid_priority.modeling.module_a import annotate_knownness_metadata, _knownness_score_series
+    knownness_score = _knownness_score_series(annotate_knownness_metadata(eligible)).to_numpy(dtype=float)
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
     preds, y, prediction_detail = _oof_predictions_with_detail_from_eligible(
         eligible,
@@ -2499,7 +2528,7 @@ def evaluate_model_name(
         preds,
         eligible["backbone_id"],
         include_ci=include_ci,
-        knownness_score=_knownness_score_series(eligible).to_numpy(dtype=float),
+        knownness_score=knownness_score,
         extra_metrics=extra_metrics,
         prediction_detail=prediction_detail,
     )
@@ -2522,6 +2551,8 @@ def evaluate_feature_columns(
         fit_kwargs.update(fit_config)
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
+    from plasmid_priority.modeling.module_a import annotate_knownness_metadata, _knownness_score_series
+    knownness_score = _knownness_score_series(annotate_knownness_metadata(eligible)).to_numpy(dtype=float)
     preds, y, prediction_detail = _oof_predictions_with_detail_from_eligible(
         eligible,
         columns=columns,
@@ -2551,7 +2582,7 @@ def evaluate_feature_columns(
         preds,
         eligible["backbone_id"],
         include_ci=include_ci,
-        knownness_score=_knownness_score_series(eligible).to_numpy(dtype=float),
+        knownness_score=knownness_score,
         extra_metrics=extra_metrics,
         prediction_detail=prediction_detail,
     )
@@ -3114,21 +3145,24 @@ def run_module_a(
         raise KeyError(f"Unknown Module A model(s): {missing}")
 
     jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(selected_model_names))
+    fold_groups = _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
     if jobs > 1:
         completed: dict[str, ModelResult] = {}
         try:
-            with ProcessPoolExecutor(max_workers=jobs) as executor:
-                future_to_name = {
-                    executor.submit(
-                        _evaluate_model_name_task,
-                        scored,
-                        name,
-                        n_splits,
-                        n_repeats,
-                        seed,
-                    ): name
-                    for name in selected_model_names
-                }
+            with limit_native_threads(1):
+                with ThreadPoolExecutor(max_workers=jobs) as executor:
+                    future_to_name = {
+                        executor.submit(
+                            _evaluate_model_name_task,
+                            scored[list(set(MODULE_A_FEATURE_SETS[name] + ["spread_label", "backbone_id", "log1p_member_count_train", "log1p_n_countries_train", "refseq_share_train"]))],
+                            name,
+                            n_splits,
+                            n_repeats,
+                            seed,
+                            fold_groups,
+                        ): name
+                        for name in selected_model_names
+                    }
                 for future, name in future_to_name.items():
                     try:
                         resolved_name, result = future.result()
@@ -3160,52 +3194,21 @@ def run_module_a(
         except (OSError, PermissionError, RuntimeError):
             warnings.warn(
                 (
-                    "ProcessPoolExecutor unavailable in this environment; "
-                    "falling back to threaded model evaluation."
+                    "ThreadPoolExecutor unavailable in this environment; "
+                    "falling back to sequential model evaluation."
                 ),
                 stacklevel=2,
             )
-            with limit_native_threads(1):
-                with ThreadPoolExecutor(max_workers=jobs) as executor:
-                    future_to_name = {
-                        executor.submit(
-                            _evaluate_model_name_task,
-                            scored,
-                            name,
-                            n_splits,
-                            n_repeats,
-                            seed,
-                        ): name
-                        for name in selected_model_names
-                    }
-                    for future, name in future_to_name.items():
-                        try:
-                            resolved_name, result = future.result()
-                        except (
-                            ValueError,
-                            RuntimeError,
-                            KeyError,
-                            TypeError,
-                            np.linalg.LinAlgError,
-                            OSError,
-                            MemoryError,
-                        ) as exc:
-                            error_message = f"{type(exc).__name__}: {exc}"
-                            warnings.warn(
-                                (
-                                    f"Module A model '{name}' failed in the worker path; "
-                                    "continuing with remaining models."
-                                ),
-                                stacklevel=2,
-                            )
-                            resolved_name, result = (
-                                name,
-                                build_failed_model_result(
-                                    name,
-                                    error_message,
-                                ),
-                            )
-                        completed[resolved_name] = result
+            for name in selected_model_names:
+                resolved_name, result = _safe_evaluate_model_name_task(
+                    scored[list(set(MODULE_A_FEATURE_SETS[name] + ["spread_label", "backbone_id", "log1p_member_count_train", "log1p_n_countries_train", "refseq_share_train"]))],
+                    name,
+                    n_splits,
+                    n_repeats,
+                    seed,
+                    fold_groups,
+                )
+                completed[resolved_name] = result
         for name in selected_model_names:
             results[name] = completed[name]
     else:
@@ -3216,6 +3219,7 @@ def run_module_a(
                 n_splits,
                 n_repeats,
                 seed,
+                fold_groups,
             )
             results[resolved_name] = result
 

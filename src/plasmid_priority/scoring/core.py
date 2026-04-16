@@ -348,12 +348,31 @@ def recompute_priority_from_reference(
         ("ecology_context_norm", ecology_context_values, ecology_context_reference),
         ("mash_neighbor_distance_train_norm", mash_distance_values, mash_distance_reference),
     ]
-    for output_column, values, reference_values in direct_norm_pairs:
-        rescored[output_column] = _normalize_component(
-            values,
-            reference_values,
-            method=normalization_method,
-        )
+    if normalization_method == "rank_percentile":
+        out_cols = [x[0] for x in direct_norm_pairs]
+        val_mat = np.column_stack([x[1].fillna(0.0).astype(float).to_numpy() for x in direct_norm_pairs])
+        ref_mat = np.column_stack([x[2].dropna().astype(float).to_numpy() for x in direct_norm_pairs])
+
+        results = np.zeros_like(val_mat)
+        pos_mask = np.isfinite(val_mat) & (val_mat > 0.0)
+        ref_pos_mask = np.isfinite(ref_mat) & (ref_mat > 0.0)
+
+        for i, col in enumerate(out_cols):
+            ref_col = ref_mat[:, i][ref_pos_mask[:, i]]
+            if len(ref_col) > 0:
+                ref_sorted = np.sort(ref_col)
+                col_pos = pos_mask[:, i]
+                if col_pos.any():
+                    ranks = np.searchsorted(ref_sorted, val_mat[col_pos, i], side="right")
+                    results[col_pos, i] = ranks / len(ref_sorted)
+            rescored[col] = pd.Series(results[:, i], index=rescored.index, dtype=float)
+    else:
+        for output_column, values, reference_values in direct_norm_pairs:
+            rescored[output_column] = _normalize_component(
+                values,
+                reference_values,
+                method=normalization_method,
+            )
     for output_column, source_column in (
         ("H_obs_specialization_norm", "H_obs_norm"),
         ("H_specialization_norm", "H_breadth_norm"),
@@ -627,7 +646,6 @@ def build_scored_backbone_table(
 
     if "member_count_train_feature_t" in scored.columns:
         scored = scored.drop(columns=["member_count_train_feature_t"], errors="ignore")
-    scored = scored.copy()
     if "backbone_assignment_mode" not in scored.columns:
         scored["backbone_assignment_mode"] = "training_only"
     if "max_resolved_year_train" not in scored.columns:
@@ -664,9 +682,7 @@ def build_scored_backbone_table(
     scored["A_content_raw"] = (
         0.5 * scored["amr_class_richness_norm"] + 0.5 * scored["amr_gene_burden_norm"]
     )
-    scored["A_raw"] = _geometric_mean_frame(scored[["A_content_raw", "A_consistency"]].fillna(0.0))
     scored["A_eff"] = scored["A_raw"] * scored["amr_support_factor"].fillna(0.0)
-    scored = scored.copy()
 
     ref = scored.loc[training_mask].copy()
 
@@ -696,6 +712,5 @@ def build_scored_backbone_table(
     scored["training_only_future_unseen_backbone_flag"] = (
         scored["training_only_future_unseen_backbone_flag"].fillna(False).astype(bool)
     )
-    scored = scored.copy()
 
     return scored

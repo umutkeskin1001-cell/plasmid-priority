@@ -8,10 +8,8 @@ from typing import Any
 import pandas as pd
 
 from plasmid_priority.modeling.module_a import ModelResult
-
-
-from plasmid_priority.shared.report_utils import safe_series_value as _safe_series_value
 from plasmid_priority.shared.report_utils import metric_value as _metric_value
+from plasmid_priority.shared.report_utils import safe_series_value as _safe_series_value
 
 
 def build_geo_spread_report_card(

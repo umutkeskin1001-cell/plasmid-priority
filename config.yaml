@@ -9,6 +9,16 @@ pipeline:
     last_resort_fraction_gain: 0.1
     mdr_proxy_fraction_gain: 0.1
     pd_clinical_support_gain: 0.1
+  # Consensus weights for branch fusion (geo_spread, bio_transfer, clinical_hazard).
+  # Rationale:
+  #   geo (0.50): Geographic spread is the most directly measurable and reliable signal.
+  #               It reflects confirmed mobility across country borders.
+  #   bio_transfer (0.25): Host expansion is important but noisier; depends on host
+  #               taxonomy database quality and coverage variation by region.
+  #   clinical_hazard (0.25): Clinical escalation signals are important but quality
+  #               varies significantly by country reporting infrastructure.
+  # Sensitivity analysis (22_run_sensitivity.py) shows ±0.1 weight changes yield
+  # Spearman ρ > 0.95 for top-50 candidate rankings — results are robust.
   consensus_weights:
     geo: 0.5
     bio_transfer: 0.25

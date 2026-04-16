@@ -26,6 +26,7 @@ docs/
 !docs/
 docs/*
 !docs/index.md
+!docs/JURY_SUMMARY.md
 !docs/runbooks/
 !docs/runbooks/**
 docs/superpowers/
@@ -40,6 +41,7 @@ build/
 # 🖥️ IDE & Sistem Dosyaları
 # ==========================================
 .DS_Store
+**/.DS_Store
 Thumbs.db
 .vscode/
 .idea/

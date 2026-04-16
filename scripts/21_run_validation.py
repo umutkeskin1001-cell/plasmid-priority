@@ -81,6 +81,7 @@ from plasmid_priority.validation import (
     positive_prevalence,
     roc_auc_score,
 )
+from plasmid_priority.validation.vif import build_vif_audit_table, summarize_vif_concerns
 
 
 def _dominant_training_value_table(
@@ -354,6 +355,9 @@ def main(argv: list[str] | None = None) -> int:
     adaptive_gated_predictions_output = context.data_dir / "analysis/adaptive_gated_predictions.tsv"
     gate_consistency_output = context.data_dir / "analysis/gate_consistency_audit.tsv"
     future_sentinel_output = context.data_dir / "analysis/future_sentinel_audit.tsv"
+    vif_audit_output = context.data_dir / "analysis/vif_audit.tsv"
+    vif_audit_summary_output = context.data_dir / "analysis/vif_audit_summary.tsv"
+    pn_ratio_output = context.data_dir / "analysis/model_pn_ratio.tsv"
     ensure_directory(source_output.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,
@@ -435,6 +439,9 @@ def main(argv: list[str] | None = None) -> int:
         run.record_output(adaptive_gated_predictions_output)
         run.record_output(gate_consistency_output)
         run.record_output(future_sentinel_output)
+        run.record_output(vif_audit_output)
+        run.record_output(vif_audit_summary_output)
+        run.record_output(pn_ratio_output)
         if load_signature_manifest(
             manifest_path,
             input_paths=input_paths,
@@ -1391,6 +1398,66 @@ def main(argv: list[str] | None = None) -> int:
         )
         run.set_metric("cache_hit", False)
         run.set_metric("official_refresh_only", False)
+
+        # ── VIF Audit ────────────────────────────────────────────────────────
+        # Compute Variance Inflation Factor for all core model feature sets.
+        # Warns on models with high multicollinearity (VIF > 10).
+        import logging
+        _logger = logging.getLogger("plasmid_priority.validation")
+        try:
+            eligible_for_vif = scored.loc[scored["spread_label"].notna()].copy()
+            vif_audit_table = build_vif_audit_table(
+                eligible_for_vif,
+                model_feature_sets=MODULE_A_FEATURE_SETS,
+                model_names=None,  # audit all models
+            )
+            vif_audit_table.to_csv(vif_audit_output, sep="\t", index=False)
+            vif_summary = summarize_vif_concerns(vif_audit_table)
+            vif_summary.to_csv(vif_audit_summary_output, sep="\t", index=False)
+            high_concern_models = vif_summary.loc[
+                vif_summary["n_high_concern"] > 0, "model_name"
+            ].tolist()
+            if high_concern_models:
+                _logger.warning(
+                    "HIGH VIF (>10) detected in models: %s — "
+                    "see data/analysis/vif_audit.tsv for details.",
+                    ", ".join(high_concern_models),
+                )
+            run.set_rows_out("vif_audit_rows", int(len(vif_audit_table)))
+        except Exception as vif_exc:  # noqa: BLE001
+            _logger.warning("VIF audit failed: %s — skipping.", vif_exc)
+            vif_audit_table = pd.DataFrame(
+                columns=["model_name", "feature_name", "vif", "concern_flag"]
+            )
+            vif_audit_table.to_csv(vif_audit_output, sep="\t", index=False)
+            vif_summary = pd.DataFrame()
+            vif_summary.to_csv(vif_audit_summary_output, sep="\t", index=False)
+
+        # ── p/n Ratio Audit ──────────────────────────────────────────────────
+        # Report feature count / eligible backbone count for each model.
+        # High p/n (>0.1) is a risk factor for overfitting.
+        eligible_n = int(len(scored.loc[scored["spread_label"].notna()]))
+        pn_rows = []
+        for _model_name, _features in MODULE_A_FEATURE_SETS.items():
+            _n_features = len(_features)
+            _pn = _n_features / max(eligible_n, 1)
+            pn_rows.append({
+                "model_name": _model_name,
+                "n_features": _n_features,
+                "n_eligible_backbones": eligible_n,
+                "pn_ratio": round(_pn, 4),
+                "concern": "high" if _pn > 0.1 else "moderate" if _pn > 0.05 else "low",
+            })
+        pn_df = pd.DataFrame(pn_rows).sort_values("pn_ratio", ascending=False)
+        pn_df.to_csv(pn_ratio_output, sep="\t", index=False)
+        high_pn_models = pn_df.loc[pn_df["concern"] == "high", "model_name"].tolist()
+        if high_pn_models:
+            _logger.warning(
+                "HIGH p/n ratio (>0.1) in models: %s — "
+                "risk of overfitting; see data/analysis/model_pn_ratio.tsv.",
+                ", ".join(high_pn_models),
+            )
+        run.set_rows_out("pn_ratio_rows", int(len(pn_df)))
     return 0
 
 

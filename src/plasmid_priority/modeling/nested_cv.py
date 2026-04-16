@@ -45,7 +45,6 @@ def nested_cross_validate(
     Returns:
         Dict with keys ``outer_aucs``, ``mean_auc``, ``std_auc``, ``n_folds``.
     """
-    from plasmid_priority.modeling import evaluate_model_name
 
     label_col = "spread_label"
     if label_col not in scored.columns:
@@ -70,24 +69,20 @@ def nested_cross_validate(
         test_df = X_valid.iloc[test_idx]
 
         try:
-            result = evaluate_model_name(
+            from plasmid_priority.modeling.module_a import fit_predict_model_holdout
+
+            preds = fit_predict_model_holdout(
                 train_df,
+                test_df,
                 model_name=model_name,
-                n_splits=n_inner_splits,
-                n_repeats=n_repeats,
-                seed=seed + fold_idx,
             )
-            if result.status == "ok" and not result.predictions.empty:
+            if not preds.empty and "prediction" in preds.columns:
                 from plasmid_priority.validation.metrics import roc_auc_score
 
                 y_true = test_df[label_col].values
-                # Align predictions with test set
-                preds = result.predictions
-                if model_name in preds.columns:
-                    y_score = preds[model_name].values[: len(y_true)]
-                    if len(y_score) == len(y_true):
-                        auc = roc_auc_score(y_true, y_score)
-                        outer_aucs.append(auc)
+                y_score = preds["prediction"].values
+                auc = roc_auc_score(y_true, y_score)
+                outer_aucs.append(auc)
         except (ValueError, KeyError, TypeError) as exc:
             _log.warning("Nested CV fold %d failed: %s", fold_idx, exc)
             continue
