@@ -1,0 +1,588 @@
+{
+  "artifacts": {
+    "/Users/umut/Projeler/plasmid-priority/docs/benchmark_contract.md": {
+      "columns": [
+        "# Benchmark Contract"
+      ],
+      "content_hash": "48733e49c7162bb182147d09283afdf5456b39b349d511d2c061e5b46d96f54c",
+      "exists": true,
+      "rows": 58,
+      "sha256": "6b07cc636cead3aab5f50762534f206c746f267826aad244b45c69dae93eb313"
+    },
+    "/Users/umut/Projeler/plasmid-priority/reports/core_tables/candidate_universe.tsv": {
+      "columns": [
+        "backbone_id",
+        "member_count_train",
+        "n_countries_train",
+        "n_new_countries",
+        "spread_label",
+        "priority_index",
+        "bio_priority_index",
+        "evidence_support_index",
+        "coherence_score",
+        "freeze_rank",
+        "candidate_confidence_tier",
+        "primary_model_candidate_score",
+        "baseline_both_candidate_score",
+        "conservative_model_candidate_score",
+        "novelty_margin_vs_baseline",
+        "knownness_score",
+        "knownness_half",
+        "external_support_modalities_count",
+        "module_f_enriched_signature_count",
+        "risk_uncertainty",
+        "uncertainty_review_tier",
+        "portfolio_track",
+        "track_rank",
+        "recommended_monitoring_tier",
+        "freeze_candidate_score",
+        "false_positive_risk_tier",
+        "risk_flag_count",
+        "risk_flags",
+        "in_consensus_top50",
+        "in_candidate_dossier_top25",
+        "in_candidate_portfolio",
+        "in_novelty_watchlist",
+        "in_prospective_freeze",
+        "in_higher_confidence_shortlist",
+        "evidence_tier",
+        "action_tier",
+        "main_outcome_status",
+        "candidate_universe_origin",
+        "visibility_expansion_label",
+        "official_primary_model",
+        "official_conservative_model",
+        "official_governance_model",
+        "official_primary_top_10_precision",
+        "official_primary_top_10_recall",
+        "official_primary_top_25_precision",
+        "official_primary_top_25_recall",
+        "official_primary_decision_utility_score",
+        "official_primary_optimal_decision_threshold",
+        "official_governance_top_10_precision",
+        "official_governance_top_10_recall",
+        "official_governance_top_25_precision",
+        "official_governance_top_25_recall",
+        "official_governance_decision_utility_score",
+        "official_governance_optimal_decision_threshold",
+        "official_conservative_top_10_precision",
+        "official_conservative_top_10_recall",
+        "official_conservative_decision_utility_score",
+        "official_conservative_optimal_decision_threshold",
+        "official_benchmark_panel_size"
+      ],
+      "content_hash": "8d06fd58edfbfc66fb7af19168d36de1909b3672b58299b23d2f89c1dff7f004",
+      "exists": true,
+      "rows": 58,
+      "sha256": "0b8b8cb4ce9d423c2f7b035cd2bfa41b69a08192943ee8e8dc8db8c6efe393ca"
+    },
+    "/Users/umut/Projeler/plasmid-priority/reports/core_tables/headline_validation_summary.tsv": {
+      "columns": [
+        "summary_label",
+        "model_name",
+        "roc_auc",
+        "roc_auc_ci",
+        "average_precision",
+        "average_precision_ci",
+        "brier_score",
+        "brier_skill_score",
+        "ece",
+        "max_calibration_error",
+        "scientific_acceptance_status",
+        "scientific_acceptance_failed_criteria",
+        "selection_adjusted_empirical_p_roc_auc",
+        "permutation_p_roc_auc",
+        "delta_vs_baseline_roc_auc",
+        "delta_vs_baseline_ci",
+        "spatial_holdout_roc_auc",
+        "n_backbones",
+        "n_positive",
+        "decision_reason",
+        "selected_from_n_finalists",
+        "failure_severity",
+        "weighted_objective_score",
+        "screen_fit_seconds",
+        "compute_efficiency_score"
+      ],
+      "content_hash": "2ef0f120dea2c86fa84dc239879908282776a2ad1b631aa439e99b7ddb2a60be",
+      "exists": true,
+      "rows": 4,
+      "sha256": "727881c05a900bcdc7c915b8d46b043f2820552b53834c555e41715abf0060c5"
+    },
+    "/Users/umut/Projeler/plasmid-priority/reports/core_tables/model_metrics.tsv": {
+      "columns": [
+        "model_name",
+        "status",
+        "roc_auc",
+        "roc_auc_ci_lower",
+        "roc_auc_ci_upper",
+        "average_precision",
+        "average_precision_ci_lower",
+        "average_precision_ci_upper",
+        "brier_score",
+        "brier_skill_score",
+        "brier_score_ci_lower",
+        "brier_score_ci_upper",
+        "ece",
+        "selection_adjusted_empirical_p_roc_auc",
+        "permutation_p_roc_auc",
+        "n_permutations",
+        "delta_vs_baseline_roc_auc",
+        "delta_vs_baseline_ci_lower",
+        "delta_vs_baseline_ci_upper",
+        "spatial_holdout_roc_auc",
+        "spatial_holdout_regions",
+        "spatial_holdout_n_backbones",
+        "best_spatial_holdout_region",
+        "best_spatial_holdout_region_roc_auc",
+        "worst_spatial_holdout_region",
+        "worst_spatial_holdout_region_roc_auc",
+        "n_backbones",
+        "n_positive",
+        "positive_prevalence",
+        "report_visibility",
+        "error_message",
+        "average_precision_enrichment",
+        "average_precision_lift",
+        "brier_reliability",
+        "brier_resolution",
+        "brier_uncertainty",
+        "decision_utility_cost",
+        "decision_utility_grid_size",
+        "decision_utility_positive_rate",
+        "decision_utility_precision",
+        "decision_utility_recall",
+        "decision_utility_score",
+        "expected_calibration_error_x",
+        "log_loss",
+        "log_loss_ci_lower",
+        "log_loss_ci_upper",
+        "max_calibration_error_x",
+        "ndcg_at_10",
+        "ndcg_at_25",
+        "novelty_adjusted_average_precision",
+        "optimal_decision_threshold",
+        "precision_at_top_10",
+        "precision_at_top_25",
+        "recall_at_top_10",
+        "recall_at_top_25",
+        "weighted_classification_cost",
+        "mean_agreement_score",
+        "mean_logistic_nonlinear_delta",
+        "review_fraction",
+        "expected_calibration_error_y",
+        "max_calibration_error_y",
+        "n_permutations_selection_adjusted",
+        "selection_adjusted_empirical_p_average_precision",
+        "n_models_in_scope",
+        "modal_selected_model_name",
+        "modal_selected_model_share",
+        "matched_knownness_weighted_roc_auc",
+        "knownness_matched_gap",
+        "source_holdout_weighted_roc_auc",
+        "source_holdout_gap",
+        "spatial_holdout_gap",
+        "scientific_acceptance_scored",
+        "scientific_acceptance_flag",
+        "scientific_acceptance_status",
+        "scientific_acceptance_failed_criteria",
+        "matched_knownness_gate_pass",
+        "source_holdout_gate_pass",
+        "spatial_holdout_gate_pass",
+        "calibration_gate_pass",
+        "selection_adjusted_gate_pass",
+        "leakage_review_gate_pass",
+        "spatial_holdout_gap.1"
+      ],
+      "content_hash": "4e52535d46bdcab28e3dfa897cc37715aae635a1640393b43ebf84c556e9f245",
+      "exists": true,
+      "rows": 44,
+      "sha256": "1f268fb9face6f64f0c7e1d841edacbc8252c4f6e7987972a23a520ff94d1b7d"
+    },
+    "/Users/umut/Projeler/plasmid-priority/reports/core_tables/model_selection_scorecard.tsv": {
+      "columns": [
+        "model_name",
+        "model_track",
+        "roc_auc",
+        "average_precision",
+        "prediction_vs_knownness_spearman",
+        "ece",
+        "weighted_classification_cost",
+        "decision_utility_score",
+        "decision_utility_cost",
+        "optimal_decision_threshold",
+        "decision_utility_precision",
+        "decision_utility_recall",
+        "decision_utility_positive_rate",
+        "spatial_holdout_roc_auc",
+        "selection_adjusted_empirical_p_roc_auc",
+        "lower_half_knownness_n_backbones",
+        "lower_half_knownness_roc_auc",
+        "lowest_knownness_quartile_n_backbones",
+        "lowest_knownness_quartile_roc_auc",
+        "matched_knownness_weighted_roc_auc",
+        "source_holdout_weighted_roc_auc",
+        "source_holdout_macro_roc_auc",
+        "roc_auc_component_score",
+        "average_precision_component_score",
+        "lower_half_knownness_roc_auc_component_score",
+        "lowest_knownness_quartile_roc_auc_component_score",
+        "matched_knownness_weighted_roc_auc_component_score",
+        "source_holdout_macro_roc_auc_component_score",
+        "prediction_vs_knownness_spearman_component_score",
+        "decision_utility_score_component_score",
+        "selection_composite_score",
+        "selection_metric_count",
+        "selection_missing_metric_count",
+        "leakage_review_required",
+        "leakage_review_reason",
+        "knownness_matched_gap",
+        "source_holdout_gap",
+        "guardrail_loss",
+        "governance_priority_score",
+        "strict_knownness_acceptance_flag",
+        "spatial_holdout_gap",
+        "matched_knownness_gate_pass",
+        "source_holdout_gate_pass",
+        "spatial_holdout_gate_pass",
+        "calibration_gate_pass",
+        "selection_adjusted_gate_pass",
+        "leakage_review_gate_pass",
+        "scientific_acceptance_scored",
+        "scientific_acceptance_flag",
+        "scientific_acceptance_status",
+        "selection_metrics_complete",
+        "scientific_acceptance_failed_criteria",
+        "selection_rank",
+        "track_rank",
+        "discovery_track_rank",
+        "governance_track_rank",
+        "baseline_track_rank",
+        "governance_rank"
+      ],
+      "content_hash": "3fda26a626e2edfaa9a025fde0d0e385cf40a76af9cbbf2da734e20ed7e36720",
+      "exists": true,
+      "rows": 44,
+      "sha256": "a8d3e869a813677d800bedcb7007ed96cd0c154b1e241ef2ffd0bedee18b0336"
+    }
+  },
+  "headline_metrics": {
+    "counts_baseline": {
+      "average_precision": 0.6471951497145494,
+      "brier_score": 0.1860639554327758,
+      "ece": 0.0393089918413468,
+      "model_name": "baseline_both",
+      "permutation_p_roc_auc": 0.0004997501249375,
+      "roc_auc": 0.7224968498594553,
+      "scientific_acceptance_status": "fail",
+      "selection_adjusted_empirical_p_roc_auc": 0.0049751243781094
+    },
+    "discovery_primary": {
+      "average_precision": 0.722509742523147,
+      "brier_score": 0.1694509963534254,
+      "ece": 0.0491210616377955,
+      "model_name": "discovery_12f_source",
+      "permutation_p_roc_auc": 0.0004997501249375,
+      "roc_auc": 0.8035942442746746,
+      "scientific_acceptance_status": "fail",
+      "selection_adjusted_empirical_p_roc_auc": 0.0049751243781094
+    },
+    "governance_watch_only": {
+      "average_precision": 0.7665059493881674,
+      "brier_score": 0.1661809588766068,
+      "ece": 0.0852389523508536,
+      "model_name": "phylo_support_fusion_priority",
+      "permutation_p_roc_auc": "NA",
+      "roc_auc": 0.827138791227189,
+      "scientific_acceptance_status": "fail",
+      "selection_adjusted_empirical_p_roc_auc": 0.0049751243781094
+    },
+    "single_model_pareto_official": {
+      "average_precision": 0.71193288065412,
+      "brier_score": "NA",
+      "ece": 0.0401637037369437,
+      "model_name": "discovery_12f_source__pruned",
+      "permutation_p_roc_auc": "NA",
+      "roc_auc": 0.7922273035678096,
+      "scientific_acceptance_status": "fail",
+      "selection_adjusted_empirical_p_roc_auc": 0.0196078431372549
+    }
+  },
+  "quality_outputs": {
+    "lint": {
+      "command": "/Users/umut/Projeler/plasmid-priority/.venv/bin/python -m ruff check src/ scripts/ tests/",
+      "duration_seconds": 0.031457334000151604,
+      "returncode": 0,
+      "status": "pass",
+      "stderr_tail": "",
+      "stdout_tail": "All checks passed!"
+    },
+    "security": {
+      "command": "/Users/umut/Projeler/plasmid-priority/.venv/bin/python -m pip_audit --desc",
+      "duration_seconds": 0.43856858302024193,
+      "returncode": 1,
+      "status": "fail",
+      "stderr_tail": "    for dep, vulns in self._service.query_all(specs):\n                      ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^\n  File \"/Users/umut/Projeler/plasmid-priority/.venv/lib/python3.13/site-packages/pip_audit/_service/interface.py\", line 180, in query_all\n    yield self.query(spec)\n          ~~~~~~~~~~^^^^^^\n  File \"/Users/umut/Projeler/plasmid-priority/.venv/lib/python3.13/site-packages/pip_audit/_service/pypi.py\", line 64, in query\n    response: requests.Response = self.session.get(url=url, timeout=self.timeout)\n                                  ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/umut/Projeler/plasmid-priority/.venv/lib/python3.13/site-packages/requests/sessions.py\", line 605, in get\n    return self.request(\"GET\", url, **kwargs)\n           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/umut/Projeler/plasmid-priority/.venv/lib/python3.13/site-packages/requests/sessions.py\", line 592, in request\n    resp = self.send(prep, **send_kwargs)\n  File \"/Users/umut/Projeler/plasmid-priority/.venv/lib/python3.13/site-packages/requests/sessions.py\", line 706, in send\n    r = adapter.send(request, **kwargs)\n  File \"/Users/umut/Projeler/plasmid-priority/.venv/lib/python3.13/site-packages/cachecontrol/adapter.py\", line 76, in send\n    resp = super().send(request, stream, timeout, verify, cert, proxies)\n  File \"/Users/umut/Projeler/plasmid-priority/.venv/lib/python3.13/site-packages/requests/adapters.py\", line 678, in send\n    raise ConnectionError(e, request=request)\nrequests.exceptions.ConnectionError: HTTPSConnectionPool(host='pypi.org', port=443): Max retries exceeded with url: /pypi/annotated-doc/0.0.4/json (Caused by NameResolutionError(\"HTTPSConnection(host='pypi.org', port=443): Failed to resolve 'pypi.org' ([Errno 8] nodename nor servname provided, or not known)\"))",
+      "stdout_tail": ""
+    },
+    "test": {
+      "command": "/Users/umut/Projeler/plasmid-priority/.venv/bin/python -m pytest tests/ -q --tb=short",
+      "duration_seconds": 91.16329249998671,
+      "returncode": 0,
+      "status": "pass",
+      "stderr_tail": "",
+      "stdout_tail": "........................................................................ [ 12%]\n........................................................................ [ 25%]\n........................................................................ [ 38%]\n........................................................................ [ 51%]\n........................................................................ [ 64%]\n........................................................................ [ 77%]\n........................................................................ [ 90%]\n....................................................                     [100%]"
+    },
+    "typecheck": {
+      "command": "/Users/umut/Projeler/plasmid-priority/.venv/bin/python -m mypy src/plasmid_priority/",
+      "duration_seconds": 0.1882564999978058,
+      "returncode": 0,
+      "status": "pass",
+      "stderr_tail": "",
+      "stdout_tail": "Success: no issues found in 145 source files"
+    }
+  },
+  "runtime_and_ram": {
+    "note": "Runtime/RAM tracking is captured per gate command duration; RSS capture will be extended in workflow summaries.",
+    "quality_commands": {
+      "lint": 0.031457334000151604,
+      "security": 0.43856858302024193,
+      "test": 91.16329249998671,
+      "typecheck": 0.1882564999978058
+    }
+  },
+  "top_100_candidates": [
+    {
+      "backbone_id": "AA303",
+      "freeze_rank": 1.0
+    },
+    {
+      "backbone_id": "AA175",
+      "freeze_rank": 2.0
+    },
+    {
+      "backbone_id": "AA324",
+      "freeze_rank": 3.0
+    },
+    {
+      "backbone_id": "AA319",
+      "freeze_rank": 4.0
+    },
+    {
+      "backbone_id": "AC301",
+      "freeze_rank": 5.0
+    },
+    {
+      "backbone_id": "AA323",
+      "freeze_rank": 6.0
+    },
+    {
+      "backbone_id": "AA735",
+      "freeze_rank": 7.0
+    },
+    {
+      "backbone_id": "AC296",
+      "freeze_rank": 8.0
+    },
+    {
+      "backbone_id": "AA628",
+      "freeze_rank": 9.0
+    },
+    {
+      "backbone_id": "AD100",
+      "freeze_rank": 10.0
+    },
+    {
+      "backbone_id": "AC305",
+      "freeze_rank": 11.0
+    },
+    {
+      "backbone_id": "AB559",
+      "freeze_rank": 12.0
+    },
+    {
+      "backbone_id": "AB169",
+      "freeze_rank": 13.0
+    },
+    {
+      "backbone_id": "AA841",
+      "freeze_rank": 14.0
+    },
+    {
+      "backbone_id": "AA409",
+      "freeze_rank": 15.0
+    },
+    {
+      "backbone_id": "AA086",
+      "freeze_rank": 16.0
+    },
+    {
+      "backbone_id": "AA326",
+      "freeze_rank": 17.0
+    },
+    {
+      "backbone_id": "AA513",
+      "freeze_rank": 18.0
+    },
+    {
+      "backbone_id": "AA282",
+      "freeze_rank": 19.0
+    },
+    {
+      "backbone_id": "AA411",
+      "freeze_rank": 20.0
+    },
+    {
+      "backbone_id": "AA279",
+      "freeze_rank": 21.0
+    },
+    {
+      "backbone_id": "AB530",
+      "freeze_rank": 22.0
+    },
+    {
+      "backbone_id": "AA327",
+      "freeze_rank": 23.0
+    },
+    {
+      "backbone_id": "AA045",
+      "freeze_rank": 24.0
+    },
+    {
+      "backbone_id": "AA859",
+      "freeze_rank": 25.0
+    },
+    {
+      "backbone_id": "AA850",
+      "freeze_rank": 28.0
+    },
+    {
+      "backbone_id": "AA553",
+      "freeze_rank": 29.0
+    },
+    {
+      "backbone_id": "AA304",
+      "freeze_rank": 32.0
+    },
+    {
+      "backbone_id": "AB193",
+      "freeze_rank": 33.0
+    },
+    {
+      "backbone_id": "AA184",
+      "freeze_rank": 35.0
+    },
+    {
+      "backbone_id": "AA295",
+      "freeze_rank": 36.0
+    },
+    {
+      "backbone_id": "AA767",
+      "freeze_rank": 37.0
+    },
+    {
+      "backbone_id": "AA840",
+      "freeze_rank": 38.0
+    },
+    {
+      "backbone_id": "AB561",
+      "freeze_rank": 39.0
+    },
+    {
+      "backbone_id": "AA764",
+      "freeze_rank": 42.0
+    },
+    {
+      "backbone_id": "AA346",
+      "freeze_rank": 43.0
+    },
+    {
+      "backbone_id": "AA367",
+      "freeze_rank": 44.0
+    },
+    {
+      "backbone_id": "AA316",
+      "freeze_rank": 46.0
+    },
+    {
+      "backbone_id": "AB710",
+      "freeze_rank": 49.0
+    },
+    {
+      "backbone_id": "AA331",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA514",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AE264",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AC202",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA434",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AC203",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AC030",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA043",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA435",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AE108",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AF809",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AE599",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA964",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA040",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA297",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AF100",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA308",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AA557",
+      "freeze_rank": NaN
+    },
+    {
+      "backbone_id": "AB735",
+      "freeze_rank": NaN
+    }
+  ]
+}

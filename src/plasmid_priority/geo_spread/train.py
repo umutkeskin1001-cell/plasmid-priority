@@ -18,8 +18,7 @@ from plasmid_priority.geo_spread.dataset import (
 )
 from plasmid_priority.geo_spread.specs import GeoSpreadConfig, load_geo_spread_config
 from plasmid_priority.modeling import evaluate_feature_columns, fit_feature_columns_predictions
-from plasmid_priority.modeling.module_a import ModelResult
-from plasmid_priority.modeling.module_a_support import build_failed_model_result
+from plasmid_priority.modeling.module_a_support import ModelResult, build_failed_model_result
 from plasmid_priority.utils.parallel import limit_native_threads
 
 

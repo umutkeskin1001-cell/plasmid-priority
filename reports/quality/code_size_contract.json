@@ -1,0 +1,464 @@
+{
+  "file_violations": [
+    {
+      "limit": 1500,
+      "line_count": 1843,
+      "path": "src/plasmid_priority/features/core.py"
+    },
+    {
+      "limit": 1500,
+      "line_count": 3336,
+      "path": "src/plasmid_priority/modeling/module_a.py"
+    },
+    {
+      "limit": 1500,
+      "line_count": 3330,
+      "path": "src/plasmid_priority/reporting/advanced_audits.py"
+    },
+    {
+      "limit": 1500,
+      "line_count": 1626,
+      "path": "src/plasmid_priority/reporting/candidate_tables.py"
+    },
+    {
+      "limit": 1500,
+      "line_count": 3101,
+      "path": "src/plasmid_priority/reporting/figures.py"
+    },
+    {
+      "limit": 1500,
+      "line_count": 5720,
+      "path": "src/plasmid_priority/reporting/model_audit.py"
+    },
+    {
+      "limit": 1500,
+      "line_count": 5443,
+      "path": "scripts/24_build_reports.py"
+    }
+  ],
+  "function_violations": [
+    {
+      "end_line": 277,
+      "function": "main",
+      "limit": 80,
+      "line_count": 189,
+      "path": "src/plasmid_priority/bio_transfer/cli.py",
+      "start_line": 89
+    },
+    {
+      "end_line": 296,
+      "function": "main",
+      "limit": 80,
+      "line_count": 207,
+      "path": "src/plasmid_priority/clinical_hazard/cli.py",
+      "start_line": 90
+    },
+    {
+      "end_line": 287,
+      "function": "main",
+      "limit": 80,
+      "line_count": 209,
+      "path": "src/plasmid_priority/consensus/cli.py",
+      "start_line": 79
+    },
+    {
+      "end_line": 964,
+      "function": "compute_feature_h",
+      "limit": 200,
+      "line_count": 358,
+      "path": "src/plasmid_priority/features/core.py",
+      "start_line": 607
+    },
+    {
+      "end_line": 1843,
+      "function": "build_backbone_table",
+      "limit": 200,
+      "line_count": 663,
+      "path": "src/plasmid_priority/features/core.py",
+      "start_line": 1181
+    },
+    {
+      "end_line": 337,
+      "function": "calibrate_geo_spread_predictions",
+      "limit": 200,
+      "line_count": 250,
+      "path": "src/plasmid_priority/geo_spread/calibration.py",
+      "start_line": 88
+    },
+    {
+      "end_line": 309,
+      "function": "main",
+      "limit": 80,
+      "line_count": 224,
+      "path": "src/plasmid_priority/geo_spread/cli.py",
+      "start_line": 86
+    },
+    {
+      "end_line": 2440,
+      "function": "build_single_model_pareto_screen",
+      "limit": 200,
+      "line_count": 240,
+      "path": "src/plasmid_priority/modeling/module_a.py",
+      "start_line": 2201
+    },
+    {
+      "end_line": 405,
+      "function": "build_macro_region_jump_table",
+      "limit": 200,
+      "line_count": 251,
+      "path": "src/plasmid_priority/reporting/advanced_audits.py",
+      "start_line": 155
+    },
+    {
+      "end_line": 1008,
+      "function": "build_operational_risk_dictionary",
+      "limit": 200,
+      "line_count": 227,
+      "path": "src/plasmid_priority/reporting/advanced_audits.py",
+      "start_line": 782
+    },
+    {
+      "end_line": 1946,
+      "function": "build_false_negative_audit",
+      "limit": 200,
+      "line_count": 248,
+      "path": "src/plasmid_priority/reporting/advanced_audits.py",
+      "start_line": 1699
+    },
+    {
+      "end_line": 853,
+      "function": "build_candidate_portfolio_table",
+      "limit": 200,
+      "line_count": 414,
+      "path": "src/plasmid_priority/reporting/candidate_tables.py",
+      "start_line": 440
+    },
+    {
+      "end_line": 1126,
+      "function": "build_candidate_dossier_table",
+      "limit": 200,
+      "line_count": 271,
+      "path": "src/plasmid_priority/reporting/candidate_tables.py",
+      "start_line": 856
+    },
+    {
+      "end_line": 1332,
+      "function": "annotate_candidate_explanation_fields",
+      "limit": 200,
+      "line_count": 204,
+      "path": "src/plasmid_priority/reporting/candidate_tables.py",
+      "start_line": 1129
+    },
+    {
+      "end_line": 780,
+      "function": "plot_calibration_threshold_summary",
+      "limit": 200,
+      "line_count": 274,
+      "path": "src/plasmid_priority/reporting/figures.py",
+      "start_line": 507
+    },
+    {
+      "end_line": 821,
+      "function": "build_h_feature_diagnostics",
+      "limit": 200,
+      "line_count": 270,
+      "path": "src/plasmid_priority/reporting/model_audit.py",
+      "start_line": 552
+    },
+    {
+      "end_line": 3831,
+      "function": "build_candidate_universe_table",
+      "limit": 200,
+      "line_count": 262,
+      "path": "src/plasmid_priority/reporting/model_audit.py",
+      "start_line": 3570
+    },
+    {
+      "end_line": 4429,
+      "function": "build_primary_model_selection_summary",
+      "limit": 200,
+      "line_count": 596,
+      "path": "src/plasmid_priority/reporting/model_audit.py",
+      "start_line": 3834
+    },
+    {
+      "end_line": 4744,
+      "function": "build_benchmark_protocol_table",
+      "limit": 200,
+      "line_count": 313,
+      "path": "src/plasmid_priority/reporting/model_audit.py",
+      "start_line": 4432
+    },
+    {
+      "end_line": 5280,
+      "function": "build_model_selection_scorecard",
+      "limit": 200,
+      "line_count": 495,
+      "path": "src/plasmid_priority/reporting/model_audit.py",
+      "start_line": 4786
+    },
+    {
+      "end_line": 633,
+      "function": "recompute_priority_from_reference",
+      "limit": 200,
+      "line_count": 497,
+      "path": "src/plasmid_priority/scoring/core.py",
+      "start_line": 137
+    },
+    {
+      "end_line": 312,
+      "function": "calibrate_branch_predictions",
+      "limit": 200,
+      "line_count": 208,
+      "path": "src/plasmid_priority/shared/calibration.py",
+      "start_line": 105
+    },
+    {
+      "end_line": 216,
+      "function": "main",
+      "limit": 80,
+      "line_count": 124,
+      "path": "scripts/15_normalize_and_score.py",
+      "start_line": 93
+    },
+    {
+      "end_line": 220,
+      "function": "main",
+      "limit": 80,
+      "line_count": 180,
+      "path": "scripts/16_run_module_A.py",
+      "start_line": 41
+    },
+    {
+      "end_line": 115,
+      "function": "main",
+      "limit": 80,
+      "line_count": 84,
+      "path": "scripts/17_run_module_B.py",
+      "start_line": 32
+    },
+    {
+      "end_line": 272,
+      "function": "main",
+      "limit": 80,
+      "line_count": 203,
+      "path": "scripts/18_run_module_C_pathogen_detection.py",
+      "start_line": 70
+    },
+    {
+      "end_line": 252,
+      "function": "main",
+      "limit": 80,
+      "line_count": 222,
+      "path": "scripts/19_run_module_D_external_support.py",
+      "start_line": 31
+    },
+    {
+      "end_line": 215,
+      "function": "main",
+      "limit": 80,
+      "line_count": 163,
+      "path": "scripts/20_run_module_E_amrfinder_concordance.py",
+      "start_line": 53
+    },
+    {
+      "end_line": 1464,
+      "function": "main",
+      "limit": 80,
+      "line_count": 1216,
+      "path": "scripts/21_run_validation.py",
+      "start_line": 249
+    },
+    {
+      "end_line": 1077,
+      "function": "main",
+      "limit": 80,
+      "line_count": 501,
+      "path": "scripts/22_run_sensitivity.py",
+      "start_line": 577
+    },
+    {
+      "end_line": 457,
+      "function": "_build_report_model_metrics",
+      "limit": 200,
+      "line_count": 265,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 193
+    },
+    {
+      "end_line": 911,
+      "function": "_build_candidate_brief_table",
+      "limit": 200,
+      "line_count": 452,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 460
+    },
+    {
+      "end_line": 1816,
+      "function": "_write_headline_validation_summary",
+      "limit": 200,
+      "line_count": 234,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 1583
+    },
+    {
+      "end_line": 2091,
+      "function": "_write_executive_summary",
+      "limit": 200,
+      "line_count": 218,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 1874
+    },
+    {
+      "end_line": 2482,
+      "function": "_write_turkish_summary",
+      "limit": 200,
+      "line_count": 298,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 2185
+    },
+    {
+      "end_line": 2881,
+      "function": "_write_jury_brief",
+      "limit": 200,
+      "line_count": 383,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 2499
+    },
+    {
+      "end_line": 3108,
+      "function": "_export_support_appendix_tables",
+      "limit": 200,
+      "line_count": 225,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 2884
+    },
+    {
+      "end_line": 3513,
+      "function": "_build_candidate_stability_bundle",
+      "limit": 200,
+      "line_count": 275,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 3239
+    },
+    {
+      "end_line": 5439,
+      "function": "main",
+      "limit": 80,
+      "line_count": 1924,
+      "path": "scripts/24_build_reports.py",
+      "start_line": 3516
+    },
+    {
+      "end_line": 643,
+      "function": "main",
+      "limit": 80,
+      "line_count": 468,
+      "path": "scripts/25_export_tubitak_summary.py",
+      "start_line": 176
+    },
+    {
+      "end_line": 117,
+      "function": "main",
+      "limit": 80,
+      "line_count": 86,
+      "path": "scripts/27_generate_full_fit_predictions.py",
+      "start_line": 32
+    },
+    {
+      "end_line": 430,
+      "function": "main",
+      "limit": 80,
+      "line_count": 378,
+      "path": "scripts/27b_run_advanced_audits.py",
+      "start_line": 53
+    },
+    {
+      "end_line": 241,
+      "function": "main",
+      "limit": 80,
+      "line_count": 103,
+      "path": "scripts/28b_run_sovereign_ensemble.py",
+      "start_line": 139
+    },
+    {
+      "end_line": 401,
+      "function": "main",
+      "limit": 80,
+      "line_count": 217,
+      "path": "scripts/29_train_sovereign.py",
+      "start_line": 185
+    },
+    {
+      "end_line": 479,
+      "function": "main",
+      "limit": 80,
+      "line_count": 119,
+      "path": "scripts/archive/build_phase_52_report.py",
+      "start_line": 361
+    },
+    {
+      "end_line": 612,
+      "function": "main",
+      "limit": 80,
+      "line_count": 151,
+      "path": "scripts/archive/run_phase_52_discovery.py",
+      "start_line": 462
+    },
+    {
+      "end_line": 634,
+      "function": "main",
+      "limit": 80,
+      "line_count": 327,
+      "path": "scripts/run_governance_temporal_evidence.py",
+      "start_line": 308
+    },
+    {
+      "end_line": 188,
+      "function": "main",
+      "limit": 80,
+      "line_count": 150,
+      "path": "scripts/run_hardening_summary.py",
+      "start_line": 39
+    },
+    {
+      "end_line": 166,
+      "function": "main",
+      "limit": 80,
+      "line_count": 130,
+      "path": "scripts/run_missingness_audit.py",
+      "start_line": 37
+    },
+    {
+      "end_line": 670,
+      "function": "write_phase_61_artifacts",
+      "limit": 200,
+      "line_count": 227,
+      "path": "scripts/run_phase_61_governance_pruning.py",
+      "start_line": 444
+    },
+    {
+      "end_line": 820,
+      "function": "main",
+      "limit": 80,
+      "line_count": 148,
+      "path": "scripts/run_phase_61_governance_pruning.py",
+      "start_line": 673
+    },
+    {
+      "end_line": 152,
+      "function": "main",
+      "limit": 80,
+      "line_count": 114,
+      "path": "scripts/run_schema_validation.py",
+      "start_line": 39
+    }
+  ],
+  "scanned_file_count": 204,
+  "status": "fail",
+  "thresholds": {
+    "max_file_lines": 1500,
+    "max_function_lines": 200,
+    "max_main_lines": 80
+  }
+}

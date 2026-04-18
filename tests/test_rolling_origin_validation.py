@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import unittest
-from types import SimpleNamespace
-from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -28,29 +26,32 @@ class RollingOriginValidationTests(unittest.TestCase):
                 )
         scored = pd.DataFrame(rows)
 
-        def _fake_evaluate_model_name(window: pd.DataFrame, **_: object) -> SimpleNamespace:
+        def _fake_model_evaluator(window: pd.DataFrame, _model_name: str) -> dict[str, float]:
             split_year = int(window["split_year"].iloc[0])
             auc = {2012: 0.70, 2013: 0.80, 2014: 0.90}[split_year]
-            return SimpleNamespace(
-                metrics={
-                    "status": "ok",
-                    "roc_auc": auc,
-                    "average_precision": auc - 0.1,
-                    "ece": 0.05,
-                }
-            )
+            return {
+                "status": "ok",
+                "roc_auc": auc,
+                "average_precision": auc - 0.1,
+                "ece": 0.05,
+            }
 
-        with mock.patch("plasmid_priority.modeling.evaluate_model_name", _fake_evaluate_model_name):
-            report = run_rolling_origin_validation(
-                scored,
-                model_name="governance_linear",
-                split_years=range(2012, 2015),
-                horizon_years=5,
-            )
+        report = run_rolling_origin_validation(
+            scored,
+            model_name="governance_linear",
+            split_years=range(2012, 2015),
+            horizon_years=5,
+            model_evaluator=_fake_model_evaluator,
+        )
 
         self.assertEqual(len(report.split_results), 3)
         self.assertTrue(np.isclose(report.mean_auc, np.mean([0.70, 0.80, 0.90])))
-        self.assertTrue(np.isclose(report.auc_stability_metric, np.std([0.70, 0.80, 0.90]) / np.mean([0.70, 0.80, 0.90])))
+        self.assertTrue(
+            np.isclose(
+                report.auc_stability_metric,
+                np.std([0.70, 0.80, 0.90]) / np.mean([0.70, 0.80, 0.90]),
+            )
+        )
         self.assertEqual(report.split_results[0].status, "ok")
 
 

@@ -36,16 +36,16 @@ from plasmid_priority.validation.metrics import (
     roc_auc_score,
     weighted_classification_cost,
 )
-from plasmid_priority.validation.rolling_origin import (
-    RollingOriginSplitResult,
-    RollingOriginValidationReport,
-    run_rolling_origin_validation,
-)
 from plasmid_priority.validation.missingness import (
     audit_backbone_tables,
     audit_missingness,
     format_missingness_report,
     print_backbone_audit_report,
+)
+from plasmid_priority.validation.rolling_origin import (
+    RollingOriginSplitResult,
+    RollingOriginValidationReport,
+    run_rolling_origin_validation,
 )
 from plasmid_priority.validation.schemas import (
     BACKBONE_TABLE_SCHEMA,

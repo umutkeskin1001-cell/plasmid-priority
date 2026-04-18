@@ -17,7 +17,7 @@ from threading import Lock
 from plasmid_priority.config import DATA_ROOT_ENV_VAR, build_context
 from plasmid_priority.modeling.plugin_system import registry
 from plasmid_priority.pipeline.step_contract import StepResult, write_step_result
-from plasmid_priority.protocol import build_protocol_hash, ScientificProtocol
+from plasmid_priority.protocol import ScientificProtocol, build_protocol_hash
 from plasmid_priority.utils.files import (
     atomic_write_json,
     path_signature_with_hash,
@@ -608,12 +608,16 @@ def run_workflow(
                         step_name=step.name,
                         status="ok",
                         inputs={
-                            key: str(value.get("sha256") or value.get("digest") or value.get("size"))
+                            key: str(
+                                value.get("sha256") or value.get("digest") or value.get("size")
+                            )
                             for key, value in dict(summary.get("input_manifest", {})).items()
                             if isinstance(value, dict)
                         },
                         outputs={
-                            key: str(value.get("sha256") or value.get("digest") or value.get("size"))
+                            key: str(
+                                value.get("sha256") or value.get("digest") or value.get("size")
+                            )
                             for key, value in dict(summary.get("output_manifest", {})).items()
                             if isinstance(value, dict)
                         },

@@ -322,7 +322,9 @@ class WorkflowTests(unittest.TestCase):
     def test_workflow_discovers_entry_point_plugins_before_execution(self) -> None:
         with mock.patch.object(run_workflow_script.registry, "discover_entry_points") as discover:
             with mock.patch.object(run_workflow_script, "_workflow_steps", return_value=[]):
-                result = run_workflow_script.run_workflow("reports-only", max_workers=1, resume=False)
+                result = run_workflow_script.run_workflow(
+                    "reports-only", max_workers=1, resume=False
+                )
 
         self.assertEqual(result, 0)
         discover.assert_called_once()

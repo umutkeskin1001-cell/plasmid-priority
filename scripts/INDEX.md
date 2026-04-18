@@ -39,6 +39,11 @@ order; `b`-suffixed scripts are optional or parallel alternatives to the same sl
 | `29_build_experiment_registry.py` | Build experiment hash registry | `data/experiments/*.tsv` | `data/experiments/registry.json` | 30 s |
 | `29_train_sovereign.py` | Train sovereign model checkpoint | `data/scores/backbone_scored.tsv` | `data/experiments/sovereign_checkpoint.*` | 10-30 min |
 | `30_train_ensemble.py` | Train full ensemble | `data/scores/backbone_scored.tsv` | `data/experiments/ensemble_*.pkl` | 10-60 min |
+| `31_generate_scientific_contracts.py` | Generate canonical benchmark/protocol/model/data contract docs | `config/benchmarks.yaml`, `config*.yaml`, `data/manifests/data_contract.json` | `docs/{benchmark_contract,scientific_protocol,model_card,data_card}.md`, `reports/reviewer_pack/*` | <10 s |
+| `32_freeze_and_invariants.py` | Build freeze snapshot and evaluate invariant drift | `reports/core_tables/*.tsv` | `reports/freeze/*` | <10 s |
+| `33_scientific_equivalence.py` | Scientific equivalence harness between baseline and candidate freeze snapshots | `reports/freeze/*.json` | `reports/freeze/scientific_equivalence.json` | <5 s |
+| `34_generate_disposition_ledger.py` | Generate keep/absorb/replace/delete ledger for legacy surfaces | source tree inventory | `docs/disposition_ledger.md` | <5 s |
+| `35_generate_code_size_contract.py` | Generate file/function size contract report for god-file/god-function cleanup tracking | `src/plasmid_priority/**/*.py`, `scripts/**/*.py` | `reports/quality/code_size_contract.json` | <5 s |
 
 ## Utility / Non-Pipeline Scripts
 
@@ -51,6 +56,7 @@ order; `b`-suffixed scripts are optional or parallel alternatives to the same sl
 | `run_clinical_hazard_branch.py` | Standalone clinical-hazard branch evaluation |
 | `run_consensus_branch.py` | Standalone consensus fusion evaluation |
 | `run_geo_spread_branch.py` | Standalone geo-spread branch evaluation |
+| `run_branch.py` | Canonical unified branch CLI (`--branch geo_spread|bio_transfer|clinical_hazard|consensus`) |
 | `run_governance_temporal_evidence.py` | Governance track temporal evidence audit |
 | `run_hardening_summary.py` | Hardening audit summary |
 | `run_missingness_audit.py` | Missingness / metadata completeness audit |

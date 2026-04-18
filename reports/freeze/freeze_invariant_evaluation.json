@@ -1,0 +1,39 @@
+{
+  "baseline": "/Users/umut/Projeler/plasmid-priority/reports/freeze/baseline_freeze.json",
+  "candidate": "/Users/umut/Projeler/plasmid-priority/reports/freeze/current_freeze.json",
+  "results": [
+    {
+      "message": "Top-100 overlap ratio=1.0000",
+      "name": "ranking_drift",
+      "rollback": false,
+      "status": "pass",
+      "threshold": 0.95,
+      "value": 1.0
+    },
+    {
+      "message": "Max headline metric |delta|=0.000000",
+      "name": "metric_drift",
+      "rollback": false,
+      "status": "pass",
+      "threshold": 0.005,
+      "value": 0.0
+    },
+    {
+      "message": "Max row-count delta=0",
+      "name": "row_count_drift",
+      "rollback": false,
+      "status": "pass",
+      "threshold": 0.0,
+      "value": 0.0
+    },
+    {
+      "message": "Schema drifted in 0 artifact(s)",
+      "name": "schema_drift",
+      "rollback": false,
+      "status": "pass",
+      "threshold": 0.0,
+      "value": 0.0
+    }
+  ],
+  "rollback_required": false
+}

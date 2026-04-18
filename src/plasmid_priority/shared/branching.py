@@ -13,11 +13,10 @@ import pandas as pd
 from plasmid_priority.exceptions import ModelFitError
 from plasmid_priority.modeling import evaluate_feature_columns, fit_feature_columns_predictions
 from plasmid_priority.modeling.module_a import (
-    ModelResult,
     annotate_knownness_metadata,
     assert_feature_columns_present,
 )
-from plasmid_priority.modeling.module_a_support import build_failed_model_result
+from plasmid_priority.modeling.module_a_support import ModelResult, build_failed_model_result
 from plasmid_priority.shared.contracts import (
     ensure_branch_label_alias,
     validate_branch_input_contract,

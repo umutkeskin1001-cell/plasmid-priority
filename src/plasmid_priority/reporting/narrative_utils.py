@@ -128,8 +128,8 @@ def blocked_holdout_summary_text(blocked_holdout_summary: pd.DataFrame, *, model
     if working.empty:
         return ""
     texts = [
-        blocked_holdout_row_text(pd.Series(row._asdict()), model_name=model_name, language="en")
-        for row in working.itertuples(index=False)
+        blocked_holdout_row_text(pd.Series(row), model_name=model_name, language="en")
+        for row in working.to_dict(orient="records")
     ]
     texts = [text for text in texts if text]
     return " ".join(texts)
@@ -148,8 +148,8 @@ def blocked_holdout_summary_text_tr(
     if working.empty:
         return ""
     texts = [
-        blocked_holdout_row_text(pd.Series(row._asdict()), model_name=model_name, language="tr")
-        for row in working.itertuples(index=False)
+        blocked_holdout_row_text(pd.Series(row), model_name=model_name, language="tr")
+        for row in working.to_dict(orient="records")
     ]
     texts = [text for text in texts if text]
     return " ".join(texts)

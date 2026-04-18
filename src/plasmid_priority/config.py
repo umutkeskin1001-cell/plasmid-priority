@@ -115,7 +115,7 @@ def context_config_paths(context: Any) -> tuple[Path, ...]:
     return (Path(root) / "config.yaml",)
 
 
-def _pipeline_settings_from_config(config: dict | None) -> PipelineSettings:
+def _pipeline_settings_from_config(config: dict[str, Any] | None) -> PipelineSettings:
     pipeline = config.get("pipeline", {}) if isinstance(config, dict) else {}
     if not isinstance(pipeline, dict):
         pipeline = {}
@@ -191,7 +191,7 @@ class ProjectContext:
         return (self.data_root or (self.root / "data")).resolve()
 
     @cached_property
-    def config(self) -> dict:
+    def config(self) -> dict[str, Any]:
         return self.project_config.model_dump(mode="python")
 
     @cached_property

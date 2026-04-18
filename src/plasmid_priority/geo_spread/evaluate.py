@@ -19,14 +19,23 @@ from plasmid_priority.geo_spread.select import (
 )
 from plasmid_priority.geo_spread.specs import GeoSpreadConfig
 from plasmid_priority.geo_spread.train import fit_geo_spread_branch
-from plasmid_priority.modeling.module_a import ModelResult
+from plasmid_priority.modeling.module_a_support import ModelResult
 from plasmid_priority.validation.metrics import average_precision, roc_auc_score
 
 
 def _knownness_metrics_for_predictions(merged: pd.DataFrame, score_column: str) -> dict[str, float]:
-    knownness = pd.to_numeric(merged.get("knownness_score"), errors="coerce")
-    labels = pd.to_numeric(merged.get("spread_label"), errors="coerce")
-    score = pd.to_numeric(merged.get(score_column), errors="coerce")
+    knownness = pd.to_numeric(
+        merged.get("knownness_score", pd.Series(np.nan, index=merged.index)),
+        errors="coerce",
+    )
+    labels = pd.to_numeric(
+        merged.get("spread_label", pd.Series(np.nan, index=merged.index)),
+        errors="coerce",
+    )
+    score = pd.to_numeric(
+        merged.get(score_column, pd.Series(np.nan, index=merged.index)),
+        errors="coerce",
+    )
     valid = knownness.notna() & labels.notna() & score.notna()
     if not valid.any():
         return {}
@@ -42,18 +51,22 @@ def _knownness_metrics_for_predictions(merged: pd.DataFrame, score_column: str) 
         "high_knownness_share": float(np.mean(high_mask.astype(float))),
     }
     if low_mask.any() and labels.loc[low_mask].nunique() >= 2:
+        low_labels = labels.loc[low_mask].to_numpy(dtype=int)
+        low_scores = score.loc[low_mask].to_numpy(dtype=float)
         metrics["low_knownness_roc_auc"] = float(
-            roc_auc_score(labels.loc[low_mask], score.loc[low_mask])
+            roc_auc_score(low_labels, low_scores)
         )
         metrics["low_knownness_average_precision"] = float(
-            average_precision(labels.loc[low_mask], score.loc[low_mask])
+            average_precision(low_labels, low_scores)
         )
     if high_mask.any() and labels.loc[high_mask].nunique() >= 2:
+        high_labels = labels.loc[high_mask].to_numpy(dtype=int)
+        high_scores = score.loc[high_mask].to_numpy(dtype=float)
         metrics["high_knownness_roc_auc"] = float(
-            roc_auc_score(labels.loc[high_mask], score.loc[high_mask])
+            roc_auc_score(high_labels, high_scores)
         )
         metrics["high_knownness_average_precision"] = float(
-            average_precision(labels.loc[high_mask], score.loc[high_mask])
+            average_precision(high_labels, high_scores)
         )
     if knownness.nunique() >= 4:
         quantiles = pd.qcut(
@@ -81,7 +94,10 @@ def _knownness_metrics_for_predictions(merged: pd.DataFrame, score_column: str) 
 
 def _auxiliary_target_metrics(merged: pd.DataFrame, score_column: str) -> dict[str, float]:
     metrics: dict[str, float] = {}
-    score = pd.to_numeric(merged.get(score_column), errors="coerce")
+    score = pd.to_numeric(
+        merged.get(score_column, pd.Series(np.nan, index=merged.index)),
+        errors="coerce",
+    )
     for target_name in (
         "event_within_1y_label",
         "event_within_3y_label",
@@ -99,8 +115,12 @@ def _auxiliary_target_metrics(merged: pd.DataFrame, score_column: str) -> dict[s
         if labels.nunique() < 2:
             continue
         prefix = target_name.replace("_label", "")
-        metrics[f"{prefix}_roc_auc"] = float(roc_auc_score(labels, score_valid))
-        metrics[f"{prefix}_average_precision"] = float(average_precision(labels, score_valid))
+        label_values = labels.to_numpy(dtype=int)
+        score_values = score_valid.to_numpy(dtype=float)
+        metrics[f"{prefix}_roc_auc"] = float(roc_auc_score(label_values, score_values))
+        metrics[f"{prefix}_average_precision"] = float(
+            average_precision(label_values, score_values)
+        )
     return metrics
 
 

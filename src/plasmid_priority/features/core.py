@@ -7,7 +7,7 @@ import re
 import threading
 from functools import lru_cache
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -55,7 +55,7 @@ def _support_factor(n: int, pseudocount: float = 3.0) -> float:
 
 
 def _split_values(cell: object) -> set[str]:
-    if pd.isna(cell):
+    if pd.isna(cast(Any, cell)):
         return set()
     text = str(cell).strip()
     if not text:
@@ -449,7 +449,8 @@ def _global_max_normalized_richness(unique_counts: pd.Series) -> pd.Series:
     if max_count <= 0.0:
         return pd.Series(0.0, index=unique.index, dtype=float)
     denominator = math.log1p(max_count)
-    return (np.log1p(unique) / denominator).clip(lower=0.0, upper=1.0)
+    values = np.log1p(unique.to_numpy(dtype=float)) / denominator
+    return pd.Series(np.clip(values, 0.0, 1.0), index=unique.index, dtype=float)
 
 
 def _menhinick_normalized_richness(
@@ -787,7 +788,11 @@ def compute_feature_h(
         # Normalize so the median country has weight 1.0 and massively over-sequenced
         # countries receive smaller weights.
         median_count = country_counts.median()
-        country_weights = np.clip(np.sqrt(median_count / country_counts), 0.1, 2.0)
+        country_weights = pd.Series(
+            np.clip(np.sqrt(median_count / country_counts), 0.1, 2.0),
+            index=country_counts.index,
+            dtype=float,
+        )
 
         # Apply weights to the training records
         record_weights = country_series.map(country_weights).fillna(1.0)
@@ -1304,14 +1309,17 @@ def build_backbone_table(
         components = training.reindex(columns=purity_cols, fill_value="").fillna("").astype(str)
         for col in purity_cols:
             components[col] = components[col].str.strip()
-        mask = components.ne("")
+        mask = components.apply(lambda series: series.ne(""))
         if bool(mask.any().any()):
             counts = (
-                pd.DataFrame({
-                    "backbone_id": training["backbone_id"].values.repeat(len(purity_cols)),
-                    "feature": np.tile(purity_cols, len(training)),
-                    "value": components.values.flatten()
-                }).loc[mask.values.flatten()]
+                pd.DataFrame(
+                    {
+                        "backbone_id": training["backbone_id"].values.repeat(len(purity_cols)),
+                        "feature": np.tile(purity_cols, len(training)),
+                        "value": components.values.flatten(),
+                    }
+                )
+                .loc[mask.values.flatten()]
                 .groupby(["backbone_id", "feature", "value"], sort=False)
                 .size()
             )
@@ -1322,9 +1330,21 @@ def build_backbone_table(
             shares = pd.DataFrame(columns=purity_cols, dtype=float)
 
         genus_purity = shares["genus"].dropna() if "genus" in shares else pd.Series(dtype=float)
-        family_purity = shares["TAXONOMY_family"].dropna() if "TAXONOMY_family" in shares else pd.Series(dtype=float)
-        mobility_purity = shares["predicted_mobility"].dropna() if "predicted_mobility" in shares else pd.Series(dtype=float)
-        replicon_purity = shares["primary_replicon"].dropna() if "primary_replicon" in shares else pd.Series(dtype=float)
+        family_purity = (
+            shares["TAXONOMY_family"].dropna()
+            if "TAXONOMY_family" in shares
+            else pd.Series(dtype=float)
+        )
+        mobility_purity = (
+            shares["predicted_mobility"].dropna()
+            if "predicted_mobility" in shares
+            else pd.Series(dtype=float)
+        )
+        replicon_purity = (
+            shares["primary_replicon"].dropna()
+            if "primary_replicon" in shares
+            else pd.Series(dtype=float)
+        )
 
         pmlst_scheme_series = _clean_text_series(_series_or_default(training, "PMLST_scheme"))
         pmlst_st_series = _clean_text_series(_series_or_default(training, "PMLST_sequence_type"))
@@ -1493,12 +1513,19 @@ def build_backbone_table(
                 )
             )
         ).clip(lower=0.0, upper=1.0)
-        plasmidfinder_complexity_score = np.clip(
-            0.70 * (plasmidfinder_mean_type_count / 3.0).clip(lower=0.0, upper=1.0)
-            + 0.30 * plasmidfinder_multi_type_fraction,
+        plasmidfinder_complexity_values = np.clip(
+            0.70 * (plasmidfinder_mean_type_count / 3.0).clip(lower=0.0, upper=1.0).to_numpy(
+                dtype=float
+            )
+            + 0.30 * plasmidfinder_multi_type_fraction.to_numpy(dtype=float),
             0.0,
             1.0,
-        ).astype(float)
+        )
+        plasmidfinder_complexity_score = pd.Series(
+            plasmidfinder_complexity_values,
+            index=plasmidfinder_mean_type_count.index,
+            dtype=float,
+        )
         assignment_primary_fraction = (
             _clean_text_series(_series_or_default(training, "backbone_assignment_rule"))
             .eq("primary_cluster_id")
@@ -1692,7 +1719,7 @@ def build_backbone_table(
     spread_label = pd.Series(np.nan, index=backbone_table.index, dtype=float)
     eligible = backbone_table["n_countries_train"].between(1, 3, inclusive="both")
     spread_label.loc[eligible] = (
-        backbone_table.loc[eligible, "n_new_countries"].ge(new_country_threshold).astype(int)
+        backbone_table.loc[eligible, "n_new_countries"].ge(new_country_threshold).astype(float)
     )
     backbone_table["spread_label"] = spread_label
     backbone_table["visibility_expansion_label"] = spread_label

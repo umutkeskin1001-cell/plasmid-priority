@@ -225,12 +225,12 @@ def write_bronze_inventory(
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow(BRONZE_INVENTORY_COLUMNS)
 
-        for row in aligned_plsdb.itertuples(index=False, name=None):
-            writer.writerow(row)
+        for plsdb_row in aligned_plsdb.itertuples(index=False, name=None):
+            writer.writerow(plsdb_row)
             row_count += 1
 
-        for row in refseq_rows:
-            writer.writerow([row[column] for column in BRONZE_INVENTORY_COLUMNS])
+        for refseq_row in refseq_rows:
+            writer.writerow([refseq_row[column] for column in BRONZE_INVENTORY_COLUMNS])
             row_count += 1
 
     return row_count

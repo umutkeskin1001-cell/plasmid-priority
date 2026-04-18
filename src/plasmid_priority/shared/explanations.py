@@ -22,8 +22,14 @@ def build_branch_review_reason_table(
     working = predictions.copy()
     if score_column not in working.columns and "prediction" in working.columns:
         working[score_column] = working["prediction"]
-    score = pd.to_numeric(working.get(score_column), errors="coerce")
-    confidence = pd.to_numeric(working.get(confidence_column), errors="coerce")
+    score = pd.to_numeric(
+        working.get(score_column, pd.Series(index=working.index, dtype=float)),
+        errors="coerce",
+    )
+    confidence = pd.to_numeric(
+        working.get(confidence_column, pd.Series(index=working.index, dtype=float)),
+        errors="coerce",
+    )
     ood_flag = (
         working.get(ood_column, pd.Series(False, index=working.index)).fillna(False).astype(bool)
     )

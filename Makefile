@@ -1,7 +1,7 @@
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 NJOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 1)
 
-.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local test test-cov smoke code-review-graph-check pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci security
+.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local test test-cov smoke code-review-graph-check pipeline pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci security generate-scientific-contracts protocol-freshness import-contract freeze-baseline freeze-current scientific-equivalence generate-disposition-ledger generate-code-size-contract run-branch
 
 check-inputs:
 	$(PYTHON) scripts/01_check_inputs.py
@@ -62,10 +62,37 @@ code-review-graph-check:
 security:
 	$(PYTHON) -m pip_audit --desc
 
+generate-scientific-contracts:
+	$(PYTHON) scripts/31_generate_scientific_contracts.py
+
+protocol-freshness: generate-scientific-contracts
+	git diff --exit-code -- docs/benchmark_contract.md docs/scientific_protocol.md docs/model_card.md docs/data_card.md reports/reviewer_pack/README.md reports/reviewer_pack/canonical_metadata.json
+
+import-contract:
+	$(PYTHON) scripts/check_import_contracts.py
+
+freeze-baseline:
+	$(PYTHON) scripts/32_freeze_and_invariants.py --promote-baseline --run-quality-checks
+
+freeze-current:
+	$(PYTHON) scripts/32_freeze_and_invariants.py --run-quality-checks
+
+scientific-equivalence:
+	$(PYTHON) scripts/33_scientific_equivalence.py --baseline reports/freeze/baseline_freeze.json --candidate reports/freeze/current_freeze.json
+
+generate-disposition-ledger:
+	$(PYTHON) scripts/34_generate_disposition_ledger.py
+
+generate-code-size-contract:
+	$(PYTHON) scripts/35_generate_code_size_contract.py
+
+run-branch:
+	$(PYTHON) scripts/run_branch.py $(ARGS)
+
 quality: check typecheck smoke security
 	@echo "All quality gates passed."
 
-ci: check typecheck
+ci: protocol-freshness import-contract check typecheck
 
 pipeline:
 	$(PYTHON) scripts/run_workflow.py pipeline

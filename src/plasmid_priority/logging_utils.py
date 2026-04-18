@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,9 +22,9 @@ _script_name: ContextVar[str] = ContextVar("plasmid_priority_script_name", defau
 
 @dataclass(frozen=True)
 class _LoggingContextTokens:
-    correlation_id: object | None = None
-    run_id: object | None = None
-    script_name: object | None = None
+    correlation_id: Token[str] | None = None
+    run_id: Token[str] | None = None
+    script_name: Token[str] | None = None
 
 
 def current_correlation_id() -> str:
@@ -129,13 +129,13 @@ def configure_logging(
             datefmt="%Y-%m-%d %H:%M:%S",
         )
     if not root.handlers:
-        handler = logging.StreamHandler(stream or sys.stderr)
+        handler: logging.Handler = logging.StreamHandler(stream or sys.stderr)
         handler.addFilter(_ContextInjectionFilter())
         handler.setFormatter(formatter)
         root.addHandler(handler)
         return
 
-    for handler in root.handlers:
+    for handler in list(root.handlers):
         handler.addFilter(_ContextInjectionFilter())
         handler.setFormatter(formatter)
 

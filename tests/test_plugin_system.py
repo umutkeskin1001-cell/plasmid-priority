@@ -33,7 +33,9 @@ class PluginSystemTests(unittest.TestCase):
 
         with mock.patch(
             "plasmid_priority.modeling.plugin_system.entry_points",
-            side_effect=lambda group=None: [fake_feature_ep] if group == "plasmid_priority.feature" else [fake_model_ep],
+            side_effect=lambda group=None: (
+                [fake_feature_ep] if group == "plasmid_priority.feature" else [fake_model_ep]
+            ),
         ):
             registry.discover_entry_points()
 

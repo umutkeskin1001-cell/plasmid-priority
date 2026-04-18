@@ -449,13 +449,23 @@ def build_bio_transfer_labels(
     future_stats["future_new_host_families_count"] = future_stats["n_new_host_families_future"]
     future_stats["bio_transfer_label"] = np.where(
         (
-            pd.to_numeric(future_stats.get("n_new_host_genera_future"), errors="coerce").fillna(0.0)
+            pd.to_numeric(
+                future_stats.get(
+                    "n_new_host_genera_future",
+                    pd.Series(0.0, index=future_stats.index),
+                ),
+                errors="coerce",
+            ).fillna(0.0)
             >= 2.0
         )
         | (
-            pd.to_numeric(future_stats.get("n_new_host_families_future"), errors="coerce").fillna(
-                0.0
-            )
+            pd.to_numeric(
+                future_stats.get(
+                    "n_new_host_families_future",
+                    pd.Series(0.0, index=future_stats.index),
+                ),
+                errors="coerce",
+            ).fillna(0.0)
             >= 1.0
         ),
         1.0,
@@ -551,15 +561,22 @@ def build_clinical_hazard_labels(
     }
     for column, threshold in gain_thresholds.items():
         pre_column = column.replace("_future", "_pre")
-        future_values = pd.to_numeric(future_stats.get(column), errors="coerce").fillna(0.0)
-        pre_values = pd.to_numeric(future_stats.get(pre_column), errors="coerce").fillna(0.0)
+        future_values = pd.to_numeric(
+            future_stats.get(column, pd.Series(0.0, index=future_stats.index)),
+            errors="coerce",
+        ).fillna(0.0)
+        pre_values = pd.to_numeric(
+            future_stats.get(pre_column, pd.Series(0.0, index=future_stats.index)),
+            errors="coerce",
+        ).fillna(0.0)
         gain = future_values - pre_values
         future_stats[f"{column}_gain"] = gain
     escalation_flags = pd.DataFrame(
         {
-            f"{name}_gain": pd.to_numeric(future_stats.get(f"{name}_gain"), errors="coerce").fillna(
-                0.0
-            )
+            f"{name}_gain": pd.to_numeric(
+                future_stats.get(f"{name}_gain", pd.Series(0.0, index=future_stats.index)),
+                errors="coerce",
+            ).fillna(0.0)
             >= threshold
             for name, threshold in gain_thresholds.items()
         }

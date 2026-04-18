@@ -38,9 +38,6 @@ from plasmid_priority.geo_spread.inventory import build_geo_spread_inventory
 from plasmid_priority.geo_spread.provenance import (
     GeoSpreadRunProvenance,
     build_geo_spread_run_provenance,
-    content_hash,
-    dataframe_content_hash,
-    stable_json_dumps,
 )
 from plasmid_priority.geo_spread.report import (
     build_geo_spread_report_card,
@@ -74,6 +71,11 @@ from plasmid_priority.geo_spread.train import (
     fit_geo_spread_branch,
     fit_geo_spread_model,
     fit_geo_spread_model_predictions,
+)
+from plasmid_priority.shared.provenance import (
+    content_hash,
+    dataframe_content_hash,
+    stable_json_dumps,
 )
 
 __all__ = [

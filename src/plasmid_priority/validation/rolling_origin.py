@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+ModelEvaluator = Callable[[pd.DataFrame, str], dict[str, object]]
+
+
+def _default_model_evaluator(_scored: pd.DataFrame, _model_name: str) -> dict[str, object]:
+    raise RuntimeError(
+        "No model evaluator provided. Pass `model_evaluator=` from the caller "
+        "(for example via plasmid_priority.modeling.evaluate_model_name wrapper)."
+    )
 
 
 @dataclass(frozen=True)
@@ -66,9 +76,16 @@ def run_rolling_origin_validation(
     n_splits: int = 5,
     n_repeats: int = 3,
     seed: int = 42,
+    model_evaluator: ModelEvaluator | None = None,
 ) -> RollingOriginValidationReport:
-    from plasmid_priority.modeling import evaluate_model_name
+    def _optional_float(metrics: dict[str, object], key: str) -> float | None:
+        value = metrics.get(key)
+        if value is None:
+            return None
+        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        return float(numeric) if pd.notna(numeric) else None
 
+    evaluator = model_evaluator or _default_model_evaluator
     results: list[RollingOriginSplitResult] = []
     for split_year in split_years:
         test_year_end = int(split_year) + int(horizon_years)
@@ -99,15 +116,10 @@ def run_rolling_origin_validation(
             )
             continue
 
-        result = evaluate_model_name(
-            window,
-            model_name=model_name,
-            n_splits=n_splits,
-            n_repeats=n_repeats,
-            seed=seed,
-            include_ci=False,
-        )
-        metrics = result.metrics
+        try:
+            metrics = evaluator(window, model_name)
+        except RuntimeError:
+            metrics = {"status": "skipped_missing_model_evaluator"}
         results.append(
             RollingOriginSplitResult(
                 split_year=int(split_year),
@@ -118,11 +130,9 @@ def run_rolling_origin_validation(
                 n_backbones=int(len(window)),
                 n_eligible_backbones=int(len(eligible)),
                 status=str(metrics.get("status", "ok")),
-                roc_auc=float(metrics.get("roc_auc")) if metrics.get("roc_auc") is not None else None,
-                average_precision=float(metrics.get("average_precision"))
-                if metrics.get("average_precision") is not None
-                else None,
-                ece=float(metrics.get("ece")) if metrics.get("ece") is not None else None,
+                roc_auc=_optional_float(metrics, "roc_auc"),
+                average_precision=_optional_float(metrics, "average_precision"),
+                ece=_optional_float(metrics, "ece"),
             )
         )
 

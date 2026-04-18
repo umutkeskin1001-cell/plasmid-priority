@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from typing import Iterator
 
 try:
     from threadpoolctl import threadpool_limits as _threadpool_limits
@@ -11,7 +12,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 @contextmanager
-def limit_native_threads(limits: int = 1):
+def limit_native_threads(limits: int = 1) -> Iterator[None]:
     """Temporarily cap BLAS/OpenMP thread pools to avoid oversubscription."""
     if _threadpool_limits is None:
         yield

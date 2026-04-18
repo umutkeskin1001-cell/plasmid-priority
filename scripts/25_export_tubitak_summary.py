@@ -14,8 +14,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 from plasmid_priority.config import build_context, context_config_paths
 from plasmid_priority.modeling import get_primary_model_name
-from plasmid_priority.qc.input_checks import verify_asset_fingerprint
 from plasmid_priority.protocol import ScientificProtocol, build_protocol_hash
+from plasmid_priority.qc.input_checks import verify_asset_fingerprint
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.files import atomic_write_json, ensure_directory, path_signature
 
@@ -280,7 +280,9 @@ def main() -> int:
             else pd.DataFrame()
         )
         frozen_audit = (
-            pd.read_csv(frozen_audit_path, sep="\t") if frozen_audit_path is not None else pd.DataFrame()
+            pd.read_csv(frozen_audit_path, sep="\t")
+            if frozen_audit_path is not None
+            else pd.DataFrame()
         )
 
         primary_permutation = permutation_summary.loc[
@@ -325,12 +327,16 @@ def main() -> int:
             if not frozen_row.empty
             else primary_metrics.get("spatial_holdout_gap")
         )
-        selection_adjusted_p = _clean_metric(
-            primary_selection_adjusted.iloc[0]["selection_adjusted_empirical_p_roc_auc"]
-        ) if not primary_selection_adjusted.empty else _clean_metric(
-            frozen_row.get("selection_adjusted_empirical_p_roc_auc")
-            if not frozen_row.empty
-            else primary_metrics.get("selection_adjusted_empirical_p_roc_auc")
+        selection_adjusted_p = (
+            _clean_metric(
+                primary_selection_adjusted.iloc[0]["selection_adjusted_empirical_p_roc_auc"]
+            )
+            if not primary_selection_adjusted.empty
+            else _clean_metric(
+                frozen_row.get("selection_adjusted_empirical_p_roc_auc")
+                if not frozen_row.empty
+                else primary_metrics.get("selection_adjusted_empirical_p_roc_auc")
+            )
         )
         matched_knownness_threshold = _clean_metric(
             frozen_row.get("matched_knownness_gap_min")
@@ -441,7 +447,9 @@ def main() -> int:
                 ),
                 "source_holdout_gap": _gate_payload(
                     value=source_holdout_gap,
-                    threshold=source_holdout_threshold if source_holdout_threshold is not None else -0.005,
+                    threshold=source_holdout_threshold
+                    if source_holdout_threshold is not None
+                    else -0.005,
                     comparator="ge",
                 ),
                 "spatial_holdout_gap": _gate_payload(
@@ -591,7 +599,13 @@ def main() -> int:
                 threshold_text = f"[{_format_metric(_clean_metric(threshold[0]))} - {_format_metric(_clean_metric(threshold[1]))}]"
             else:
                 threshold_text = _format_metric(_clean_metric(threshold))
-            status_text = "PASS" if gate.get("pass") is True else "FAIL" if gate.get("pass") is False else "NA"
+            status_text = (
+                "PASS"
+                if gate.get("pass") is True
+                else "FAIL"
+                if gate.get("pass") is False
+                else "NA"
+            )
             dashboard_lines.append(
                 f"| {gate_name} | {_format_metric(_clean_metric(gate.get('value')))} | {threshold_text} | {status_text} |"
             )

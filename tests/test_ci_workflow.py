@@ -22,18 +22,26 @@ class CiWorkflowTests(unittest.TestCase):
     def test_ci_installs_tree_models(self) -> None:
         """Primary model (discovery_boosted/LightGBM) must be installed in CI."""
         install_step = self._get_install_step()
-        self.assertIn("tree-models", install_step["run"], (
-            "CI must install tree-models extra so LightGBM (primary model) is tested. "
-            "Without this, CI silently tests a different model than production."
-        ))
+        self.assertIn(
+            "tree-models",
+            install_step["run"],
+            (
+                "CI must install tree-models extra so LightGBM (primary model) is tested. "
+                "Without this, CI silently tests a different model than production."
+            ),
+        )
 
     def test_ci_verifies_lightgbm_import(self) -> None:
         """CI must verify LightGBM can be imported after installation."""
         install_step = self._get_install_step()
-        self.assertIn("import lightgbm", install_step["run"], (
-            "CI install step must verify LightGBM importability with: "
-            "python -c 'import lightgbm'"
-        ))
+        self.assertIn(
+            "import lightgbm",
+            install_step["run"],
+            (
+                "CI install step must verify LightGBM importability with: "
+                "python -c 'import lightgbm'"
+            ),
+        )
 
     def test_ci_runs_make_quality(self) -> None:
         workflow = yaml.safe_load(CI_WORKFLOW_PATH.read_text(encoding="utf-8"))

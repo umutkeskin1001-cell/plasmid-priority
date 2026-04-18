@@ -80,7 +80,7 @@ def nested_cross_validate(
                 from plasmid_priority.validation.metrics import roc_auc_score
 
                 y_true = test_df[label_col].values
-                y_score = preds["prediction"].values
+                y_score = np.asarray(preds["prediction"].values, dtype=float)
                 auc = roc_auc_score(y_true, y_score)
                 outer_aucs.append(auc)
         except (ValueError, KeyError, TypeError) as exc:

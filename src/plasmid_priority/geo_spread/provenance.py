@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from plasmid_priority.geo_spread.select import (
@@ -180,7 +181,13 @@ def build_geo_spread_run_provenance(
         feature_surface_hash=feature_surface_hash,
         n_rows=int(len(scored)),
         n_positive=int(
-            pd.to_numeric(scored.get("spread_label"), errors="coerce").fillna(0).astype(int).sum()
+            pd.to_numeric(
+                scored.get("spread_label", pd.Series(np.nan, index=scored.index)),
+                errors="coerce",
+            )
+            .fillna(0)
+            .astype(int)
+            .sum()
         )
         if "spread_label" in scored.columns
         else 0,

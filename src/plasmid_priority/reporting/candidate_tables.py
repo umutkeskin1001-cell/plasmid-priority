@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -258,9 +259,13 @@ def _candidate_stability_phrase(frame: pd.DataFrame, *, idx: object) -> str:
         frame.get("variant_top_10_frequency", pd.Series(np.nan, index=frame.index)),
         errors="coerce",
     )
-    stability_value = multiverse_stability.loc[idx] if idx in multiverse_stability.index else np.nan
-    bootstrap_value = bootstrap_top10.loc[idx] if idx in bootstrap_top10.index else np.nan
-    variant_value = variant_top10.loc[idx] if idx in variant_top10.index else np.nan
+    stability_value = (
+        multiverse_stability.loc[cast(Any, idx)] if idx in multiverse_stability.index else np.nan
+    )
+    bootstrap_value = (
+        bootstrap_top10.loc[cast(Any, idx)] if idx in bootstrap_top10.index else np.nan
+    )
+    variant_value = variant_top10.loc[cast(Any, idx)] if idx in variant_top10.index else np.nan
     if pd.isna(stability_value) and pd.isna(bootstrap_value) and pd.isna(variant_value):
         return "stability unavailable"
     if pd.notna(stability_value) and float(stability_value) >= 0.80:
@@ -1592,7 +1597,9 @@ def build_threshold_flip_table(
                 int(n_new >= threshold) if 1 <= train_countries <= 3 else np.nan
             )
         default_status = status_by_threshold[default_threshold]
-        finite_statuses = [value for value in status_by_threshold.values() if pd.notna(value)]
+        finite_statuses = [
+            value for value in status_by_threshold.values() if pd.notna(cast(Any, value))
+        ]
         flip_count = (
             int(sum(value != default_status for value in finite_statuses)) if finite_statuses else 0
         )

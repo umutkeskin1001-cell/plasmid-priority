@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -37,12 +38,22 @@ def _series_or_default(frame: pd.DataFrame, column: str, default: object = "") -
 
 
 def _split_field_tokens(value: object) -> set[str]:
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return set()
     text = str(value).strip()
     if not text:
         return set()
     return {token.strip() for token in text.split(",") if token.strip()}
+
+
+def _coerce_float(value: object) -> float:
+    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    return float(coerced) if pd.notna(coerced) else float("nan")
+
+
+def _coerce_int(value: object, *, default: int = 0) -> int:
+    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    return int(coerced) if pd.notna(coerced) else int(default)
 
 
 def _safe_qcut(series: pd.Series, *, q: int, default_label: str = "all") -> pd.Series:
@@ -364,11 +375,15 @@ def build_macro_region_jump_table(
         weighted_summary = weighted.groupby("backbone_id", as_index=False).agg(
             weighted_new_country_burden=(
                 "inverse_upload_weight",
-                lambda values: float(pd.to_numeric(values, errors="coerce").fillna(0.0).sum()),
+                lambda values: float(
+                    pd.to_numeric(pd.Series(values), errors="coerce").fillna(0.0).sum()
+                ),
             ),
             rarity_weighted_new_country_burden=(
                 "rarity_weight",
-                lambda values: float(pd.to_numeric(values, errors="coerce").fillna(0.0).sum()),
+                lambda values: float(
+                    pd.to_numeric(pd.Series(values), errors="coerce").fillna(0.0).sum()
+                ),
             ),
         )
         result = result.merge(weighted_summary, on="backbone_id", how="left")
@@ -1074,7 +1089,10 @@ def build_knownness_matched_validation(
     detail = pd.DataFrame(rows)
     if detail.empty:
         return detail
-    for model_name, frame in detail.loc[detail["status"] == "ok"].groupby("model_name", sort=False):
+    for grouped_model_name, frame in detail.loc[detail["status"] == "ok"].groupby(
+        "model_name", sort=False
+    ):
+        model_name_str = str(grouped_model_name)
         weights = frame["n_backbones"].astype(float)
         weight_total = max(float(weights.sum()), 1.0)
         summary_rows.append(
@@ -1083,7 +1101,7 @@ def build_knownness_matched_validation(
                 "member_bin": "",
                 "country_bin": "",
                 "source_bin": "",
-                "model_name": model_name,
+                "model_name": model_name_str,
                 "outcome_name": "matched_primary_outcome",
                 "status": "ok",
                 "weighted_mean_roc_auc": float(
@@ -2391,7 +2409,12 @@ def build_geographic_jump_distance_table(
                 continue
             jump_distances.append(
                 min(
-                    _haversine_km(float(row.lat), float(row.lng), base_lat, base_lng)
+                    _haversine_km(
+                        _coerce_float(getattr(row, "lat", np.nan)),
+                        _coerce_float(getattr(row, "lng", np.nan)),
+                        base_lat,
+                        base_lng,
+                    )
                     for base_lat, base_lng in train_coords
                 )
             )
@@ -2519,7 +2542,9 @@ def build_amr_uncertainty_table(
             )
             for tool, group in frame.groupby("analysis_software_name", sort=False)
         }
-        tools = sorted(set(gene_by_tool) & software_pairs) or sorted(gene_by_tool)
+        tools = sorted(set(str(tool) for tool in gene_by_tool) & set(software_pairs)) or sorted(
+            str(tool) for tool in gene_by_tool
+        )
         if len(tools) >= 2:
             left, right = tools[0], tools[1]
             gene_union = gene_by_tool[left] | gene_by_tool[right]
@@ -2531,6 +2556,8 @@ def build_amr_uncertainty_table(
         else:
             gene_jaccard = 1.0 if tools else math.nan
             class_jaccard = 1.0 if tools else math.nan
+        has_gene = bool(pd.notna(gene_jaccard))
+        has_class = bool(pd.notna(class_jaccard))
         accession_rows.append(
             {
                 "sequence_accession": str(accession),
@@ -2542,7 +2569,7 @@ def build_amr_uncertainty_table(
                 if pd.notna(class_jaccard)
                 else math.nan,
                 "amr_uncertainty_score": float(1.0 - np.nanmean([gene_jaccard, class_jaccard]))
-                if pd.notna(gene_jaccard) or pd.notna(class_jaccard)
+                if has_gene or has_class
                 else math.nan,
             }
         )
@@ -2985,7 +3012,7 @@ def build_rolling_prospective_simulation(
         if n_test < 5 or len(np.unique(y)) < 2:
             year_rows.append(
                 {
-                    "split_year": int(year),
+                    "split_year": _coerce_int(year),
                     "n_test": n_test,
                     "n_positive": n_positive,
                     "positive_rate": float(n_positive / max(n_test, 1)),
@@ -2997,7 +3024,7 @@ def build_rolling_prospective_simulation(
         auc = float(roc_auc_score(y, p))
         year_rows.append(
             {
-                "split_year": int(year),
+                "split_year": _coerce_int(year),
                 "n_test": n_test,
                 "n_positive": n_positive,
                 "positive_rate": float(n_positive / max(n_test, 1)),
@@ -3005,7 +3032,7 @@ def build_rolling_prospective_simulation(
                 "status": "ok",
             }
         )
-        year_data[int(year)] = (y, p)
+        year_data[_coerce_int(year)] = (y, p)
 
     result = pd.DataFrame(year_rows)
     if result.empty:

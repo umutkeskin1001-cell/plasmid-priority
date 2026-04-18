@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Clinical hazard branch runner."""
 
-from plasmid_priority.clinical_hazard.cli import main
+from scripts.run_branch import main as _run_branch_main
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(_run_branch_main(["--branch", "clinical_hazard"]))

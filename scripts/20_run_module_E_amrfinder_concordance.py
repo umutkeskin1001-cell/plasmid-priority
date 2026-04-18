@@ -173,7 +173,15 @@ def main() -> int:
             run.warn(
                 "AMRFinder executable not found in PATH; skipping supportive concordance probe."
             )
-            probe_hits_path.write_text("", encoding="utf-8")
+            # Write a valid TSV with headers instead of empty file to avoid boundary validation error
+            pd.DataFrame(
+                columns=[
+                    "sequence_accession",
+                    "amrfinder_gene_symbols",
+                    "amrfinder_class_tokens",
+                    "amrfinder_hit_count",
+                ]
+            ).to_csv(probe_hits_path, sep="\t", index=False)
             concordance_detail, concordance_summary = build_amrfinder_concordance_tables(
                 panel.head(0),
                 amr_consensus,

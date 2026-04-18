@@ -7,10 +7,25 @@ causal claims.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
+
 import numpy as np
 import pandas as pd
 
 from plasmid_priority.validation.metrics import average_precision, roc_auc_score
+
+ModelEvaluator = Callable[[pd.DataFrame, str], dict[str, float]]
+
+
+def _default_model_evaluator(_scored: pd.DataFrame, _model_name: str) -> dict[str, float]:
+    raise RuntimeError(
+        "No model evaluator provided. Pass `model_evaluator=` from the caller "
+        "(for example via plasmid_priority.modeling.evaluate_model_name wrapper)."
+    )
+
+
+def _default_known_models() -> set[str]:
+    return set()
 
 
 def build_outcome_permutation_falsification(
@@ -19,6 +34,8 @@ def build_outcome_permutation_falsification(
     *,
     n_permutations: int = 100,
     seed: int = 42,
+    model_evaluator: ModelEvaluator | None = None,
+    known_model_names: Iterable[str] | None = None,
 ) -> pd.DataFrame:
     """Falsification test: Verify performance collapses when outcome is permuted.
 
@@ -35,10 +52,9 @@ def build_outcome_permutation_falsification(
     Returns:
         DataFrame with falsification test results
     """
-    # Lazy import to avoid circular dependency
-    from plasmid_priority.modeling import MODULE_A_FEATURE_SETS, evaluate_model_name
-
-    if model_name not in MODULE_A_FEATURE_SETS:
+    evaluator = model_evaluator or _default_model_evaluator
+    model_set = set(known_model_names or _default_known_models())
+    if model_set and model_name not in model_set:
         return pd.DataFrame(
             {
                 "test_name": ["outcome_permutation_falsification"],
@@ -61,9 +77,20 @@ def build_outcome_permutation_falsification(
         )
 
     # Evaluate on true labels
-    true_result = evaluate_model_name(eligible, model_name=model_name, include_ci=False)
-    true_auc = true_result.metrics.get("roc_auc", float("nan"))
-    true_ap = true_result.metrics.get("average_precision", float("nan"))
+    try:
+        true_metrics = evaluator(eligible, model_name)
+    except RuntimeError as exc:
+        return pd.DataFrame(
+            {
+                "test_name": ["outcome_permutation_falsification"],
+                "model_name": [model_name],
+                "status": ["skipped_missing_model_evaluator"],
+                "error_message": [str(exc)],
+                "n_permutations": [0],
+            }
+        )
+    true_auc = float(true_metrics.get("roc_auc", float("nan")))
+    true_ap = float(true_metrics.get("average_precision", float("nan")))
 
     # Run permutations
     rng = np.random.default_rng(seed)
@@ -78,9 +105,12 @@ def build_outcome_permutation_falsification(
         if permuted["spread_label"].nunique() < 2:
             continue
 
-        perm_result = evaluate_model_name(permuted, model_name=model_name, include_ci=False)
-        permuted_aucs.append(perm_result.metrics.get("roc_auc", float("nan")))
-        permuted_aps.append(perm_result.metrics.get("average_precision", float("nan")))
+        try:
+            perm_metrics = evaluator(permuted, model_name)
+        except RuntimeError:
+            continue
+        permuted_aucs.append(float(perm_metrics.get("roc_auc", float("nan"))))
+        permuted_aps.append(float(perm_metrics.get("average_precision", float("nan"))))
 
     if not permuted_aucs:
         return pd.DataFrame(

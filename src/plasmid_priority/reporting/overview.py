@@ -146,7 +146,12 @@ def build_report_overview_table(
                 errors="coerce",
             )
             rows.extend(
-                utility_rows[["panel_item", "metric_name", "metric_value"]].to_dict(
+                {
+                    "panel_item": str(row["panel_item"]),
+                    "metric_name": str(row["metric_name"]),
+                    "metric_value": row["metric_value"],
+                }
+                for row in utility_rows[["panel_item", "metric_name", "metric_value"]].to_dict(
                     orient="records"
                 )
             )

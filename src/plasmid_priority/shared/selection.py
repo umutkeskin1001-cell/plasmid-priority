@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -23,7 +23,7 @@ def _safe_metric_series(frame: pd.DataFrame, columns: list[str], *, ascending: b
     ranked = values.rank(method="average", pct=True)
     if ascending:
         ranked = 1.0 - ranked
-    return ranked.fillna(0.5)
+    return cast(pd.Series, ranked.fillna(0.5))
 
 
 def _numeric_metric(frame: pd.DataFrame, column: str) -> pd.Series:

@@ -11,13 +11,18 @@ This script is the primary CI smoke-test entry point. It verifies that:
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
+# Ensure matplotlib cache is always writable in CI/sandbox environments.
+os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="mplconfig-"))
+
 from plasmid_priority.config import build_context
-from plasmid_priority.harmonize import build_plsdb_canonical_metadata
-from plasmid_priority.io import iter_fasta_summaries
+from plasmid_priority.harmonize import build_plsdb_canonical_metadata  # noqa: F401
+from plasmid_priority.io import iter_fasta_summaries  # noqa: F401
 from plasmid_priority.qc import run_input_checks
 from plasmid_priority.reporting import ManagedScriptRun
 
@@ -75,9 +80,7 @@ def _check_primary_model_config() -> list[str]:
             )
         else:
             n_features = len(MODULE_A_FEATURE_SETS[primary_name])
-            print(
-                f"  ✓ Primary model '{primary_name}' found with {n_features} features."
-            )
+            print(f"  ✓ Primary model '{primary_name}' found with {n_features} features.")
     except Exception as exc:  # noqa: BLE001
         issues.append(f"Failed to load primary model config: {exc}")
     return issues
@@ -160,9 +163,12 @@ def _run_cli_smoke(context: object | None = None) -> subprocess.CompletedProcess
 def run_unit_tests() -> subprocess.CompletedProcess[None]:
     """Run pytest test suite."""
     print("\n=== Running test suite ===\n")
+    env = dict(os.environ)
+    env.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="mplconfig-"))
     return subprocess.run(
         [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short"],
         cwd=str(PROJECT_ROOT),
+        env=env,
     )
 
 
@@ -174,15 +180,17 @@ def run_tests() -> int:
 def _has_missing_required_raw_inputs(report) -> bool:
     for result in getattr(report, "errors", []):
         path = Path(str(getattr(result, "path", "")))
-        if getattr(result, "required", False) and getattr(result, "stage", "") == "raw" and not path.exists():
+        if (
+            getattr(result, "required", False)
+            and getattr(result, "stage", "") == "raw"
+            and not path.exists()
+        ):
             return True
     return False
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Plasmid Priority smoke test and test runner."
-    )
+    parser = argparse.ArgumentParser(description="Plasmid Priority smoke test and test runner.")
     parser.add_argument(
         "--with-tests",
         action="store_true",

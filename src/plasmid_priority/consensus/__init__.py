@@ -1,6 +1,6 @@
 """Consensus branch helpers."""
 
-from plasmid_priority.consensus.calibration import (
+from plasmid_priority.consensus.calibration import (  # type: ignore[attr-defined]
     BranchCalibrationResult,
     build_consensus_calibrated_prediction_table,
     build_consensus_calibration_summary,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 
@@ -241,7 +242,7 @@ def parse_amrfinder_probe_report(report_path: Path) -> pd.DataFrame:
     return frame.rename(columns={"Contig id": "sequence_accession"})
 
 
-def _token_set(value: object, *, normalize_fn) -> set[str]:
+def _token_set(value: object, *, normalize_fn: Callable[[object], str]) -> set[str]:
     tokens = split_field_tokens(value, separators=(",", ";"))
     return {normalize_fn(token) for token in tokens if normalize_fn(token)}
 

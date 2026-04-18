@@ -1,0 +1,486 @@
+{
+  "authority": {
+    "benchmark_truth": [
+      "config/benchmarks.yaml",
+      "src/plasmid_priority/protocol.py",
+      "docs/benchmark_contract.md"
+    ],
+    "legacy_surface": "config.yaml#models",
+    "legacy_surface_status": "legacy_research_only"
+  },
+  "benchmarks": {
+    "bio_transfer": {
+      "benchmark": {
+        "assignment_mode": "training_only",
+        "entity_id_column": "backbone_id",
+        "horizon_years": 5,
+        "label_column": "bio_transfer_label",
+        "name": "bio_transfer_v1",
+        "outcome_column": "future_new_host_genera_count",
+        "required_columns": [
+          "backbone_id",
+          "bio_transfer_label",
+          "future_new_host_genera_count",
+          "future_new_host_families_count",
+          "split_year",
+          "backbone_assignment_mode",
+          "max_resolved_year_train",
+          "min_resolved_year_test",
+          "training_only_future_unseen_backbone_flag"
+        ],
+        "split_year": 2015,
+        "temporal_metadata_columns": [
+          "split_year",
+          "backbone_assignment_mode",
+          "max_resolved_year_train",
+          "min_resolved_year_test"
+        ]
+      },
+      "conservative_model_name": "bio_transfer_baseline",
+      "core_model_names": [
+        "bio_transfer_baseline",
+        "bio_transfer_parsimonious",
+        "bio_transfer_enriched",
+        "bio_transfer_governance"
+      ],
+      "fallback_model_name": "bio_transfer_governance",
+      "primary_model_name": "bio_transfer_governance",
+      "research_model_name": "bio_transfer_research",
+      "research_model_names": [
+        "bio_transfer_research"
+      ],
+      "selection": {
+        "calibration_weight": 0.2,
+        "disagreement_penalty_weight": 0.1,
+        "discrimination_weight": 0.4,
+        "explanation_weight": 0.05,
+        "knownness_weight": 0.1,
+        "ood_penalty_weight": 0.1,
+        "source_weight": 0.1,
+        "stability_weight": 0.15
+      }
+    },
+    "clinical_hazard": {
+      "benchmark": {
+        "assignment_mode": "training_only",
+        "entity_id_column": "backbone_id",
+        "horizon_years": 5,
+        "label_column": "clinical_hazard_label",
+        "name": "clinical_hazard_v1",
+        "outcome_column": "clinical_fraction_future",
+        "required_columns": [
+          "backbone_id",
+          "clinical_hazard_label",
+          "clinical_fraction_future",
+          "last_resort_fraction_future",
+          "mdr_proxy_fraction_future",
+          "pd_clinical_support_future",
+          "split_year",
+          "backbone_assignment_mode",
+          "max_resolved_year_train",
+          "min_resolved_year_test",
+          "training_only_future_unseen_backbone_flag"
+        ],
+        "split_year": 2015,
+        "temporal_metadata_columns": [
+          "split_year",
+          "backbone_assignment_mode",
+          "max_resolved_year_train",
+          "min_resolved_year_test"
+        ]
+      },
+      "conservative_model_name": "clinical_hazard_baseline",
+      "core_model_names": [
+        "clinical_hazard_baseline",
+        "clinical_hazard_parsimonious",
+        "clinical_hazard_enriched",
+        "clinical_hazard_governance"
+      ],
+      "fallback_model_name": "clinical_hazard_governance",
+      "primary_model_name": "clinical_hazard_governance",
+      "research_model_name": "clinical_hazard_research",
+      "research_model_names": [
+        "clinical_hazard_research"
+      ],
+      "selection": {
+        "calibration_weight": 0.2,
+        "disagreement_penalty_weight": 0.1,
+        "discrimination_weight": 0.4,
+        "explanation_weight": 0.05,
+        "knownness_weight": 0.1,
+        "ood_penalty_weight": 0.1,
+        "source_weight": 0.1,
+        "stability_weight": 0.15
+      }
+    },
+    "consensus": {
+      "benchmark": {
+        "assignment_mode": "training_only",
+        "entity_id_column": "backbone_id",
+        "horizon_years": 5,
+        "label_column": "spread_label",
+        "name": "consensus_v1",
+        "outcome_column": "n_new_countries_future",
+        "required_columns": [
+          "backbone_id",
+          "spread_label",
+          "split_year",
+          "backbone_assignment_mode",
+          "max_resolved_year_train",
+          "min_resolved_year_test",
+          "training_only_future_unseen_backbone_flag"
+        ],
+        "split_year": 2015,
+        "temporal_metadata_columns": [
+          "split_year",
+          "backbone_assignment_mode",
+          "max_resolved_year_train",
+          "min_resolved_year_test"
+        ]
+      },
+      "conservative_model_name": "operational_consensus",
+      "core_model_names": [
+        "operational_consensus"
+      ],
+      "fallback_model_name": "research_consensus",
+      "fusion_weights": {
+        "bio_transfer": 0.25,
+        "clinical_hazard": 0.25,
+        "geo": 0.5
+      },
+      "guardrails": {
+        "ood_threshold": 0.2,
+        "review_threshold": 0.2
+      },
+      "primary_model_name": "operational_consensus",
+      "research_model_name": "research_consensus",
+      "research_model_names": [
+        "research_consensus"
+      ]
+    },
+    "geo_spread": {
+      "ablation_model_names": [],
+      "benchmark": {
+        "assignment_mode": "training_only",
+        "entity_id_column": "backbone_id",
+        "horizon_years": 5,
+        "label_column": "spread_label",
+        "min_new_countries_for_spread": 3,
+        "name": "geo_spread_v1",
+        "outcome_column": "n_new_countries",
+        "required_columns": [
+          "backbone_id",
+          "spread_label",
+          "n_new_countries",
+          "split_year",
+          "backbone_assignment_mode",
+          "max_resolved_year_train",
+          "min_resolved_year_test",
+          "training_only_future_unseen_backbone_flag"
+        ],
+        "split_year": 2015,
+        "temporal_metadata_columns": [
+          "split_year",
+          "backbone_assignment_mode",
+          "max_resolved_year_train",
+          "min_resolved_year_test"
+        ]
+      },
+      "conservative_model_name": "geo_counts_baseline",
+      "core_model_names": [
+        "geo_counts_baseline",
+        "geo_parsimonious_priority",
+        "geo_phylo_ecology_priority",
+        "geo_support_light_priority",
+        "geo_context_hybrid_priority"
+      ],
+      "fallback_model_name": "geo_context_hybrid_priority",
+      "feature_sets": {
+        "geo_context_hybrid_priority": [
+          "T_eff_norm",
+          "H_obs_specialization_norm",
+          "A_eff_norm",
+          "coherence_score",
+          "backbone_purity_norm",
+          "assignment_confidence_norm",
+          "mash_neighbor_distance_train_norm",
+          "orit_support",
+          "H_external_host_range_norm",
+          "geo_country_entropy_train",
+          "geo_macro_region_entropy_train",
+          "geo_dominant_region_share_train",
+          "geo_country_record_count_train"
+        ],
+        "geo_counts_baseline": [
+          "log1p_member_count_train",
+          "log1p_n_countries_train",
+          "refseq_share_train"
+        ],
+        "geo_parsimonious_priority": [
+          "T_eff_norm",
+          "H_obs_specialization_norm",
+          "A_eff_norm",
+          "coherence_score"
+        ],
+        "geo_phylo_ecology_priority": [
+          "T_eff_norm",
+          "H_phylogenetic_specialization_norm",
+          "A_eff_norm",
+          "coherence_score",
+          "host_phylogenetic_dispersion_norm",
+          "host_taxon_evenness_norm",
+          "ecology_context_diversity_norm"
+        ],
+        "geo_research_upper_bound": [
+          "T_eff_norm",
+          "H_phylogenetic_specialization_norm",
+          "A_eff_norm",
+          "coherence_score",
+          "host_phylogenetic_dispersion_norm",
+          "host_taxon_evenness_norm",
+          "ecology_context_diversity_norm",
+          "mash_neighbor_distance_train_norm",
+          "backbone_purity_norm",
+          "assignment_confidence_norm",
+          "clinical_context_fraction_norm",
+          "pathogenic_context_fraction_norm",
+          "support_shrinkage_norm",
+          "mash_graph_novelty_score",
+          "mash_graph_bridge_fraction"
+        ],
+        "geo_support_light_priority": [
+          "T_eff_norm",
+          "H_obs_specialization_norm",
+          "A_eff_norm",
+          "coherence_score",
+          "backbone_purity_norm",
+          "assignment_confidence_norm",
+          "mash_neighbor_distance_train_norm",
+          "orit_support",
+          "H_external_host_range_norm"
+        ]
+      },
+      "fit_config": {
+        "geo_context_hybrid_priority": {
+          "agreement_review_threshold": 0.75,
+          "calibration": "isotonic",
+          "l2": 2.0,
+          "max_iter": 700,
+          "model_type": "hybrid_stacked",
+          "nonlinear_backend": "hist_gbm",
+          "nonlinear_learning_rate": 0.04,
+          "nonlinear_max_depth": 3,
+          "nonlinear_max_iter": 300,
+          "nonlinear_min_samples_leaf": 12,
+          "sample_weight_mode": "source_balanced+knownness_balanced"
+        },
+        "geo_counts_baseline": {
+          "calibration": "none",
+          "l2": 1.0,
+          "max_iter": 250,
+          "sample_weight_mode": null
+        },
+        "geo_parsimonious_priority": {
+          "calibration": "isotonic",
+          "l2": 2.0,
+          "max_iter": 400,
+          "sample_weight_mode": "source_balanced"
+        },
+        "geo_phylo_ecology_priority": {
+          "calibration": "isotonic",
+          "l2": 2.5,
+          "max_iter": 400,
+          "sample_weight_mode": "source_balanced"
+        },
+        "geo_research_upper_bound": {
+          "calibration": "platt",
+          "l2": 3.5,
+          "max_iter": 500,
+          "sample_weight_mode": "class_balanced+knownness_balanced"
+        },
+        "geo_support_light_priority": {
+          "calibration": "isotonic",
+          "l2": 3.0,
+          "max_iter": 500,
+          "sample_weight_mode": "source_balanced"
+        }
+      },
+      "primary_model_name": "geo_reliability_blend",
+      "research_model_name": "geo_research_upper_bound",
+      "research_model_names": [
+        "geo_research_upper_bound"
+      ]
+    }
+  },
+  "benchmarks_hash": "93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201",
+  "config_sha": "e2e48334bb0812bc17115002e1aa7fec2af209612db1a6f6c7547a63859c929a",
+  "data_contract_sha": "43968ff4bdfe1e93efa526f5e2e3151de14d0a81ba29fa9afde6b2ff5aa438b2",
+  "metadata_hash": "3b25a9edef5c51c7864d9d7b88e0f1220c74a527738385ea6553086e07c0ba9f",
+  "protocol": {
+    "ablation_model_names": [
+      "T_only",
+      "H_only",
+      "A_only",
+      "T_plus_H_plus_A"
+    ],
+    "acceptance_thresholds": {
+      "ece_max": 0.05,
+      "matched_knownness_gap_min": -0.005,
+      "selection_adjusted_p_max": 0.01,
+      "source_holdout_gap_min": -0.005,
+      "spatial_holdout_gap_min": -0.03
+    },
+    "benchmark_contract_version": "2025-07-15",
+    "benchmark_scope": {
+      "accepted_audit_gates": [
+        "matched_knownness_gap_min",
+        "source_holdout_gap_min",
+        "spatial_holdout_gap_min",
+        "ece_max",
+        "selection_adjusted_p_max"
+      ],
+      "calibration_metric_definitions": {
+        "ece_max": "Expected calibration error upper bound.",
+        "selection_adjusted_p_max": "Selection-adjusted empirical p-value upper bound."
+      },
+      "eligibility_rules": {
+        "require_temporal_metadata": true,
+        "require_training_only_assignment": true,
+        "required_assignment_mode": "training_only"
+      },
+      "eligible_cohort": {
+        "forbidden_features": [],
+        "horizon_years": 5,
+        "min_new_countries_for_spread": 3,
+        "min_new_host_families_for_transfer": 1,
+        "min_new_host_genera_for_transfer": 2,
+        "require_training_only_assignment": true,
+        "requires_temporal_metadata": true,
+        "temporal_split_year": 2015
+      },
+      "official_model_names": [
+        "discovery_boosted",
+        "governance_linear",
+        "baseline_both"
+      ],
+      "outcome_definition": {
+        "horizon_years": 5,
+        "min_new_countries_for_spread": 3,
+        "min_new_host_families_for_transfer": 1,
+        "min_new_host_genera_for_transfer": 2,
+        "outcome_label": "spread_label",
+        "split_year": 2015
+      },
+      "required_assignment_mode": "training_only",
+      "split_year": 2015
+    },
+    "clinical_escalation_thresholds": {
+      "clinical_fraction_gain": 0.15,
+      "last_resort_fraction_gain": 0.1,
+      "mdr_proxy_fraction_gain": 0.1,
+      "pd_clinical_support_gain": 0.1
+    },
+    "conservative_model_name": "parsimonious_priority",
+    "core_model_names": [
+      "baseline_both",
+      "governance_linear",
+      "discovery_boosted",
+      "discovery_graph_boosted",
+      "T_only",
+      "H_only",
+      "A_only",
+      "T_plus_H_plus_A",
+      "parsimonious_priority",
+      "support_synergy_priority"
+    ],
+    "eligibility_rules": {
+      "require_temporal_metadata": true,
+      "require_training_only_assignment": true,
+      "required_assignment_mode": "training_only"
+    },
+    "forbidden_features": [],
+    "governance_model_fallback": "support_synergy_priority",
+    "governance_model_name": "governance_linear",
+    "governance_model_policy": {
+      "conservative_model_name": "parsimonious_priority",
+      "governance_model_fallback": "support_synergy_priority",
+      "governance_model_name": "governance_linear",
+      "primary_model_fallback": "parsimonious_priority",
+      "primary_model_name": "discovery_boosted"
+    },
+    "horizon_years": 5,
+    "label_proxy_caveats": {},
+    "min_new_countries_for_spread": 3,
+    "min_new_host_families_for_transfer": 1,
+    "min_new_host_genera_for_transfer": 2,
+    "official_model_names": [
+      "discovery_boosted",
+      "governance_linear",
+      "baseline_both"
+    ],
+    "outcome_definition": {
+      "horizon_years": 5,
+      "min_new_countries_for_spread": 3,
+      "min_new_host_families_for_transfer": 1,
+      "min_new_host_genera_for_transfer": 2,
+      "outcome_label": "spread_label",
+      "split_year": 2015
+    },
+    "primary_model_fallback": "parsimonious_priority",
+    "primary_model_name": "discovery_boosted",
+    "research_model_names": [
+      "H_plus_A",
+      "T_plus_A",
+      "T_plus_H",
+      "balanced_evidence_priority",
+      "baseline_country_count",
+      "baseline_member_count",
+      "bio_clean_priority",
+      "bio_residual_synergy_priority",
+      "contextual_bio_priority",
+      "discovery_12f_class_balanced",
+      "discovery_12f_source",
+      "discovery_15f_synergy",
+      "discovery_4f_hybrid",
+      "discovery_5f_phylo",
+      "discovery_9f_source",
+      "ecology_clinical_priority",
+      "enhanced_priority",
+      "evidence_aware_priority",
+      "firth_parsimonious_priority",
+      "full_priority",
+      "governance_15f_pruned",
+      "graph_evidence_priority",
+      "host_transfer_synergy_priority",
+      "hybrid_agreement_priority",
+      "knownness_calibrated_fusion_priority",
+      "knownness_robust_priority",
+      "label_noise_aware_priority",
+      "monotonic_latent_priority",
+      "natural_auc_priority",
+      "nonlinear_deconfounded_priority",
+      "pairwise_rank_priority",
+      "parsimonious_priority",
+      "phylo_support_fusion_priority",
+      "phylogeny_aware_priority",
+      "proxy_light_priority",
+      "regime_stability_priority",
+      "source_only",
+      "sovereign_precision_priority",
+      "sovereign_v2_priority",
+      "structured_signal_priority",
+      "support_calibrated_priority",
+      "support_synergy_priority",
+      "threat_architecture_priority",
+      "visibility_adjusted_priority"
+    ],
+    "selection_adjusted_p_max": 0.01,
+    "single_model_objective_weights": {
+      "compute_efficiency": 0.2,
+      "predictive_power": 0.4,
+      "reliability": 0.4
+    },
+    "split_year": 2015
+  },
+  "protocol_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a"
+}

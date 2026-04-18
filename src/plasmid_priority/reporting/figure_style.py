@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import math
 from typing import Literal, Sequence
 
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.axes import Axes
 
 PALETTE = {
     "primary": "#0072B2",
@@ -57,7 +59,7 @@ def palette_sequence(n: int) -> list[str]:
 
 
 def annotate_bar_values(
-    ax: plt.Axes,
+    ax: Axes,
     values: Sequence[float | int],
     positions: Sequence[float | int],
     *,
@@ -75,7 +77,7 @@ def annotate_bar_values(
         )
 
 
-def apply_axis_style(ax: plt.Axes, *, grid_axis: Literal["both", "x", "y"] | None = "y") -> None:
+def apply_axis_style(ax: Axes, *, grid_axis: Literal["both", "x", "y"] | None = "y") -> None:
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     if grid_axis is not None:
@@ -84,7 +86,7 @@ def apply_axis_style(ax: plt.Axes, *, grid_axis: Literal["both", "x", "y"] | Non
 
 
 def format_pvalue(value: float) -> str:
-    if pd.isna(value):
+    if math.isnan(value):
         return "p=NA"
     if value < 0.001:
         return "p<0.001"

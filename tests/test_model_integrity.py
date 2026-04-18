@@ -11,7 +11,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ─── Test: _HAS_LIGHTGBM ─────────────────────────────────────────────────────
 
 
@@ -36,8 +35,7 @@ def test_lightgbm_importable() -> None:
         import lightgbm  # noqa: F401
     except ImportError as exc:
         pytest.fail(
-            f"LightGBM not importable: {exc}. "
-            "Fix: pip install -e '.[analysis,dev,tree-models]'"
+            f"LightGBM not importable: {exc}. Fix: pip install -e '.[analysis,dev,tree-models]'"
         )
 
 
@@ -46,7 +44,10 @@ def test_lightgbm_importable() -> None:
 
 def test_primary_model_in_feature_sets() -> None:
     """Primary model declared in config must have a feature set definition."""
-    from plasmid_priority.modeling.module_a import MODULE_A_FEATURE_SETS, get_primary_model_name  # noqa: PLC0415
+    from plasmid_priority.modeling.module_a import (  # noqa: PLC0415
+        MODULE_A_FEATURE_SETS,
+        get_primary_model_name,
+    )
 
     primary = get_primary_model_name(MODULE_A_FEATURE_SETS.keys())
     assert primary in MODULE_A_FEATURE_SETS, (
@@ -57,7 +58,10 @@ def test_primary_model_in_feature_sets() -> None:
 
 def test_primary_model_fallback_in_feature_sets() -> None:
     """Primary model fallback must exist in feature sets."""
-    from plasmid_priority.modeling.module_a_support import MODULE_A_FEATURE_SETS, PRIMARY_MODEL_FALLBACK  # noqa: PLC0415
+    from plasmid_priority.modeling.module_a_support import (  # noqa: PLC0415
+        MODULE_A_FEATURE_SETS,
+        PRIMARY_MODEL_FALLBACK,
+    )
 
     assert PRIMARY_MODEL_FALLBACK in MODULE_A_FEATURE_SETS, (
         f"Primary model fallback '{PRIMARY_MODEL_FALLBACK}' not in MODULE_A_FEATURE_SETS."
@@ -136,7 +140,9 @@ def test_knn_imputer_is_deterministic_on_same_input() -> None:
     imputed2, _ = _fit_feature_imputer(arr)
 
     np.testing.assert_array_almost_equal(
-        imputed1, imputed2, decimal=10,
+        imputed1,
+        imputed2,
+        decimal=10,
         err_msg="KNN imputer non-deterministic on same input — possible hidden state",
     )
 
@@ -157,6 +163,8 @@ def test_knn_imputer_state_not_modified_by_transform() -> None:
     train_after = imputer.transform(train_arr)
 
     np.testing.assert_array_almost_equal(
-        train_imputed, train_after, decimal=10,
+        train_imputed,
+        train_after,
+        decimal=10,
         err_msg="Imputer state was modified by test transform — potential data leak",
     )

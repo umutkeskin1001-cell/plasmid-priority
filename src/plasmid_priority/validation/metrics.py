@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import math
 import warnings
+from collections.abc import Callable, Iterator
 
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
+MetricFn = Callable[..., float]
 
 def _calibration_bins(
     y_true: np.ndarray,
@@ -32,7 +34,7 @@ def _bootstrap_index_batches(
     n_samples: int,
     n_bootstrap: int,
     batch_size: int = 128,
-):
+) -> Iterator[np.ndarray]:
     remaining = max(int(n_bootstrap), 0)
     while remaining > 0:
         current = min(batch_size, remaining)
@@ -43,7 +45,7 @@ def _bootstrap_index_batches(
 def _batched_metric_scores(
     sample_y: np.ndarray,
     sample_score: np.ndarray,
-    metric_fn,
+    metric_fn: MetricFn,
 ) -> np.ndarray:
     if metric_fn is brier_score:
         return np.asarray(
@@ -451,7 +453,7 @@ def permutation_pvalue(
     y_score: np.ndarray,
     *,
     n_permutations: int = 1000,
-    metric_fn=roc_auc_score,
+    metric_fn: MetricFn = roc_auc_score,
     rng_seed: int = 0,
 ) -> tuple[float, np.ndarray]:
     """Return the empirical permutation p-value and null metric distribution."""
@@ -533,7 +535,7 @@ def bootstrap_spearman_ci(
 def bootstrap_interval(
     y_true: np.ndarray,
     y_score: np.ndarray,
-    metric_fn,
+    metric_fn: MetricFn,
     *,
     n_bootstrap: int = 1000,
     seed: int = 42,
@@ -559,7 +561,7 @@ def bootstrap_interval(
 def bootstrap_intervals(
     y_true: np.ndarray,
     y_score: np.ndarray,
-    metric_fns: dict[str, object],
+    metric_fns: dict[str, MetricFn],
     *,
     n_bootstrap: int = 1000,
     seed: int = 42,
@@ -597,7 +599,7 @@ def paired_bootstrap_delta(
     y_true: np.ndarray,
     y_score_a: np.ndarray,
     y_score_b: np.ndarray,
-    metric_fn,
+    metric_fn: MetricFn,
     *,
     n_bootstrap: int = 1000,
     seed: int = 42,
@@ -631,7 +633,7 @@ def paired_bootstrap_deltas(
     y_true: np.ndarray,
     y_score_a: np.ndarray,
     y_score_b: np.ndarray,
-    metric_fns: dict[str, object],
+    metric_fns: dict[str, MetricFn],
     *,
     n_bootstrap: int = 1000,
     seed: int = 42,

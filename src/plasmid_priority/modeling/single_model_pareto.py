@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -43,7 +44,7 @@ def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
     return pd.to_numeric(frame[column], errors="coerce").astype(float)
 
 
-def _extract_failed_criteria(row: pd.Series) -> tuple[str, ...]:
+def _extract_failed_criteria(row: Mapping[str, Any]) -> tuple[str, ...]:
     if str(row.get("scientific_acceptance_status", "")).strip().lower() == "pass":
         return ()
     raw = row.get("scientific_acceptance_failed_criteria")
@@ -66,7 +67,7 @@ def _extract_failed_criteria(row: pd.Series) -> tuple[str, ...]:
     return (token,) if token else ("fail",)
 
 
-def _failure_shortfall_total(row: pd.Series) -> float:
+def _failure_shortfall_total(row: Mapping[str, Any]) -> float:
     total = 0.0
     for column, threshold_name in _FAILURE_CUTOFF_COLUMNS:
         if column not in row:
@@ -85,7 +86,7 @@ def _failure_shortfall_total(row: pd.Series) -> float:
     return total
 
 
-def _compute_failure_severity(row: pd.Series) -> float:
+def _compute_failure_severity(row: Mapping[str, Any]) -> float:
     failed_criteria = _extract_failed_criteria(row)
     criterion_count = len(failed_criteria)
     guardrail_penalty = float(criterion_count) + (0.5 * max(criterion_count - 1, 0))
@@ -114,10 +115,8 @@ def add_failure_severity(scorecard: pd.DataFrame) -> pd.DataFrame:
     """Attach a deterministic failure-severity score."""
 
     working = scorecard.copy()
-    working[_FAILURE_SEVERITY_COLUMN] = pd.Series(
-        (_compute_failure_severity(row) for row in working.to_dict("records")),
-        index=working.index,
-        dtype=float,
+    working[_FAILURE_SEVERITY_COLUMN] = (
+        working.apply(lambda row: _compute_failure_severity(row.to_dict()), axis=1).astype(float)
     )
     return working
 

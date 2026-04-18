@@ -1,0 +1,33 @@
+{
+  "metric_equality": "pass",
+  "provenance_equality": "pass",
+  "ranking_stability": "pass",
+  "report_numeric_diff": [
+    {
+      "message": "Max headline metric |delta|=0.000000",
+      "name": "metric_drift",
+      "rollback": false,
+      "status": "pass",
+      "threshold": 1e-06,
+      "value": 0.0
+    },
+    {
+      "message": "Max row-count delta=0",
+      "name": "row_count_drift",
+      "rollback": false,
+      "status": "pass",
+      "threshold": 0.0,
+      "value": 0.0
+    },
+    {
+      "message": "Schema drifted in 0 artifact(s)",
+      "name": "schema_drift",
+      "rollback": false,
+      "status": "pass",
+      "threshold": 0.0,
+      "value": 0.0
+    }
+  ],
+  "rollback_required": false,
+  "status": "pass"
+}

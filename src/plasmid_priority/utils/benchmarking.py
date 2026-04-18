@@ -5,13 +5,15 @@ from __future__ import annotations
 import logging
 import time
 from contextlib import contextmanager
-from typing import Callable
+from typing import Callable, Iterator, ParamSpec, TypeVar
 
 _log = logging.getLogger(__name__)
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 @contextmanager
-def benchmark_runtime(operation_name: str):
+def benchmark_runtime(operation_name: str) -> Iterator[None]:
     """Context manager to benchmark runtime of an operation.
 
     Args:
@@ -33,7 +35,7 @@ def benchmark_runtime(operation_name: str):
         _log.info("[BENCHMARK] %s: %.3fs", operation_name, elapsed_seconds)
 
 
-def measure_runtime(func: Callable, *args, **kwargs) -> tuple[object, float]:
+def measure_runtime(func: Callable[P, R], *args: P.args, **kwargs: P.kwargs) -> tuple[R, float]:
     """Measure runtime of a function call.
 
     Args:

@@ -1265,9 +1265,7 @@ class ModelingTests(unittest.TestCase):
                 "refseq_share_train": [0.05, 0.95, 0.1, 0.9],
             }
         )
-        weights = module_a_impl._compute_sample_weight(
-            eligible, mode="inverse_knownness_weighting"
-        )
+        weights = module_a_impl._compute_sample_weight(eligible, mode="inverse_knownness_weighting")
         assert weights is not None
         self.assertEqual(len(weights), 4)
         self.assertTrue(np.isfinite(weights).all())

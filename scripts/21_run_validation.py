@@ -1403,6 +1403,7 @@ def main(argv: list[str] | None = None) -> int:
         # Compute Variance Inflation Factor for all core model feature sets.
         # Warns on models with high multicollinearity (VIF > 10).
         import logging
+
         _logger = logging.getLogger("plasmid_priority.validation")
         try:
             eligible_for_vif = scored.loc[scored["spread_label"].notna()].copy()
@@ -1441,13 +1442,15 @@ def main(argv: list[str] | None = None) -> int:
         for _model_name, _features in MODULE_A_FEATURE_SETS.items():
             _n_features = len(_features)
             _pn = _n_features / max(eligible_n, 1)
-            pn_rows.append({
-                "model_name": _model_name,
-                "n_features": _n_features,
-                "n_eligible_backbones": eligible_n,
-                "pn_ratio": round(_pn, 4),
-                "concern": "high" if _pn > 0.1 else "moderate" if _pn > 0.05 else "low",
-            })
+            pn_rows.append(
+                {
+                    "model_name": _model_name,
+                    "n_features": _n_features,
+                    "n_eligible_backbones": eligible_n,
+                    "pn_ratio": round(_pn, 4),
+                    "concern": "high" if _pn > 0.1 else "moderate" if _pn > 0.05 else "low",
+                }
+            )
         pn_df = pd.DataFrame(pn_rows).sort_values("pn_ratio", ascending=False)
         pn_df.to_csv(pn_ratio_output, sep="\t", index=False)
         high_pn_models = pn_df.loc[pn_df["concern"] == "high", "model_name"].tolist()

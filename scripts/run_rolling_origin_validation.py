@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from plasmid_priority.config import build_context
+from plasmid_priority.modeling import evaluate_model_name
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import ensure_directory
 from plasmid_priority.validation.rolling_origin import run_rolling_origin_validation
@@ -44,11 +45,29 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     scored = read_tsv(scored_path)
+
+    def _model_evaluator(window: pd.DataFrame, model_name: str) -> dict[str, float]:
+        result = evaluate_model_name(
+            window,
+            model_name=model_name,
+            n_splits=5,
+            n_repeats=3,
+            seed=42,
+            include_ci=False,
+        )
+        return {
+            "status": str(result.metrics.get("status", "ok")),
+            "roc_auc": float(result.metrics.get("roc_auc", float("nan"))),
+            "average_precision": float(result.metrics.get("average_precision", float("nan"))),
+            "ece": float(result.metrics.get("ece", float("nan"))),
+        }
+
     report = run_rolling_origin_validation(
         scored,
         model_name=args.model_name,
         horizon_years=int(args.horizon_years),
         assignment_mode=str(args.assignment_mode),
+        model_evaluator=_model_evaluator,
     )
 
     analysis_dir = context.data_dir / "analysis"

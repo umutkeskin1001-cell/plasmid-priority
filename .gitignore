@@ -27,6 +27,11 @@ docs/
 docs/*
 !docs/index.md
 !docs/JURY_SUMMARY.md
+!docs/benchmark_contract.md
+!docs/scientific_protocol.md
+!docs/model_card.md
+!docs/data_card.md
+!docs/disposition_ledger.md
 !docs/runbooks/
 !docs/runbooks/**
 docs/superpowers/
@@ -81,6 +86,13 @@ reports/**/*.tmp
 !reports/**/*.md
 !reports/**/*.tsv
 !reports/**/*.png
+!reports/reviewer_pack/
+!reports/reviewer_pack/README.md
+!reports/reviewer_pack/canonical_metadata.json
+!reports/freeze/
+!reports/freeze/baseline_freeze.json
+!reports/freeze/freeze_invariant_evaluation.json
+!reports/freeze/scientific_equivalence.json
 
 # Sadece çok büyük veya projeye özel olmayanları yasaklayalım
 reports/diagnostic_tables/

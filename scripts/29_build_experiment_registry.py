@@ -13,7 +13,12 @@ import pandas as pd
 from plasmid_priority.config import build_context
 from plasmid_priority.protocol import ScientificProtocol, build_protocol_hash
 from plasmid_priority.reporting import ManagedScriptRun
-from plasmid_priority.utils.files import atomic_write_json, ensure_directory, file_sha256, relative_path_str
+from plasmid_priority.utils.files import (
+    atomic_write_json,
+    ensure_directory,
+    file_sha256,
+    relative_path_str,
+)
 
 LEGACY_EXPERIMENT_FILENAMES = (
     "adaptive_blend_search.tsv",

@@ -42,7 +42,7 @@ def build_bio_transfer_input_contract(
 
 
 def validate_bio_transfer_input_contract(
-    scored,
+    scored: Any,
     *,
     contract: BioTransferInputContract | None = None,
     label: str = "bio transfer input",

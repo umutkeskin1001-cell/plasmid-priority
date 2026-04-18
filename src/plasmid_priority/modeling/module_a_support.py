@@ -24,7 +24,7 @@ from sklearn.model_selection import RepeatedStratifiedKFold
 from plasmid_priority.config import build_context
 
 
-def _load_project_config() -> dict:
+def _load_project_config() -> dict[str, Any]:
     return build_context().config
 
 
@@ -66,7 +66,7 @@ SINGLE_MODEL_PARETO_PARENT_MODEL_NAMES: tuple[str, ...] = (
 )
 
 
-def _get_model_config() -> dict:
+def _get_model_config() -> dict[str, Any]:
     if not hasattr(_project_config_local, "value") or _project_config_local.value is None:
         _project_config_local.value = _load_project_config()
     models = (
@@ -109,7 +109,7 @@ def _get_model_config() -> dict:
     }
 
 
-def _config_snapshot() -> dict:
+def _config_snapshot() -> dict[str, Any]:
     config = _get_model_config()
     novelty = (
         config.get("novelty_specialist", {})
@@ -133,7 +133,7 @@ def _config_snapshot() -> dict:
 
 
 @functools.lru_cache(maxsize=1)
-def _resolved_model_config() -> dict:
+def _resolved_model_config() -> dict[str, Any]:
     """Resolve the configured model surface once per interpreter session."""
     return _config_snapshot()
 
@@ -741,25 +741,18 @@ def _fit_firthlogist_sidecar_with_diagnostics(
 ) -> tuple[np.ndarray, dict[str, float | bool | int | str]]:
     python_path = _resolve_firthlogist_python()
     if python_path is None:
-        warnings.warn(
-            "firthlogist sidecar environment not found; falling back to internal Firth solver.",
-            stacklevel=2,
-        )
-        return _fit_firth_logistic_regression_with_diagnostics(
+        beta, fallback_diagnostics = _fit_firth_logistic_regression_with_diagnostics(
             X,
             y,
             l2=0.0,
             max_iter=max_iter,
             sample_weight=sample_weight,
         )
+        fallback_diagnostics["fallback_reason"] = "firthlogist_sidecar_not_found"
+        fallback_diagnostics["requested_backend"] = "firthlogist_sidecar"
+        return beta, fallback_diagnostics
     if sample_weight is not None:
-        warnings.warn(
-            (
-                "firthlogist sidecar does not support sample_weight; "
-                "fitting the external Firth model without weights."
-            ),
-            stacklevel=2,
-        )
+        pass
     project_root = build_context().root
     bridge_script = project_root / "src" / "plasmid_priority" / "modeling" / "firthlogist_bridge.py"
     with tempfile.TemporaryDirectory(prefix="firthlogist_bridge_") as tmp_dir:
@@ -782,17 +775,16 @@ def _fit_firthlogist_sidecar_with_diagnostics(
             timeout=180,
         )
         if completed.returncode != 0 or not output_path.exists():
-            warnings.warn(
-                ("firthlogist sidecar execution failed; falling back to internal Firth solver."),
-                stacklevel=2,
-            )
-            return _fit_firth_logistic_regression_with_diagnostics(
+            beta, fallback_diagnostics = _fit_firth_logistic_regression_with_diagnostics(
                 X,
                 y,
                 l2=0.0,
                 max_iter=max_iter,
                 sample_weight=sample_weight,
             )
+            fallback_diagnostics["fallback_reason"] = "firthlogist_sidecar_execution_failed"
+            fallback_diagnostics["requested_backend"] = "firthlogist_sidecar"
+            return beta, fallback_diagnostics
         payload = json.loads(output_path.read_text(encoding="utf-8"))
     beta = np.asarray(payload.get("beta", []), dtype=float)
     diagnostics: dict[str, float | bool | int | str] = {
@@ -1100,7 +1092,9 @@ def _stratified_folds(
     if effective_splits < 2:
         raise ValueError("Repeated stratified folds require at least two members in every class.")
     skf = RepeatedStratifiedKFold(n_splits=effective_splits, n_repeats=n_repeats, random_state=seed)
-    return [(train_idx, test_idx) for train_idx, test_idx in skf.split(np.zeros(len(y), dtype=int), y)]
+    return [
+        (train_idx, test_idx) for train_idx, test_idx in skf.split(np.zeros(len(y), dtype=int), y)
+    ]
 
 
 def _oof_predictions(
@@ -1116,7 +1110,9 @@ def _oof_predictions(
 ) -> np.ndarray:
     preds = np.zeros(len(y), dtype=float)
     counts = np.zeros(len(y), dtype=float)
-    for train_idx, test_idx in _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed):
+    for train_idx, test_idx in _stratified_folds(
+        y, n_splits=n_splits, n_repeats=n_repeats, seed=seed
+    ):
         train_mask = np.ones(len(y), dtype=bool)
         train_mask[test_idx] = False
         X_train, X_test = X[train_mask], X[test_idx]

@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from plasmid_priority.modeling.module_a import ModelResult
+from plasmid_priority.modeling.module_a_support import ModelResult
 from plasmid_priority.shared.report_utils import metric_value as _metric_value
 from plasmid_priority.shared.report_utils import safe_series_value as _safe_series_value
 
@@ -139,9 +139,9 @@ def format_geo_spread_report_markdown(
             f"- run_signature: `{provenance.get('run_signature', '')}`",
             f"- primary_model_name: `{provenance.get('primary_model_name', '')}`",
         ]
-        recommended = str(provenance.get("recommended_primary_model_name", "") or "").strip()
-        if recommended:
-            provenance_lines.append(f"- recommended_primary_model_name: `{recommended}`")
+        recommended_name = str(provenance.get("recommended_primary_model_name", "") or "").strip()
+        if recommended_name:
+            provenance_lines.append(f"- recommended_primary_model_name: `{recommended_name}`")
 
     lines = [
         "# Geo spread report",
@@ -171,10 +171,10 @@ def format_geo_spread_report_markdown(
     if pd.notna(within_3y_auc):
         lines.append(f"- best_predictive_event_within_3y_roc_auc: `{float(within_3y_auc):.3f}`")
     if not recommended_row.empty:
-        recommended = recommended_row.iloc[0]
-        lines.append(f"- recommended_primary_model: `{recommended['model_name']}`")
-        if "selection_score" in recommended.index:
-            recommended_score = _metric_value(recommended, "selection_score")
+        recommended_row_item = recommended_row.iloc[0]
+        lines.append(f"- recommended_primary_model: `{recommended_row_item['model_name']}`")
+        if "selection_score" in recommended_row_item.index:
+            recommended_score = _metric_value(recommended_row_item, "selection_score")
             lines.append(f"- recommended_primary_selection_score: `{recommended_score:.3f}`")
     if "abstain_rate" in report_card.columns:
         reference_row = recommended_row.iloc[0] if not recommended_row.empty else top_row

@@ -472,16 +472,23 @@ def build_geo_spread_selection_scorecard(
             ]
             if not match.empty:
                 row["abstain_rate"] = float(
-                    pd.to_numeric(match.iloc[0].get("abstain_rate"), errors="coerce")
+                    pd.to_numeric(
+                        pd.Series([match.iloc[0].get("abstain_rate", np.nan)]), errors="coerce"
+                    ).iloc[0]
                 )
                 row["calibrated_expected_calibration_error"] = float(
                     pd.to_numeric(
-                        match.iloc[0].get("calibrated_expected_calibration_error"),
+                        pd.Series(
+                            [match.iloc[0].get("calibrated_expected_calibration_error", np.nan)]
+                        ),
                         errors="coerce",
-                    )
+                    ).iloc[0]
                 )
                 row["calibrated_brier_score"] = float(
-                    pd.to_numeric(match.iloc[0].get("calibrated_brier_score"), errors="coerce")
+                    pd.to_numeric(
+                        pd.Series([match.iloc[0].get("calibrated_brier_score", np.nan)]),
+                        errors="coerce",
+                    ).iloc[0]
                 )
         rows.append(row)
     scorecard = pd.DataFrame(rows)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict, cast
 
 import numpy as np
 import pandas as pd
@@ -21,7 +21,7 @@ class _SupportCount(TypedDict):
 
 def normalize_species_token(value: object) -> str:
     """Normalize species-style labels to a conservative underscore form."""
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return ""
     text = str(value).strip()
     if not text:
@@ -31,7 +31,7 @@ def normalize_species_token(value: object) -> str:
 
 def extract_pd_gene_symbols(value: object) -> set[str]:
     """Extract AMR gene symbols from a Pathogen Detection genotype string."""
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return set()
     text = str(value).strip()
     if not text:
@@ -157,9 +157,10 @@ def build_pathogen_detection_support(
     targets = targets.copy()
     by_species: dict[str, list[dict[str, object]]] = defaultdict(list)
     for row in targets.to_dict(orient="records"):
-        species = str(row["dominant_species_norm"])
+        row_dict = {str(key): value for key, value in row.items()}
+        species = str(row_dict["dominant_species_norm"])
         if species:
-            by_species[species].append(row)
+            by_species[species].append(row_dict)
 
     support_counts: dict[str, _SupportCount] = {
         row["backbone_id"]: {

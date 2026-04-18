@@ -350,8 +350,12 @@ def recompute_priority_from_reference(
     ]
     if normalization_method == "rank_percentile":
         out_cols = [x[0] for x in direct_norm_pairs]
-        val_mat = np.column_stack([x[1].fillna(0.0).astype(float).to_numpy() for x in direct_norm_pairs])
-        ref_mat = np.column_stack([x[2].dropna().astype(float).to_numpy() for x in direct_norm_pairs])
+        val_mat = np.column_stack(
+            [x[1].fillna(0.0).astype(float).to_numpy() for x in direct_norm_pairs]
+        )
+        ref_mat = np.column_stack(
+            [x[2].dropna().astype(float).to_numpy() for x in direct_norm_pairs]
+        )
 
         results = np.zeros_like(val_mat)
         pos_mask = np.isfinite(val_mat) & (val_mat > 0.0)

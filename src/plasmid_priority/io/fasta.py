@@ -18,9 +18,9 @@ def _open_text(path: Path) -> TextIO:
     return path.open("r", encoding="utf-8")
 
 
-def _open_binary(path: Path):
+def _open_binary(path: Path) -> BinaryIO:
     if path.suffix == ".gz":
-        return gzip.open(path, "rb")
+        return cast(BinaryIO, gzip.open(path, "rb"))
     return path.open("rb")
 
 

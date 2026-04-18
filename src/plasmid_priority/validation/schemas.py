@@ -318,15 +318,25 @@ def _validate_table(
             "n_rows": int(len(validated)),
             "errors": [],
         }
-    except pa.errors.SchemaErrors as e:
-        _log.warning("Schema validation failed for %s: %d errors", table_name, len(e.failure_cases))
-        return {
-            "status": "fail",
-            "table": table_name,
-            "n_rows": int(len(df)),
-            "errors": e.failure_cases.to_dict("records") if hasattr(e, "failure_cases") else [],
-        }
-    except (ValueError, TypeError, KeyError, AttributeError) as e:
+    except Exception as e:  # pragma: no cover - depends on optional pandera internals
+        schema_errors_type: type[Exception] | None = None
+        if pa is not None:
+            errors_module = getattr(pa, "errors", None)
+            schema_errors_type = getattr(errors_module, "SchemaErrors", None)
+        if schema_errors_type is not None and isinstance(e, schema_errors_type):
+            failure_cases = getattr(e, "failure_cases", None)
+            failure_rows = (
+                failure_cases.to_dict("records")
+                if failure_cases is not None and hasattr(failure_cases, "to_dict")
+                else []
+            )
+            _log.warning("Schema validation failed for %s", table_name)
+            return {
+                "status": "fail",
+                "table": table_name,
+                "n_rows": int(len(df)),
+                "errors": failure_rows,
+            }
         _log.error("Unexpected error validating %s: %s", table_name, e)
         return {
             "status": "error",

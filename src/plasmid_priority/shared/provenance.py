@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,8 +33,8 @@ def _stable_json_payload(value: Any) -> Any:
         return _stable_json_payload(value.to_list())
     if isinstance(value, pd.Index):
         return _stable_json_payload(value.to_list())
-    if isinstance(value, float) and pd.isna(value):
-        return None
+    if isinstance(value, float):
+        return None if math.isnan(value) else value
     if isinstance(value, (str, int, bool)) or value is None:
         return value
     return str(value)
@@ -214,7 +215,13 @@ def build_branch_run_provenance(
         feature_surface_hash=feature_surface_hash,
         n_rows=int(len(scored)),
         n_positive=int(
-            pd.to_numeric(scored.get(label_column), errors="coerce").fillna(0).astype(int).sum()
+            pd.to_numeric(
+                scored.get(label_column, pd.Series(index=scored.index, dtype=float)),
+                errors="coerce",
+            )
+            .fillna(0)
+            .astype(int)
+            .sum()
         )
         if label_column in scored.columns
         else 0,

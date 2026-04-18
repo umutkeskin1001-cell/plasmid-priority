@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import pandas as pd
@@ -21,7 +21,7 @@ from plasmid_priority.shared.labels import build_bio_transfer_labels
 
 def _bio_transfer_label_builder(
     records: pd.DataFrame | None,
-):
+) -> Callable[[pd.DataFrame, pd.DataFrame | None, int, int], pd.DataFrame]:
     return lambda _scored, _records, split_year, horizon_years: build_bio_transfer_labels(
         records if records is not None else _scored,
         split_year,

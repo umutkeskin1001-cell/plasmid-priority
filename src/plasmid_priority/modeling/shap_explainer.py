@@ -15,6 +15,7 @@ with a ``skipped`` status instead of raising.
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Any
 
 import numpy as np
@@ -103,7 +104,16 @@ def compute_shap_tree_values(
     try:
         explainer = shap.TreeExplainer(model)
         X_arr = np.asarray(X, dtype=float)
-        shap_values = explainer.shap_values(X_arr)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "LightGBM binary classifier with TreeExplainer shap values output "
+                    "has changed to a list of ndarray"
+                ),
+                category=UserWarning,
+            )
+            shap_values = explainer.shap_values(X_arr)
 
         # For binary classification, LightGBM returns a list with
         # two arrays (negative class, positive class).  We want the
@@ -160,7 +170,16 @@ def compute_shap_interactions(
     try:
         explainer = shap.TreeExplainer(model)
         X_arr = np.asarray(X, dtype=float)
-        interaction_values = explainer.shap_interaction_values(X_arr)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    "LightGBM binary classifier with TreeExplainer shap values output "
+                    "has changed to a list of ndarray"
+                ),
+                category=UserWarning,
+            )
+            interaction_values = explainer.shap_interaction_values(X_arr)
 
         # For binary classification, take the positive-class slice
         if isinstance(interaction_values, list) and len(interaction_values) == 2:
@@ -311,7 +330,8 @@ def build_shap_dependence_data(
     top_idx = np.argsort(mean_abs)[::-1][:top_features]
 
     # Compute full correlation matrix once (vectorised)
-    corr_matrix = np.corrcoef(values.T)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        corr_matrix = np.corrcoef(values.T)
     np.fill_diagonal(corr_matrix, 0.0)
     corr_matrix = np.abs(np.nan_to_num(corr_matrix))
 

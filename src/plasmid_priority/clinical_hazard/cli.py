@@ -29,7 +29,6 @@ from plasmid_priority.clinical_hazard.specs import (
     resolve_clinical_hazard_model_names,
 )
 from plasmid_priority.config import build_context
-from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.shared.data_inventory import build_branch_inventory
 from plasmid_priority.shared.selection import select_branch_primary_model
 from plasmid_priority.utils.dataframe import read_tsv
@@ -40,6 +39,7 @@ from plasmid_priority.utils.files import (
     project_python_source_paths,
     write_signature_manifest,
 )
+from plasmid_priority.utils.managed_run import ManagedScriptRun
 
 
 def _sync_file(source: Path, destination: Path) -> None:

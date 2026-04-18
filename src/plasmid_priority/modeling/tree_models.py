@@ -14,8 +14,7 @@ from typing import Any
 
 import pandas as pd
 
-from plasmid_priority.modeling.module_a import ModelResult
-from plasmid_priority.modeling.module_a_support import build_failed_model_result
+from plasmid_priority.modeling.module_a_support import ModelResult, build_failed_model_result
 
 _log = logging.getLogger(__name__)
 
@@ -50,27 +49,29 @@ def _extract_xy(
     # ⚠ FRAGILE: new outcome/metadata columns added elsewhere must be added here
     #   too.  Prefer deriving features from the configured feature_sets when
     #   the model name is available.
-    _NON_FEATURE_COLUMNS = frozenset({
-        label_col,
-        "backbone_id",
-        "knownness_score",
-        "member_count_band",
-        "country_count_band",
-        "source_band",
-        "knownness_half",
-        "knownness_quartile",
-        "knownness_quartile_supported",
-        "split_year",
-        "n_new_countries",
-        "n_new_countries_future",
-        "future_new_host_genera_count",
-        "future_new_host_families_count",
-        "clinical_fraction_future",
-        "last_resort_fraction_future",
-        "mdr_proxy_fraction_future",
-        "pd_clinical_support_future",
-        "training_only_future_unseen_backbone_flag",
-    })
+    _NON_FEATURE_COLUMNS = frozenset(
+        {
+            label_col,
+            "backbone_id",
+            "knownness_score",
+            "member_count_band",
+            "country_count_band",
+            "source_band",
+            "knownness_half",
+            "knownness_quartile",
+            "knownness_quartile_supported",
+            "split_year",
+            "n_new_countries",
+            "n_new_countries_future",
+            "future_new_host_genera_count",
+            "future_new_host_families_count",
+            "clinical_fraction_future",
+            "last_resort_fraction_future",
+            "mdr_proxy_fraction_future",
+            "pd_clinical_support_future",
+            "training_only_future_unseen_backbone_flag",
+        }
+    )
     drop_cols = [c for c in scored.columns if c in _NON_FEATURE_COLUMNS]
     X = scored.drop(columns=drop_cols).select_dtypes(include="number")
     return X, y
@@ -124,10 +125,15 @@ def evaluate_lightgbm(
 
         # Repeated CV for stable metric estimates
         cv_repeated = RepeatedStratifiedKFold(
-            n_splits=n_splits, n_repeats=n_repeats, random_state=seed,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            random_state=seed,
         )
         cv_results = cross_validate(
-            clf, X, y, cv=cv_repeated,
+            clf,
+            X,
+            y,
+            cv=cv_repeated,
             scoring={"roc_auc": "roc_auc", "ap": "average_precision"},
             return_estimator=False,
         )
@@ -138,9 +144,12 @@ def evaluate_lightgbm(
         # exactly once in a test fold, avoiding the averaging artefact that
         # cross_val_predict introduces with repeated CV).
         cv_single = StratifiedKFold(
-            n_splits=n_splits, shuffle=True, random_state=seed,
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=seed,
         )
         from sklearn.model_selection import cross_val_predict as _cvp
+
         preds = _cvp(clf, X, y, cv=cv_single, method="predict_proba")[:, 1]
 
         return ModelResult(
@@ -211,10 +220,15 @@ def evaluate_xgboost(
 
         # Repeated CV for stable metric estimates
         cv_repeated = RepeatedStratifiedKFold(
-            n_splits=n_splits, n_repeats=n_repeats, random_state=seed,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            random_state=seed,
         )
         cv_results = cross_validate(
-            clf, X, y, cv=cv_repeated,
+            clf,
+            X,
+            y,
+            cv=cv_repeated,
             scoring={"roc_auc": "roc_auc", "ap": "average_precision"},
             return_estimator=False,
         )
@@ -225,9 +239,12 @@ def evaluate_xgboost(
         # exactly once in a test fold, avoiding the averaging artefact that
         # cross_val_predict introduces with repeated CV).
         cv_single = StratifiedKFold(
-            n_splits=n_splits, shuffle=True, random_state=seed,
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=seed,
         )
         from sklearn.model_selection import cross_val_predict as _cvp
+
         preds = _cvp(clf, X, y, cv=cv_single, method="predict_proba")[:, 1]
 
         return ModelResult(

@@ -131,6 +131,15 @@ The curated shortlist is not a raw top-score dump. It is source-diverse and low-
 make pipeline
 ```
 
+Branch-specific execution is unified under:
+
+```bash
+python scripts/run_branch.py --branch geo_spread -- --jobs 4
+python scripts/run_branch.py --branch bio_transfer
+python scripts/run_branch.py --branch clinical_hazard
+python scripts/run_branch.py --branch consensus
+```
+
 If `.venv/` exists, the `Makefile` automatically uses `.venv/bin/python`.
 
 To just rebuild the TÜBİTAK summary output after modifying how metrics are pulled:

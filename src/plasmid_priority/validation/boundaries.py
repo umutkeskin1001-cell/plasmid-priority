@@ -121,11 +121,21 @@ TABULAR_VALIDATORS: dict[str, Callable[[pd.DataFrame, str], dict[str, Any]]] = {
     "backbone_table.tsv": lambda frame, label: validate_backbone_table(frame),
     "backbone_scored.tsv": lambda frame, label: validate_scored_backbones(frame),
     "deduplicated_plasmids.tsv": lambda frame, label: validate_deduplicated_plasmids(frame),
-    "consensus_predictions.tsv": _validate_consensus_predictions,
-    "consensus_calibrated_predictions.tsv": _validate_consensus_predictions,
-    "geo_spread_calibrated_predictions.tsv": _validate_consensus_predictions,
-    "bio_transfer_calibrated_predictions.tsv": _validate_consensus_predictions,
-    "clinical_hazard_calibrated_predictions.tsv": _validate_consensus_predictions,
+    "consensus_predictions.tsv": (
+        lambda frame, label: _validate_consensus_predictions(frame, label=label)
+    ),
+    "consensus_calibrated_predictions.tsv": (
+        lambda frame, label: _validate_consensus_predictions(frame, label=label)
+    ),
+    "geo_spread_calibrated_predictions.tsv": (
+        lambda frame, label: _validate_consensus_predictions(frame, label=label)
+    ),
+    "bio_transfer_calibrated_predictions.tsv": (
+        lambda frame, label: _validate_consensus_predictions(frame, label=label)
+    ),
+    "clinical_hazard_calibrated_predictions.tsv": (
+        lambda frame, label: _validate_consensus_predictions(frame, label=label)
+    ),
 }
 
 

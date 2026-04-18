@@ -36,6 +36,10 @@ pipeline:
   host_phylo_breadth_weight: 0.65
   host_phylo_dispersion_weight: 0.35
 models:
+  # Legacy/research model surface. Not authoritative for benchmark truth.
+  # Canonical truth lives in: config/benchmarks.yaml + src/plasmid_priority/protocol.py
+  surface_status: legacy_research_only
+  authority_note: use config/benchmarks.yaml + protocol.py + generated docs/benchmark_contract.md
   primary_model_name: discovery_boosted
   primary_model_fallback: parsimonious_priority
   conservative_model_name: parsimonious_priority

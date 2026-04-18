@@ -6,6 +6,7 @@ import re
 import unicodedata
 from functools import lru_cache
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -23,7 +24,7 @@ def clean_text_series(values: pd.Series) -> pd.Series:
 
 @lru_cache(maxsize=16384)
 def _normalize_location_key(value: object) -> str:
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return ""
     text = unicodedata.normalize("NFKD", str(value))
     text = text.encode("ascii", "ignore").decode("ascii")
@@ -64,7 +65,7 @@ def _resolve_country_from_segment(segment: str) -> str:
 
 
 def _clean_marker_list(value: object) -> str:
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return ""
     items = sorted({item.strip() for item in str(value).split(",") if item.strip()})
     return ",".join(items)
@@ -153,7 +154,7 @@ def normalize_country(value: object) -> str:
     Free-text addresses, institutions, road names, and coordinates therefore
     resolve to the empty string instead of contaminating the country field.
     """
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return ""
     text = str(value).strip()
     if not text:
@@ -246,7 +247,7 @@ def build_harmonized_plasmid_table(
     )
     harmonized["primary_cluster_id"] = harmonized["primary_cluster_id"].fillna("").astype(str)
     harmonized["mash_neighbor_distance"] = pd.to_numeric(
-        harmonized.get("mash_neighbor_distance"),
+        harmonized.get("mash_neighbor_distance", pd.Series(0.0, index=harmonized.index)),
         errors="coerce",
     ).fillna(0.0)
     harmonized["plasmidfinder_types"] = (
@@ -269,7 +270,10 @@ def build_harmonized_plasmid_table(
         "plasmidfinder_mean_identity",
         "plasmidfinder_mean_coverage",
     ):
-        harmonized[column] = pd.to_numeric(harmonized.get(column), errors="coerce").fillna(0.0)
+        harmonized[column] = pd.to_numeric(
+            harmonized.get(column, pd.Series(0.0, index=harmonized.index)),
+            errors="coerce",
+        ).fillna(0.0)
     harmonized["predicted_host_range_overall_rank"] = (
         harmonized.get("predicted_host_range_overall_rank", pd.Series("", index=harmonized.index))
         .fillna("")
@@ -338,10 +342,17 @@ def build_harmonized_plasmid_table(
         .astype(str)
         .str.strip()
     )
-    harmonized["typing_gc"] = pd.to_numeric(harmonized.get("gc"), errors="coerce").fillna(0.0)
-    harmonized["typing_size"] = pd.to_numeric(harmonized.get("size"), errors="coerce").fillna(0.0)
+    harmonized["typing_gc"] = pd.to_numeric(
+        harmonized.get("gc", pd.Series(0.0, index=harmonized.index)),
+        errors="coerce",
+    ).fillna(0.0)
+    harmonized["typing_size"] = pd.to_numeric(
+        harmonized.get("size", pd.Series(0.0, index=harmonized.index)),
+        errors="coerce",
+    ).fillna(0.0)
     harmonized["typing_num_contigs"] = pd.to_numeric(
-        harmonized.get("num_contigs"), errors="coerce"
+        harmonized.get("num_contigs", pd.Series(0.0, index=harmonized.index)),
+        errors="coerce",
     ).fillna(0.0)
 
     harmonized["has_country"] = harmonized["country"].astype(str).str.len() > 0

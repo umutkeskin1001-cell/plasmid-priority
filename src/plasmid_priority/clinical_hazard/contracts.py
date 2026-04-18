@@ -45,7 +45,7 @@ def build_clinical_hazard_input_contract(
 
 
 def validate_clinical_hazard_input_contract(
-    scored,
+    scored: Any,
     *,
     contract: ClinicalHazardInputContract | None = None,
     label: str = "clinical hazard input",

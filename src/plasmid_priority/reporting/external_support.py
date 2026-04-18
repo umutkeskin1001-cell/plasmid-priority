@@ -6,6 +6,7 @@ import re
 import tarfile
 from collections import Counter
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,7 @@ from plasmid_priority.schemas.who_mia import WHO_MIA_CLASS_MAP  # noqa: F401
 
 def split_field_tokens(value: object, *, separators: tuple[str, ...] = (",",)) -> list[str]:
     """Split a delimited text field into cleaned tokens."""
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return []
     tokens = [str(value).strip()]
     for separator in separators:
@@ -30,14 +31,14 @@ def split_field_tokens(value: object, *, separators: tuple[str, ...] = (",",)) -
 
 def normalize_gene_symbol(value: object) -> str:
     """Normalize gene symbols for conservative exact-or-format-only matching."""
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return ""
     return re.sub(r"[^a-z0-9]+", "", str(value).lower())
 
 
 def normalize_drug_class_token(value: object) -> str:
     """Normalize class labels into conservative uppercase tokens."""
-    if pd.isna(value):
+    if pd.isna(cast(Any, value)):
         return ""
     text = str(value).strip().upper()
     text = re.sub(r"\s+", " ", text)
@@ -221,8 +222,11 @@ def read_card_ontology(card_archive_path: Path) -> pd.DataFrame:
     """Read CARD ARO index from the provided archive as a normalized lookup table."""
     with tarfile.open(card_archive_path, "r:bz2") as archive:
         member = _first_tar_member(archive, "aro_index.tsv")
+        handle = archive.extractfile(member)
+        if handle is None:
+            raise FileNotFoundError(f"Could not open {member.name} from {card_archive_path}.")
         frame = pd.read_csv(
-            archive.extractfile(member),
+            handle,
             sep="\t",
             usecols=[
                 "CARD Short Name",
@@ -433,18 +437,26 @@ def build_card_support(
     family_comparison = _build_prevalence_comparison(
         pd.DataFrame(family_membership),
         value_column="card_amr_gene_family",
-        group_totals=detail.groupby("priority_group")["backbone_id"]
-        .nunique()
-        .astype(int)
-        .to_dict(),
+        group_totals={
+            str(key): int(value)
+            for key, value in detail.groupby("priority_group")["backbone_id"]
+            .nunique()
+            .astype(int)
+            .to_dict()
+            .items()
+        },
     )
     mechanism_comparison = _build_prevalence_comparison(
         pd.DataFrame(mechanism_membership),
         value_column="card_resistance_mechanism",
-        group_totals=detail.groupby("priority_group")["backbone_id"]
-        .nunique()
-        .astype(int)
-        .to_dict(),
+        group_totals={
+            str(key): int(value)
+            for key, value in detail.groupby("priority_group")["backbone_id"]
+            .nunique()
+            .astype(int)
+            .to_dict()
+            .items()
+        },
     )
     return detail, summary, family_comparison, mechanism_comparison
 
@@ -577,10 +589,14 @@ def build_who_mia_support(
     category_comparison = _build_prevalence_comparison(
         pd.DataFrame(category_membership),
         value_column="who_mia_category",
-        group_totals=detail.groupby("priority_group")["backbone_id"]
-        .nunique()
-        .astype(int)
-        .to_dict(),
+        group_totals={
+            str(key): int(value)
+            for key, value in detail.groupby("priority_group")["backbone_id"]
+            .nunique()
+            .astype(int)
+            .to_dict()
+            .items()
+        },
     )
     return detail, summary, category_comparison
 
@@ -589,8 +605,11 @@ def read_mobsuite_host_range_table(mobsuite_tar_path: Path) -> pd.DataFrame:
     """Read the MOB-suite literature host-range table from the bundled archive."""
     with tarfile.open(mobsuite_tar_path, "r:") as archive:
         member = _first_tar_member(archive, "host_range_literature_plasmidDB.txt")
+        handle = archive.extractfile(member)
+        if handle is None:
+            raise FileNotFoundError(f"Could not open {member.name} from {mobsuite_tar_path}.")
         frame = pd.read_csv(
-            archive.extractfile(member),
+            handle,
             sep="\t",
             usecols=[
                 "sample_id",
@@ -609,8 +628,11 @@ def read_mobsuite_clusters_table(mobsuite_tar_path: Path) -> pd.DataFrame:
     """Read the MOB-suite cluster catalog from the bundled archive."""
     with tarfile.open(mobsuite_tar_path, "r:") as archive:
         member = _first_tar_member(archive, "clusters.txt")
+        handle = archive.extractfile(member)
+        if handle is None:
+            raise FileNotFoundError(f"Could not open {member.name} from {mobsuite_tar_path}.")
         frame = pd.read_csv(
-            archive.extractfile(member),
+            handle,
             sep="\t",
             usecols=[
                 "sample_id",
@@ -755,7 +777,7 @@ def build_mobsuite_support(
     detail = priority_backbones.copy()
     if "selection_score" not in detail.columns:
         detail["selection_score"] = pd.to_numeric(
-            detail.get("priority_index", 0.0), errors="coerce"
+            detail.get("priority_index", pd.Series(0.0, index=detail.index)), errors="coerce"
         ).fillna(0.0)
     if "selection_score_column" not in detail.columns:
         detail["selection_score_column"] = "priority_index"

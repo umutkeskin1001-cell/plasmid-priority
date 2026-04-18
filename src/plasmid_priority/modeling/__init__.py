@@ -15,17 +15,8 @@ from plasmid_priority.modeling.experiment_gates import (
     interpret_gain,
 )
 from plasmid_priority.modeling.module_a import (
-    ABLATION_MODEL_NAMES,
-    CONSERVATIVE_MODEL_NAME,
-    CORE_MODEL_NAMES,
-    FEATURE_PROVENANCE_REGISTRY,
-    GOVERNANCE_MODEL_NAME,
-    MODULE_A_FEATURE_SETS,
-    MODULE_A_MODEL_TRACKS,
     NOVELTY_SPECIALIST_FEATURES,
     NOVELTY_SPECIALIST_FIT_CONFIG,
-    PRIMARY_MODEL_NAME,
-    RESEARCH_MODEL_NAMES,
     annotate_knownness_metadata,
     assert_feature_columns_present,
     build_cmim_feature_selection_table,
@@ -51,6 +42,15 @@ from plasmid_priority.modeling.module_a import (
     select_cmim_features,
 )
 from plasmid_priority.modeling.module_a_support import (
+    ABLATION_MODEL_NAMES,
+    CONSERVATIVE_MODEL_NAME,
+    CORE_MODEL_NAMES,
+    FEATURE_PROVENANCE_REGISTRY,
+    GOVERNANCE_MODEL_NAME,
+    MODULE_A_FEATURE_SETS,
+    MODULE_A_MODEL_TRACKS,
+    PRIMARY_MODEL_NAME,
+    RESEARCH_MODEL_NAMES,
     assert_all_discovery_safe,
     get_active_model_names,
 )

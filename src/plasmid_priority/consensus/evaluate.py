@@ -74,9 +74,11 @@ def _model_result_from_frame(name: str, frame: pd.DataFrame) -> Any:
         ),
     }
     if valid.any() and y.loc[valid].nunique() >= 2:
-        extra_metrics["roc_auc"] = float(roc_auc_score(y.loc[valid], preds.loc[valid]))
+        y_valid = y.loc[valid].to_numpy(dtype=int)
+        preds_valid = preds.loc[valid].to_numpy(dtype=float)
+        extra_metrics["roc_auc"] = float(roc_auc_score(y_valid, preds_valid))
         extra_metrics["average_precision"] = float(
-            average_precision(y.loc[valid], preds.loc[valid])
+            average_precision(y_valid, preds_valid)
         )
     if not valid.any():
         return ModelResult(

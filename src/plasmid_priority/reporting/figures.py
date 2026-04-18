@@ -15,6 +15,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from sklearn.metrics import precision_recall_curve, roc_curve
 from sklearn.metrics import roc_auc_score as skl_roc_auc_score
 
@@ -55,13 +58,27 @@ from plasmid_priority.utils.files import ensure_directory
 from plasmid_priority.validation.metrics import average_precision
 
 
+def _coerce_float(value: object) -> float:
+    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    return float(coerced) if pd.notna(coerced) else float("nan")
+
+
+def _coerce_int(value: object, *, default: int = 0) -> int:
+    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    return int(coerced) if pd.notna(coerced) else int(default)
+
+
 def plot_score_distribution(scored: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
     working = scored.copy()
-    working["operational_priority_index"] = working.get(
-        "operational_priority_index", working.get("priority_index", 0.0)
-    ).fillna(working.get("priority_index", 0.0))
+    operational_priority_index = working.get("operational_priority_index")
+    if isinstance(operational_priority_index, pd.Series):
+        working["operational_priority_index"] = operational_priority_index.fillna(
+            working.get("priority_index", 0.0)
+        )
+    else:
+        working["operational_priority_index"] = working.get("priority_index", 0.0)
     working["training_support_group"] = np.where(
         working["member_count_train"].fillna(0).astype(int) > 0,
         "training-supported",
@@ -175,11 +192,13 @@ def plot_score_distribution(scored: pd.DataFrame, output_path: Path) -> None:
         "tie": "tied\nlimiters",
     }
     decomposition_counts = {label: 0 for label in component_labels.values()}
-    for row in eligible_low_cluster[["T_eff_norm", "H_eff_norm", "A_eff_norm"]].to_dict(
+    for raw_row in eligible_low_cluster[["T_eff_norm", "H_eff_norm", "A_eff_norm"]].to_dict(
         orient="records"
     ):
+        row = cast(dict[str, object], raw_row)
         values = {
-            key: float(row.get(key, np.nan)) for key in ("T_eff_norm", "H_eff_norm", "A_eff_norm")
+            key: _coerce_float(row.get(key, np.nan))
+            for key in ("T_eff_norm", "H_eff_norm", "A_eff_norm")
         }
         finite = {key: value for key, value in values.items() if np.isfinite(value)}
         if not finite:
@@ -335,8 +354,8 @@ def plot_calibration_diagram(
     y_score: np.ndarray,
     *,
     n_bins: int = 10,
-    ax: tuple[plt.Axes, plt.Axes] | None = None,
-) -> plt.Figure:
+    ax: tuple[Axes, Axes] | None = None,
+) -> Figure:
     _style()
     calibration = _calibration_bin_frame(y_true, y_score, n_bins=n_bins)
     if ax is None:
@@ -349,7 +368,7 @@ def plot_calibration_diagram(
         )
     else:
         top_ax, bottom_ax = ax
-        fig = cast(plt.Figure, top_ax.figure)
+        fig = cast(Figure, top_ax.figure)
     if calibration.empty:
         return fig
 
@@ -374,7 +393,7 @@ def plot_calibration_diagram(
     )
     for row in calibration.itertuples(index=False):
         top_ax.annotate(
-            f"n={int(row.n_backbones)}",
+            f"n={_coerce_int(getattr(row, 'n_backbones', 0))}",
             (row.mean_prediction, row.observed_rate),
             xytext=(0, 8),
             textcoords="offset points",
@@ -455,7 +474,7 @@ def plot_calibration(calibration: pd.DataFrame, output_path: Path, model_name: s
     )
     for row in calibration.itertuples(index=False):
         top_ax.annotate(
-            f"n={int(row.n_backbones)}",
+            f"n={_coerce_int(getattr(row, 'n_backbones', 0))}",
             (row.mean_prediction, row.observed_rate),
             xytext=(0, 8),
             textcoords="offset points",
@@ -558,7 +577,7 @@ def plot_calibration_threshold_summary(
         )
         for row in calibration_frame.itertuples(index=False):
             axes[0].annotate(
-                f"n={int(row.n_backbones)}",
+                f"n={_coerce_int(getattr(row, 'n_backbones', 0))}",
                 (row.mean_prediction, row.observed_rate),
                 xytext=(0, 8),
                 textcoords="offset points",
@@ -730,9 +749,9 @@ def plot_calibration_threshold_summary(
             zorder=3,
         )
         for row in threshold_frame.itertuples(index=False):
-            threshold_value = int(getattr(row, threshold_column))
-            auc_value = float(row.roc_auc)
-            ap_value = float(row.average_precision)
+            threshold_value = _coerce_int(getattr(row, threshold_column))
+            auc_value = _coerce_float(getattr(row, "roc_auc"))
+            ap_value = _coerce_float(getattr(row, "average_precision"))
             ax.annotate(
                 f"T={threshold_value}\nAUC {auc_value:.3f}\nAP {ap_value:.3f}",
                 (threshold_value, auc_value),
@@ -974,7 +993,9 @@ def plot_threshold_sensitivity_curve(
         alpha=0.22,
     )
     for row in frame.itertuples(index=False):
-        ax.text(row.threshold, row.roc_auc + 0.012, f"{row.roc_auc:.3f}", ha="center", fontsize=9)
+        threshold_value = _coerce_float(getattr(row, "threshold"))
+        auc_value = _coerce_float(getattr(row, "roc_auc"))
+        ax.text(threshold_value, auc_value + 0.012, f"{auc_value:.3f}", ha="center", fontsize=9)
     ax.set_title("Outcome Threshold Sensitivity")
     ax.set_xlabel("Later new-country threshold")
     ax.set_ylabel("ROC AUC")
@@ -1195,17 +1216,22 @@ def plot_pathogen_detection_strata_summary(comparison: pd.DataFrame, output_path
     low_values = working["mean_matching_fraction_low"].fillna(0.0).to_numpy(dtype=float)
     high_values = working["mean_matching_fraction_high"].fillna(0.0).to_numpy(dtype=float)
     for idx, row in enumerate(working.itertuples(index=False)):
+        low_value = _coerce_float(getattr(row, "mean_matching_fraction_low"))
+        high_value = _coerce_float(getattr(row, "mean_matching_fraction_high"))
+        n_high = _coerce_int(getattr(row, "n_high"))
+        n_low = _coerce_int(getattr(row, "n_low"))
+        permutation_p = _coerce_float(getattr(row, "permutation_p_mean_matching_fraction"))
         ax.plot(
             [positions[idx], positions[idx]],
-            [row.mean_matching_fraction_low, row.mean_matching_fraction_high],
+            [low_value, high_value],
             color=PALETTE["muted"],
             linewidth=2,
             zorder=1,
         )
         ax.text(
             positions[idx],
-            max(row.mean_matching_fraction_low, row.mean_matching_fraction_high) + 0.016,
-            f"n={int(row.n_high)}/{int(row.n_low)}\n{_format_pvalue(float(row.permutation_p_mean_matching_fraction))}",
+            max(low_value, high_value) + 0.016,
+            f"n={n_high}/{n_low}\n{_format_pvalue(permutation_p)}",
             ha="center",
             fontsize=8,
         )
@@ -1373,10 +1399,10 @@ def plot_tha_radar(
     ax.set_ylim(0.0, 1.0)
     ax.set_title("T / H / A Candidate Geometry", pad=24)
     legend_handles = [
-        plt.Line2D(
+        Line2D(
             [0], [0], color=palette["established_high_risk"], lw=2, label="established shortlist"
         ),
-        plt.Line2D([0], [0], color=palette["novel_signal"], lw=2, label="novel-signal watchlist"),
+        Line2D([0], [0], color=palette["novel_signal"], lw=2, label="novel-signal watchlist"),
     ]
     ax.legend(handles=legend_handles, loc="upper right", bbox_to_anchor=(1.22, 1.12), frameon=False)
     fig.tight_layout()
@@ -1524,10 +1550,11 @@ def plot_benchmark_comparison(
     if np.isfinite(baseline_auc):
         ax.axhline(baseline_auc, color=PALETTE["muted"], linestyle="--", linewidth=1.2)
     for idx, row in enumerate(working.itertuples(index=False)):
-        label = f"{float(row.roc_auc):.3f}"
+        auc_value = _coerce_float(getattr(row, "roc_auc"))
+        label = f"{auc_value:.3f}"
         if np.isfinite(baseline_auc):
-            label += f"\nΔ {float(row.roc_auc) - baseline_auc:+.3f}"
-        ax.text(idx, float(row.roc_auc) + 0.018, label, ha="center", va="bottom", fontsize=8)
+            label += f"\nΔ {auc_value - baseline_auc:+.3f}"
+        ax.text(idx, auc_value + 0.018, label, ha="center", va="bottom", fontsize=8)
     ax.set_title("Baseline vs Discovery/Governance Benchmarks")
     ax.set_ylabel("ROC AUC")
     ax.set_xticks(positions)
@@ -1851,12 +1878,14 @@ def plot_model_comparison_deltas(
     )
     axes[0].invert_yaxis()
     for idx, row in enumerate(core.itertuples(index=False)):
-        pvalue = getattr(row, "delta_roc_auc_delong_pvalue", np.nan)
-        label = f"{float(row.delta_roc_auc):+.3f}"
+        pvalue = _coerce_float(getattr(row, "delta_roc_auc_delong_pvalue", np.nan))
+        delta_roc_auc = _coerce_float(getattr(row, "delta_roc_auc", np.nan))
+        delta_roc_auc_ci_upper = _coerce_float(getattr(row, "delta_roc_auc_ci_upper", np.nan))
+        label = f"{delta_roc_auc:+.3f}"
         if np.isfinite(pvalue):
-            label += f"\nDeLong {_format_pvalue(float(pvalue))}"
+            label += f"\nDeLong {_format_pvalue(pvalue)}"
         axes[0].text(
-            float(row.delta_roc_auc_ci_upper) + 0.006,
+            delta_roc_auc_ci_upper + 0.006,
             idx,
             label,
             va="center",
@@ -1866,10 +1895,10 @@ def plot_model_comparison_deltas(
 
     axes[1].axvline(0.0, color=PALETTE["muted"], linestyle="--", linewidth=1)
     if not weak_control.empty:
-        row = weak_control.iloc[0]
-        delta = float(row["delta_roc_auc"])
-        lower = max(delta - float(row["delta_roc_auc_ci_lower"]), 0.0)
-        upper = max(float(row["delta_roc_auc_ci_upper"]) - delta, 0.0)
+        weak_row = weak_control.iloc[0]
+        delta = _coerce_float(weak_row["delta_roc_auc"])
+        lower = max(delta - _coerce_float(weak_row["delta_roc_auc_ci_lower"]), 0.0)
+        upper = max(_coerce_float(weak_row["delta_roc_auc_ci_upper"]) - delta, 0.0)
         axes[1].barh([0], [delta], color=PALETTE["muted"], edgecolor="#23313A", linewidth=0.4)
         axes[1].errorbar(
             [delta],
@@ -2110,13 +2139,20 @@ def plot_card_mechanism_comparison(comparison: pd.DataFrame, output_path: Path) 
     ax.set_yticklabels(working["card_resistance_mechanism"].tolist())
     ax.legend(frameon=False, loc="lower right")
     for y, row in enumerate(working.itertuples(index=False)):
+        high_value = _coerce_float(getattr(row, "high", np.nan))
+        low_value = _coerce_float(getattr(row, "low", np.nan))
         ax.text(
-            row.high + 0.015, y, f"{row.high:.2f}", va="center", fontsize=8, color=PALETTE["high"]
+            high_value + 0.015,
+            y,
+            f"{high_value:.2f}",
+            va="center",
+            fontsize=8,
+            color=PALETTE["high"],
         )
         ax.text(
-            max(row.low - 0.015, 0.01),
+            max(low_value - 0.015, 0.01),
             y,
-            f"{row.low:.2f}",
+            f"{low_value:.2f}",
             va="center",
             ha="right",
             fontsize=8,
@@ -2237,10 +2273,13 @@ def plot_amrfinder_concordance(summary: pd.DataFrame, output_path: Path) -> None
     axes[0].set_xticklabels(working["priority_group"].tolist())
     working_reset = working.reset_index(drop=True)
     for idx, row in enumerate(working_reset.itertuples(index=False)):
+        amr_evidence_fraction = _coerce_float(getattr(row, "amr_evidence_fraction", np.nan))
+        n_sequences = _coerce_int(getattr(row, "n_sequences", 0))
+        n_with_any_amr_evidence = _coerce_int(getattr(row, "n_with_any_amr_evidence", 0))
         axes[0].text(
             idx,
-            min(float(row.amr_evidence_fraction) + 0.04, 0.96),
-            f"n={int(row.n_sequences)}\nAMR={int(row.n_with_any_amr_evidence)}",
+            min(amr_evidence_fraction + 0.04, 0.96),
+            f"n={n_sequences}\nAMR={n_with_any_amr_evidence}",
             ha="center",
             fontsize=8,
         )
@@ -2534,8 +2573,8 @@ def plot_candidate_stability(candidates: pd.DataFrame, output_path: Path) -> Non
     axes[0].set_ylabel("Retention frequency")
     axes[0].set_xticks(positions)
     tick_labels = [
-        f"#{int(row.base_rank)} {_candidate_tick_label(row)}"
-        for row in working.itertuples(index=False)
+        f"#{_coerce_int(row.get('base_rank', 0))} {_candidate_tick_label(row)}"
+        for _, row in working.iterrows()
     ]
     axes[0].set_xticklabels(tick_labels, rotation=30, ha="right")
     axes[0].set_ylim(0.0, 1.0)
@@ -2659,9 +2698,11 @@ def plot_novelty_frontier(frontier: pd.DataFrame, output_path: Path, model_name:
         (-24, 14),
     ]
     for row, offset in zip(watchlist.head(6).itertuples(index=False), label_offsets):
+        baseline_prediction = _coerce_float(getattr(row, "baseline_both_oof_prediction", np.nan))
+        primary_prediction = _coerce_float(getattr(row, "primary_model_oof_prediction", np.nan))
         x_plot = float(
             np.clip(
-                row.baseline_both_oof_prediction
+                baseline_prediction
                 + _stable_jitter(str(row.backbone_id), salt="novelty_frontier_x"),
                 0.0,
                 1.0,
@@ -2669,7 +2710,7 @@ def plot_novelty_frontier(frontier: pd.DataFrame, output_path: Path, model_name:
         )
         y_plot = float(
             np.clip(
-                row.primary_model_oof_prediction
+                primary_prediction
                 + _stable_jitter(str(row.backbone_id), salt="novelty_frontier_y"),
                 0.0,
                 1.0,
@@ -2916,10 +2957,13 @@ def plot_module_f_enrichment(top_hits: pd.DataFrame, output_path: Path) -> None:
     ax.set_xlabel("log2 odds ratio for visibility-positive enrichment")
     ax.set_title("Module F: Independent Genomic Signature Enrichment")
     for idx, row in enumerate(working.itertuples(index=False)):
+        log2_odds_ratio = _coerce_float(getattr(row, "log2_odds_ratio", np.nan))
+        q_value = _coerce_float(getattr(row, "q_value", np.nan))
+        prevalence_delta = _coerce_float(getattr(row, "prevalence_delta", np.nan))
         ax.text(
-            float(row.log2_odds_ratio) + 0.04,
+            log2_odds_ratio + 0.04,
             idx,
-            f"q={float(row.q_value):.3f}\nΔprev={float(row.prevalence_delta):+.2f}",
+            f"q={q_value:.3f}\nΔprev={prevalence_delta:+.2f}",
             va="center",
             fontsize=8,
         )

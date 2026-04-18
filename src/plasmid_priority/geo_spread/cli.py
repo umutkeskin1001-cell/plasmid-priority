@@ -6,6 +6,7 @@ import argparse
 import os
 import shutil
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 
@@ -27,7 +28,6 @@ from plasmid_priority.geo_spread.report import (
 )
 from plasmid_priority.geo_spread.select import select_geo_spread_primary_model
 from plasmid_priority.geo_spread.specs import load_geo_spread_config, resolve_geo_spread_model_names
-from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import (
     atomic_write_json,
@@ -36,6 +36,7 @@ from plasmid_priority.utils.files import (
     project_python_source_paths,
     write_signature_manifest,
 )
+from plasmid_priority.utils.managed_run import ManagedScriptRun
 
 
 def _sync_file(source: Path, destination: Path) -> None:
@@ -235,7 +236,15 @@ def main(argv: list[str] | None = None) -> int:
         best_predictive_model_name = (
             str(report_card.iloc[0]["model_name"]) if not report_card.empty else ""
         )
-        metrics_payload = {
+        per_model_metrics = {
+            str(name): {
+                **{str(key): value for key, value in cast(dict[str, Any], result.metrics).items()},
+                "status": result.status,
+                "error_message": result.error_message,
+            }
+            for name, result in results.items()
+        }
+        metrics_payload: dict[str, Any] = {
             "primary_model_name": recommended_primary_model_name or geo_config.primary_model_name,
             "configured_primary_model_name": geo_config.primary_model_name,
             "recommended_primary_model_name": recommended_primary_model_name,
@@ -246,15 +255,8 @@ def main(argv: list[str] | None = None) -> int:
                 if not selection_scorecard.empty
                 else []
             ),
-            **{
-                name: {
-                    **result.metrics,
-                    "status": result.status,
-                    "error_message": result.error_message,
-                }
-                for name, result in results.items()
-            },
         }
+        metrics_payload.update(per_model_metrics)
         used_inventory, unused_inventory, inventory_summary = build_geo_spread_inventory(
             project_root,
             branch_data_root=paths["branch_root"],

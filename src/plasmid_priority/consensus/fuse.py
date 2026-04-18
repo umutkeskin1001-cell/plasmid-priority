@@ -330,8 +330,11 @@ def build_research_consensus_frame(
         if score.nunique() < 2:
             continue
         try:
+            valid_y_np = valid_y.to_numpy(dtype=int, copy=False)
+            score_np = score.to_numpy(dtype=float, copy=False)
             combined = float(
-                0.6 * roc_auc_score(valid_y, score) + 0.4 * average_precision(valid_y, score)
+                0.6 * roc_auc_score(valid_y_np, score_np)
+                + 0.4 * average_precision(valid_y_np, score_np)
             )
         except ValueError:
             continue

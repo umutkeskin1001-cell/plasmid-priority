@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -36,14 +36,14 @@ def read_tsv(path: str | Path, **kwargs: Any) -> pd.DataFrame:
         read_kwargs = {"sep": "\t", **kwargs}
         read_kwargs.setdefault("low_memory", False)
         try:
-            return pd.read_csv(path, **read_kwargs)
+            return cast(pd.DataFrame, pd.read_csv(path, **read_kwargs))
         except IndexError:
             if "usecols" not in read_kwargs or read_kwargs.get("engine") == "python":
                 raise
             retry_kwargs = dict(read_kwargs)
             retry_kwargs.pop("low_memory", None)
             retry_kwargs["engine"] = "python"
-            return pd.read_csv(path, **retry_kwargs)
+            return cast(pd.DataFrame, pd.read_csv(path, **retry_kwargs))
     try:
         resolved = Path(path).resolve()
         stat = resolved.stat()
@@ -59,7 +59,7 @@ def read_parquet(path: str | Path) -> pd.DataFrame:
         return pd.read_parquet(resolved)
     query = f"SELECT * FROM read_parquet({_sql_literal(resolved)})"
     with duckdb.connect(database=":memory:") as connection:
-        return connection.execute(query).fetchdf()
+        return cast(pd.DataFrame, connection.execute(query).fetchdf())
 
 
 def coalescing_left_merge(
@@ -95,11 +95,12 @@ def coalescing_left_merge(
 
     merged = left.merge(right, on=on, how="left", suffixes=("", "__incoming"))
     for column in overlap:
-        incoming = f"{column}__incoming"
-        if incoming not in merged.columns:
+        incoming_column = f"{column}__incoming"
+        if incoming_column not in merged.columns:
             continue
-        merged[column] = merged[column].where(merged[column].notna(), merged[incoming])
-        merged = merged.drop(columns=incoming)
+        incoming_values = merged[incoming_column]
+        merged[column] = merged[column].where(merged[column].notna(), incoming_values)
+        merged = merged.drop(columns=[incoming_column])
     return merged
 
 

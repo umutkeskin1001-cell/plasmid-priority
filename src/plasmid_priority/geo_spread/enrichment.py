@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +18,7 @@ def _normalized_entropy(values: pd.Series) -> float:
         return 0.0
     probs = counts / float(counts.sum())
     entropy = float(-(probs * np.log(probs)).sum())
-    return float(entropy / np.log(len(counts)))
+    return float(entropy / math.log(float(len(counts))))  # type: ignore[unreachable]
 
 
 def _dominant_share(values: pd.Series) -> float:
@@ -42,7 +43,12 @@ def build_geo_spread_context_features(
         return pd.DataFrame(columns=["backbone_id"])
     working["backbone_id"] = working["backbone_id"].astype(str)
     working["resolved_year"] = (
-        pd.to_numeric(working.get("resolved_year"), errors="coerce").fillna(0).astype(int)
+        pd.to_numeric(
+            working.get("resolved_year", pd.Series(0, index=working.index)),
+            errors="coerce",
+        )
+        .fillna(0)
+        .astype(int)
     )
     working["country_clean"] = (
         working.get("country", pd.Series("", index=working.index))
@@ -137,5 +143,8 @@ def enrich_geo_spread_scored_table(
         "geo_macro_region_entropy_train",
         "geo_dominant_region_share_train",
     ):
-        enriched[column] = pd.to_numeric(enriched.get(column), errors="coerce").fillna(0.0)
+        enriched[column] = pd.to_numeric(
+            enriched.get(column, pd.Series(0.0, index=enriched.index)),
+            errors="coerce",
+        ).fillna(0.0)
     return enriched

@@ -7,6 +7,8 @@ signal. This module provides lightweight diagnostics to flag such concerns.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 
@@ -85,7 +87,7 @@ def compute_lead_time_bias_metrics(
         pearson_corr = float(visibility.loc[valid_mask].corr(outcome.loc[valid_mask]))
 
     # Assess concern level
-    if pd.isna(spearman_corr):
+    if math.isnan(spearman_corr):
         concern = "cannot_assess"
     elif spearman_corr > 0.3:
         concern = "high"

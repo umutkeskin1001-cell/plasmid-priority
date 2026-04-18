@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import time
 import warnings
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor  # noqa: F401
 from typing import Any, cast
 
 os.environ.setdefault("LOKY_MAX_CPU_COUNT", "1")
@@ -14,19 +14,6 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.isotonic import IsotonicRegression
-
-try:
-    from interpret.glassbox import ExplainableBoostingClassifier
-except ImportError:  # pragma: no cover - optional research dependency
-    ExplainableBoostingClassifier = None
-
-try:
-    import lightgbm as _lgb
-
-    _HAS_LIGHTGBM = True
-except ImportError:  # pragma: no cover - optional research dependency
-    _lgb = None
-    _HAS_LIGHTGBM = False
 
 from plasmid_priority.modeling.module_a_support import (
     ABLATION_MODEL_NAMES,
@@ -90,6 +77,20 @@ from plasmid_priority.validation import (
     roc_auc_score,
     weighted_classification_cost,
 )
+
+try:
+    from interpret.glassbox import ExplainableBoostingClassifier
+except ImportError:  # pragma: no cover - optional research dependency
+    ExplainableBoostingClassifier = None
+
+_lgb: Any
+try:
+    import lightgbm as _lgb
+
+    _HAS_LIGHTGBM = True
+except ImportError:  # pragma: no cover - optional research dependency
+    _lgb = None
+    _HAS_LIGHTGBM = False
 
 NOVELTY_SPECIALIST_FEATURES = _NOVELTY_SPECIALIST_FEATURES
 NOVELTY_SPECIALIST_FIT_CONFIG = _NOVELTY_SPECIALIST_FIT_CONFIG
@@ -175,7 +176,7 @@ def _stable_quantile_labels(
 ) -> tuple[pd.Series, int]:
     labels = pd.Series(np.nan, index=values.index, dtype=object)
     numeric = pd.to_numeric(values, errors="coerce")
-    valid_mask = numeric.notna().to_numpy()
+    valid_positions = np.flatnonzero(numeric.notna().to_numpy())
     valid = numeric.loc[numeric.notna()]
     if valid.empty or valid.nunique() < 2:
         return labels, 0
@@ -196,8 +197,12 @@ def _stable_quantile_labels(
     mapped = pd.Series(codes, index=valid.index, dtype="Int64").map(
         {idx: f"{label_prefix}{idx + 1}" for idx in range(n_bins)}
     )
-    labels.iloc[np.flatnonzero(valid_mask)] = mapped.astype(str).to_numpy(dtype=object)
-    return labels, n_bins
+    mapped_values = mapped.astype(str).to_numpy(dtype=object)
+    if len(valid_positions) != len(mapped_values):
+        return labels, n_bins
+    label_values = labels.to_numpy(dtype=object, copy=True)
+    label_values[valid_positions] = mapped_values
+    return pd.Series(label_values, index=values.index, dtype=object), n_bins
 
 
 def _compute_sample_weight(
@@ -255,7 +260,7 @@ def _compute_sample_weight(
             pu_weight = np.where(
                 labels.to_numpy(dtype=int) == 1,
                 1.0,
-                negative_weight.to_numpy(dtype=float),
+                np.asarray(negative_weight, dtype=float),
             )
             weights *= np.asarray(pu_weight, dtype=float)
             continue
@@ -655,6 +660,10 @@ def _fit_hist_gradient_boosting(
         random_state=_fit_kwarg_int(fit_kwargs, "nonlinear_random_state", 42),
     )
     clf.fit(X, y, sample_weight=sample_weight)
+    # LightGBM may set feature_names_in_ even for array inputs, which triggers
+    # noisy sklearn warnings when later predictions use ndarray inputs.
+    if hasattr(clf, "feature_names_in_"):
+        delattr(clf, "feature_names_in_")
     return clf
 
 
@@ -761,7 +770,7 @@ def _predict_nonlinear_model(model: object, X: np.ndarray) -> np.ndarray:
 
 
 def _fit_lightgbm_classifier(
-    X: np.ndarray,
+    X: np.ndarray | pd.DataFrame,
     y: np.ndarray,
     *,
     fit_kwargs: dict[str, object] | None = None,
@@ -787,6 +796,22 @@ def _fit_lightgbm_classifier(
         n_jobs=1,
     )
     clf.fit(X, y, sample_weight=sample_weight)
+    feature_names = list(getattr(clf, "feature_name_", []))
+    original_predict_proba = clf.predict_proba
+    original_predict = clf.predict
+
+    def _predict_proba_with_feature_names(data: object) -> Any:
+        if isinstance(data, np.ndarray) and feature_names and data.ndim == 2:
+            data = pd.DataFrame(data, columns=feature_names)
+        return cast(Any, original_predict_proba)(data)
+
+    def _predict_with_feature_names(data: object) -> Any:
+        if isinstance(data, np.ndarray) and feature_names and data.ndim == 2:
+            data = pd.DataFrame(data, columns=feature_names)
+        return cast(Any, original_predict)(data)
+
+    setattr(clf, "predict_proba", _predict_proba_with_feature_names)
+    setattr(clf, "predict", _predict_with_feature_names)
     return clf
 
 
@@ -821,13 +846,18 @@ def _fit_lightgbm_isotonic_calibrator(
         X_inner_train, X_inner_valid = _prepare_feature_matrices(
             inner_train, inner_valid, columns, fit_kwargs=fit_kwargs, prepared=True
         )
+        X_inner_train_frame = pd.DataFrame(X_inner_train, columns=columns)
+        X_inner_valid_frame = pd.DataFrame(X_inner_valid, columns=columns)
         inner_weight = _compute_sample_weight(
             inner_train, mode=_fit_kwarg_mode(fit_kwargs), fit_kwargs=fit_kwargs
         )
         model = _fit_lightgbm_classifier(
-            X_inner_train, y[train_mask], fit_kwargs=fit_kwargs, sample_weight=inner_weight
+            X_inner_train_frame,
+            y[train_mask],
+            fit_kwargs=fit_kwargs,
+            sample_weight=inner_weight,
         )
-        preds[test_idx] += model.predict_proba(X_inner_valid)[:, 1]
+        preds[test_idx] += model.predict_proba(X_inner_valid_frame)[:, 1]
         counts[test_idx] += 1.0
     if np.any(counts == 0):
         return None
@@ -868,30 +898,33 @@ def _oof_lightgbm_predictions_from_eligible(
         else _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
     )
     for _, test_idx in fold_groups:
-            train_mask = np.ones(len(y), dtype=bool)
-            train_mask[test_idx] = False
-            train = eligible.loc[train_mask]
-            test = eligible.iloc[test_idx]
-            # Knownness residualization via _prepare_feature_matrices, NO standard scaling
-            X_train, X_test = _prepare_feature_matrices(
-                train, test, columns, fit_kwargs=fit_kwargs, prepared=True
-            )
-            train_weight = _compute_sample_weight(
-                train, mode=_fit_kwarg_mode(fit_kwargs), fit_kwargs=fit_kwargs
-            )
-            model = _fit_lightgbm_classifier(
-                X_train, y[train_mask], fit_kwargs=fit_kwargs, sample_weight=train_weight
-            )
-            raw_preds = model.predict_proba(X_test)[:, 1]
-            # Isotonic calibration when requested
-            if _fit_kwarg_str(fit_kwargs, "calibration", "").strip().lower() == "isotonic":
-                calibrator = _fit_lightgbm_isotonic_calibrator(
-                    train, columns, fit_kwargs=fit_kwargs
-                )
-                if calibrator is not None:
-                    raw_preds = calibrator.predict(raw_preds)
-            preds[test_idx] += raw_preds
-            counts[test_idx] += 1.0
+        train_mask = np.ones(len(y), dtype=bool)
+        train_mask[test_idx] = False
+        train = eligible.loc[train_mask]
+        test = eligible.iloc[test_idx]
+        # Knownness residualization via _prepare_feature_matrices, NO standard scaling
+        X_train, X_test = _prepare_feature_matrices(
+            train, test, columns, fit_kwargs=fit_kwargs, prepared=True
+        )
+        X_train_frame = pd.DataFrame(X_train, columns=columns)
+        X_test_frame = pd.DataFrame(X_test, columns=columns)
+        train_weight = _compute_sample_weight(
+            train, mode=_fit_kwarg_mode(fit_kwargs), fit_kwargs=fit_kwargs
+        )
+        model = _fit_lightgbm_classifier(
+            X_train_frame,
+            y[train_mask],
+            fit_kwargs=fit_kwargs,
+            sample_weight=train_weight,
+        )
+        raw_preds = model.predict_proba(X_test_frame)[:, 1]
+        # Isotonic calibration when requested
+        if _fit_kwarg_str(fit_kwargs, "calibration", "").strip().lower() == "isotonic":
+            calibrator = _fit_lightgbm_isotonic_calibrator(train, columns, fit_kwargs=fit_kwargs)
+            if calibrator is not None:
+                raw_preds = calibrator.predict(raw_preds)
+        preds[test_idx] += raw_preds
+        counts[test_idx] += 1.0
     if counts.min() == 0:
         warnings.warn(
             f"{int((counts == 0).sum())} sample(s) never appeared in any test fold",
@@ -1300,7 +1333,9 @@ def _evaluate_model_name_task(
     seed: int,
     fold_groups: list[tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> tuple[str, ModelResult]:
-    return _safe_evaluate_model_name_task(scored, model_name, n_splits, n_repeats, seed, fold_groups)
+    return _safe_evaluate_model_name_task(
+        scored, model_name, n_splits, n_repeats, seed, fold_groups
+    )
 
 
 def _build_dropout_feature_row(
@@ -1343,7 +1378,7 @@ def _evaluate_prediction_set(
     name: str,
     y: np.ndarray,
     preds: np.ndarray,
-    index: pd.Index,
+    index: pd.Index | pd.Series,
     *,
     include_ci: bool = True,
     knownness_score: np.ndarray | None = None,
@@ -1351,7 +1386,9 @@ def _evaluate_prediction_set(
     prediction_detail: pd.DataFrame | None = None,
 ) -> ModelResult:
     if knownness_score is not None:
-        assert len(knownness_score) == len(y), "knownness_score must align with y array for post-hoc novelty stratification."
+        assert len(knownness_score) == len(y), (
+            "knownness_score must align with y array for post-hoc novelty stratification."
+        )
     prevalence = positive_prevalence(y)
     ap = average_precision(y, preds)
     precision_at_10, recall_at_10 = _top_k_precision_recall(y, preds, top_k=10)
@@ -1417,7 +1454,7 @@ def _evaluate_prediction_set(
         metrics["log_loss_ci_upper"] = intervals["log_loss"]["upper"]
     predictions = pd.DataFrame(
         {
-            "backbone_id": index.astype(str),
+            "backbone_id": pd.Series(index).astype(str).to_numpy(dtype=str),
             "oof_prediction": preds,
             "spread_label": y,
             "visibility_expansion_label": y,  # kept for backward compat; always equals spread_label
@@ -1523,17 +1560,12 @@ def select_cmim_features(
     top_n: int = 12,
     n_bins: int = 5,
 ) -> list[str]:
-    return cast(
-        list[str],
-        build_cmim_feature_selection_table(
-            scored,
-            columns=columns,
-            top_n=top_n,
-            n_bins=n_bins,
-        )["feature_name"]
-        .astype(str)
-        .tolist(),
-    )
+    return build_cmim_feature_selection_table(
+        scored,
+        columns=columns,
+        top_n=top_n,
+        n_bins=n_bins,
+    )["feature_name"].astype(str).tolist()
 
 
 def build_cmim_feature_selection_table(
@@ -1792,23 +1824,29 @@ def _ensure_feature_columns(scored: pd.DataFrame, columns: list[str]) -> pd.Data
         else:
             working["H_phylogenetic_specialization_norm"] = 0.0
     if "T_H_obs_synergy_norm" in columns and "T_H_obs_synergy_norm" not in working.columns:
+        t_eff_norm = pd.Series(working.get("T_eff_norm", 0.0), index=working.index)
+        h_obs_norm = pd.Series(working.get("H_obs_norm", 0.0), index=working.index)
         working["T_H_obs_synergy_norm"] = np.clip(
-            pd.to_numeric(working.get("T_eff_norm", 0.0), errors="coerce").fillna(0.0)
-            * pd.to_numeric(working.get("H_obs_norm", 0.0), errors="coerce").fillna(0.0),
+            pd.to_numeric(t_eff_norm, errors="coerce").fillna(0.0)
+            * pd.to_numeric(h_obs_norm, errors="coerce").fillna(0.0),
             0.0,
             1.0,
         )
     if "A_H_obs_synergy_norm" in columns and "A_H_obs_synergy_norm" not in working.columns:
+        a_eff_norm = pd.Series(working.get("A_eff_norm", 0.0), index=working.index)
+        h_obs_norm = pd.Series(working.get("H_obs_norm", 0.0), index=working.index)
         working["A_H_obs_synergy_norm"] = np.clip(
-            pd.to_numeric(working.get("A_eff_norm", 0.0), errors="coerce").fillna(0.0)
-            * pd.to_numeric(working.get("H_obs_norm", 0.0), errors="coerce").fillna(0.0),
+            pd.to_numeric(a_eff_norm, errors="coerce").fillna(0.0)
+            * pd.to_numeric(h_obs_norm, errors="coerce").fillna(0.0),
             0.0,
             1.0,
         )
     if "T_coherence_synergy_norm" in columns and "T_coherence_synergy_norm" not in working.columns:
+        t_eff_norm = pd.Series(working.get("T_eff_norm", 0.0), index=working.index)
+        coherence_score = pd.Series(working.get("coherence_score", 0.0), index=working.index)
         working["T_coherence_synergy_norm"] = np.clip(
-            pd.to_numeric(working.get("T_eff_norm", 0.0), errors="coerce").fillna(0.0)
-            * pd.to_numeric(working.get("coherence_score", 0.0), errors="coerce").fillna(0.0),
+            pd.to_numeric(t_eff_norm, errors="coerce").fillna(0.0)
+            * pd.to_numeric(coherence_score, errors="coerce").fillna(0.0),
             0.0,
             1.0,
         )
@@ -2255,14 +2293,14 @@ def build_single_model_pareto_screen(
                 prediction_frame[["backbone_id", "oof_prediction"]],
                 on="backbone_id",
                 how="inner",
-                validate="1:1"
+                validate="1:1",
             )
             matched_knownness_weighted_roc_auc = _knownness_matched_weighted_roc_auc(
                 scored,
                 prediction_frame,
             )
-            from plasmid_priority.modeling.module_a import _grouped_prediction_weighted_roc_auc
-            def local_grouped_auc(group_cols):
+
+            def local_grouped_auc(group_cols: tuple[str, ...]) -> float:
                 rows = []
                 for group_col in group_cols:
                     if group_col not in merged_for_score.columns:
@@ -2270,24 +2308,48 @@ def build_single_model_pareto_screen(
                     working = merged_for_score.copy()
                     working[group_col] = working[group_col].fillna("unknown").astype(str)
                     counts = working[group_col].value_counts()
-                    selected_groups = counts.index.tolist() if group_col == "dominant_source" else counts.loc[counts >= min_group_size].head(max_groups_per_column).index.tolist()
+                    selected_groups = (
+                        counts.index.tolist()
+                        if group_col == "dominant_source"
+                        else counts.loc[counts >= min_group_size]
+                        .head(max_groups_per_column)
+                        .index.tolist()
+                    )
                     for group_value in selected_groups:
                         frame = working.loc[working[group_col] == group_value]
-                        if len(frame) < min_group_size or frame["spread_label"].astype(int).nunique() < 2:
+                        if (
+                            len(frame) < min_group_size
+                            or frame["spread_label"].astype(int).nunique() < 2
+                        ):
                             continue
                         from sklearn.metrics import roc_auc_score
-                        rows.append({
-                            "n_backbones": int(len(frame)),
-                            "roc_auc": float(roc_auc_score(frame["spread_label"].astype(int).to_numpy(), frame["oof_prediction"].astype(float).to_numpy()))
-                        })
-                if not rows: return float("nan")
+
+                        rows.append(
+                            {
+                                "n_backbones": int(len(frame)),
+                                "roc_auc": float(
+                                    roc_auc_score(
+                                        frame["spread_label"].astype(int).to_numpy(),
+                                        frame["oof_prediction"].astype(float).to_numpy(),
+                                    )
+                                ),
+                            }
+                        )
+                if not rows:
+                    return float("nan")
                 summary = pd.DataFrame(rows)
                 weights = pd.to_numeric(summary["n_backbones"], errors="coerce").fillna(0.0)
                 aucs = pd.to_numeric(summary["roc_auc"], errors="coerce")
-                return float(np.average(aucs, weights=weights)) if float(weights.sum()) > 0.0 else float(aucs.mean())
+                return (
+                    float(np.average(aucs, weights=weights))
+                    if float(weights.sum()) > 0.0
+                    else float(aucs.mean())
+                )
 
             source_holdout_weighted_roc_auc = local_grouped_auc(("dominant_source",))
-            blocked_holdout_weighted_roc_auc = local_grouped_auc(("dominant_source", "dominant_region_train"))
+            blocked_holdout_weighted_roc_auc = local_grouped_auc(
+                ("dominant_source", "dominant_region_train")
+            )
             spatial_holdout_weighted_roc_auc = local_grouped_auc(("dominant_region_train",))
         screen_fit_seconds = float(max(time.perf_counter() - started_at, 0.0))
         return {
@@ -2316,7 +2378,7 @@ def build_single_model_pareto_screen(
             "screen_fit_seconds": screen_fit_seconds,
         }
 
-    candidate_rows = candidate_family.to_dict("records")
+    candidate_rows = cast(list[dict[str, object]], candidate_family.to_dict("records"))
     jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(candidate_rows), cap=8)
     if jobs > 1 and candidate_rows:
         with limit_native_threads(1):
@@ -2488,11 +2550,19 @@ def evaluate_model_name(
     """Evaluate a single named model on the eligible cohort using OOF predictions."""
     _ensure_config_loaded()
     columns = MODULE_A_FEATURE_SETS[model_name]
-    assert "knownness_score" not in columns, "knownness_score is a stratification post-hoc metric, not a training feature."
+    assert "knownness_score" not in columns, (
+        "knownness_score is a stratification post-hoc metric, not a training feature."
+    )
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
-    from plasmid_priority.modeling.module_a import annotate_knownness_metadata, _knownness_score_series
-    knownness_score = _knownness_score_series(annotate_knownness_metadata(eligible)).to_numpy(dtype=float)
+    from plasmid_priority.modeling.module_a import (
+        _knownness_score_series,
+        annotate_knownness_metadata,
+    )
+
+    knownness_score = _knownness_score_series(annotate_knownness_metadata(eligible)).to_numpy(
+        dtype=float
+    )
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
     preds, y, prediction_detail = _oof_predictions_with_detail_from_eligible(
         eligible,
@@ -2546,8 +2616,14 @@ def evaluate_feature_columns(
         fit_kwargs.update(fit_config)
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
-    from plasmid_priority.modeling.module_a import annotate_knownness_metadata, _knownness_score_series
-    knownness_score = _knownness_score_series(annotate_knownness_metadata(eligible)).to_numpy(dtype=float)
+    from plasmid_priority.modeling.module_a import (
+        _knownness_score_series,
+        annotate_knownness_metadata,
+    )
+
+    knownness_score = _knownness_score_series(annotate_knownness_metadata(eligible)).to_numpy(
+        dtype=float
+    )
     preds, y, prediction_detail = _oof_predictions_with_detail_from_eligible(
         eligible,
         columns=columns,
@@ -3225,7 +3301,7 @@ def run_module_a(
     # identical fit parameters (L2, sample weights) so the null distribution
     # is comparable to the actual evaluation.
     rng = np.random.default_rng(seed)
-    primary_name = get_primary_model_name(MODULE_A_FEATURE_SETS.keys())
+    primary_name = get_primary_model_name(list(MODULE_A_FEATURE_SETS.keys()))
     primary_columns = MODULE_A_FEATURE_SETS[primary_name]
     primary_fit_kwargs = _model_fit_kwargs(primary_name)
     primary_eligible = (

@@ -7,9 +7,12 @@ from plasmid_priority.scoring.core import _linear_residual_series
 def test_residual_series_leakage():
     values = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], index=[1, 2, 3, 4, 5])
 
-    predictors = pd.DataFrame({
-        "log1p_member_count": [0.1, 0.2, 0.3, 20.0, 50.0],
-    }, index=[1, 2, 3, 4, 5])
+    predictors = pd.DataFrame(
+        {
+            "log1p_member_count": [0.1, 0.2, 0.3, 20.0, 50.0],
+        },
+        index=[1, 2, 3, 4, 5],
+    )
 
     fit_mask = pd.Series([True, True, True, False, False], index=[1, 2, 3, 4, 5])
 

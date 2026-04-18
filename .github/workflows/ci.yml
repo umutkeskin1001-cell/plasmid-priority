@@ -33,6 +33,12 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q src scripts tests
 
+      - name: Protocol freshness gate
+        run: make protocol-freshness
+
+      - name: Import contract gate
+        run: make import-contract
+
       - name: Lint (ruff)
         run: make lint
 

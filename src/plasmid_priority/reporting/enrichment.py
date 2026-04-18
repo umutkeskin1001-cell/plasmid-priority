@@ -77,13 +77,14 @@ def _benjamini_hochberg(pvalues: pd.Series) -> pd.Series:
     working = pvalues.astype(float).copy()
     ranked = working.sort_values(kind="mergesort")
     n = max(len(ranked), 1)
-    adjusted = pd.Series(index=ranked.index, dtype=float)
+    adjusted_values: dict[object, float] = {}
     running = 1.0
     for rank, (index, value) in enumerate(reversed(list(ranked.items())), start=1):
         order_rank = n - rank + 1
         corrected = min(running, float(value) * n / max(order_rank, 1))
         running = corrected
-        adjusted.loc[index] = corrected
+        adjusted_values[index] = corrected
+    adjusted = pd.Series(adjusted_values, dtype=float)
     return adjusted.reindex(working.index)
 
 
@@ -330,7 +331,9 @@ def build_candidate_signature_context(
 
     feature_maps: dict[str, dict[str, dict[str, object]]] = {}
     for row in positive_hits.to_dict(orient="records"):
-        feature_maps.setdefault(str(row["feature_group"]), {})[str(row["feature_value"])] = row
+        feature_maps.setdefault(str(row["feature_group"]), {})[str(row["feature_value"])] = {
+            str(key): value for key, value in row.items()
+        }
 
     rows: list[dict[str, object]] = []
     for row in working.to_dict(orient="records"):
