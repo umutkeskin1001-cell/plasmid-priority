@@ -300,7 +300,7 @@ def _generate_candidate_evidence_dossiers(project_root: Path, *, top_k: int = 25
     reviewer_pack_dir = ensure_directory(project_root / "reports" / "reviewer_pack")
     dossier_dir = ensure_directory(reviewer_pack_dir / "candidate_evidence_dossiers")
     for stale in dossier_dir.glob("*.md"):
-        stale.unlink()
+        stale.unlink(missing_ok=True)
 
     portfolio, evidence = _read_candidate_sources(project_root)
     if portfolio.empty or evidence.empty:
