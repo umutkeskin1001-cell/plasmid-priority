@@ -53,11 +53,15 @@ Thumbs.db
 .agents/
 .minimax/
 .worktrees/
+.cursor/
 .cursorignore
 .cursorrules
 .windsurf/
 .code-review-graph/
 .python-version
+coverage.json
+site/
+vault/
 
 # ==========================================
 # 📊 Veri (Data) - Sadece Tanımları Tutalım
@@ -81,6 +85,7 @@ data/*/
 # Ama bu klasörler içindeki büyük geçici dosyalar (varsa) yine de gitmesin
 reports/**/*.log
 reports/**/*.tmp
+reports/.cache/
 
 # Jürinin okuyacağı markdown ve küçük tabloları açalım
 !reports/**/*.md

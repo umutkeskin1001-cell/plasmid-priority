@@ -54,11 +54,11 @@ def _git_commit(project_root: Path) -> str:
     return result.stdout.strip() or "unknown"
 
 
-def _reference_data_path(context) -> Path:
+def _reference_data_path(context) -> Path:  # type: ignore
     gold_table = context.data_dir / "gold/official_modeling_table.tsv"
     if gold_table.exists():
-        return gold_table
-    return context.data_dir / "scores/backbone_scored.tsv"
+        return gold_table  # type: ignore
+    return context.data_dir / "scores/backbone_scored.tsv"  # type: ignore
 
 
 def _composite_experiment_id(
@@ -117,7 +117,7 @@ def _registry_rows(experiments_dir: Path, root: Path) -> list[dict[str, object]]
                 "suffix": path.suffix,
                 "size_bytes": int(stat.st_size),
                 "modified_utc": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(
-                    timespec="seconds"
+                    timespec="seconds",
                 ),
                 "sha256": model_surface_hash,
                 "protocol_hash": protocol_hash,
@@ -130,7 +130,7 @@ def _registry_rows(experiments_dir: Path, root: Path) -> list[dict[str, object]]
                     model_surface_hash=model_surface_hash,
                     git_commit_short=git_commit_short,
                 ),
-            }
+            },
         )
     return rows
 

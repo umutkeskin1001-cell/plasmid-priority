@@ -4,6 +4,8 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 from unittest import mock
 
 import pandas as pd
@@ -11,7 +13,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_script(module_name: str, script_name: str):
+def _load_script(module_name: str, script_name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         module_name, PROJECT_ROOT / "scripts" / script_name
     )
@@ -22,7 +24,10 @@ def _load_script(module_name: str, script_name: str):
     return module
 
 
-def test_run_hardening_summary_writes_json_when_markdown_enabled(tmp_path, capsys) -> None:
+def test_run_hardening_summary_writes_json_when_markdown_enabled(
+    tmp_path: Path,
+    capsys: Any,
+) -> None:
     module = _load_script("run_hardening_summary_batch3", "run_hardening_summary.py")
     backbone_path = tmp_path / "backbone.tsv"
     scored_path = tmp_path / "scored.tsv"

@@ -58,13 +58,13 @@
     },
     {
       "relative_path": "reports/diagnostic_tables/single_model_pareto_screen.tsv",
-      "sha256": "b433f6b35fb42160a93591e520e5d2e66bd57884d278fb8f3d9ab2153f1be1ca",
-      "size_bytes": 15026
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "size_bytes": 1
     },
     {
       "relative_path": "reports/diagnostic_tables/single_model_pareto_finalists.tsv",
-      "sha256": "94aabfc262da248cfc99a046905e54727175ae2fbf6a6781ad08f352d5a43816",
-      "size_bytes": 6819
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "size_bytes": 1
     },
     {
       "relative_path": "reports/core_tables/candidate_portfolio.tsv",
@@ -105,15 +105,180 @@
       "relative_path": "reports/core_figures/knownness_vs_oof_score_scatter.png",
       "sha256": "510aab7474383def6e3168482fd9eede93412e8e6cadf20341d1dc76b416a4e2",
       "size_bytes": 264515
+    },
+    {
+      "relative_path": "docs/model_card.md",
+      "sha256": "2d472d5beed343515fc0bb76fdd8b2d09ea0aab8092cf276555950bf9b661404",
+      "size_bytes": 1857
+    },
+    {
+      "relative_path": "docs/data_card.md",
+      "sha256": "2d35d5f66accfcdef67aa090356921e8bed3cb4fbdff0bde5a8778587019e490",
+      "size_bytes": 1838
+    },
+    {
+      "relative_path": "docs/benchmark_contract.md",
+      "sha256": "e81db58ba46ace22ae7d6945bee48fbec9999e0ed748874e21929b77f0a2e306",
+      "size_bytes": 2211
+    },
+    {
+      "relative_path": "docs/scientific_protocol.md",
+      "sha256": "446b9dadf752604312d1e94998f73e324942282536a35c0fd3da54eb9c1e6fde",
+      "size_bytes": 5163
+    },
+    {
+      "relative_path": "docs/label_card_bundle.md",
+      "sha256": "c871942a4fc413e8087fb359b29a863530c0fea9d7ffbf05953935589e3c40f8",
+      "size_bytes": 696
+    },
+    {
+      "relative_path": "docs/reproducibility_manifest.json",
+      "sha256": "a4cda8f9b64f266098ff6fdab67733e9fd8cadd12e05d8fd6d4a2de16a184751",
+      "size_bytes": 3548
+    },
+    {
+      "relative_path": "reports/reviewer_pack/README.md",
+      "sha256": "fc72074a2d4f76a8fa83590bac5cbcbd38b8fc42148935172c308c3480fb690f",
+      "size_bytes": 662
+    },
+    {
+      "relative_path": "reports/reviewer_pack/canonical_metadata.json",
+      "sha256": "32cf6739ffab3e2bb0466c0799130240584daff9ffc2fc90608003c4290a45ca",
+      "size_bytes": 15891
+    },
+    {
+      "relative_path": "reports/reviewer_pack/run_reproducibility.sh",
+      "sha256": "5fde710cee961838a099545c1244da9985797c5789560d0a9caea39061eda003",
+      "size_bytes": 177
+    },
+    {
+      "relative_path": "reports/performance/workflow_performance_dashboard.json",
+      "sha256": "523e4e308330449dd0e78799901ba03baa72574b6d2014776fbbc081ddde01b2",
+      "size_bytes": 481
+    },
+    {
+      "relative_path": "reports/performance/workflow_performance_dashboard.md",
+      "sha256": "c10f0e8a8e2b1a17af620fc43bc1d3dc8ac58e1e979934741e3a576cee3dc05d",
+      "size_bytes": 403
+    },
+    {
+      "relative_path": "reports/release/release_readiness_report.json",
+      "sha256": "834db3b6db4c594f7f8d3d432a256e0dfc1930bbf504ea307f0e5308b82d791b",
+      "size_bytes": 468
+    },
+    {
+      "relative_path": "reports/release/release_readiness_report.md",
+      "sha256": "3d3da98bdfa49dc8f8b06589e556c009274c696bde0edf81edbed5361a2205a3",
+      "size_bytes": 364
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA086.md",
+      "sha256": "ba4134efd1bde759a256f524b0b73189de6cefeb76bbbcc4b8250b38900f7680",
+      "size_bytes": 7984
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA279.md",
+      "sha256": "6dbaf0caa01829f9cc48a90a6908d2950e1c3b7b6fb2e6bb563e000600b5a629",
+      "size_bytes": 7938
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA282.md",
+      "sha256": "5af1f4345610044403b71fa880bfccd6511d7e6a87c78a5d21156defa0b0483e",
+      "size_bytes": 7952
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA316.md",
+      "sha256": "dc094d9f52b5e6cc3aeffc3cc3be0b6204f0e45e8732292c23c86166667a87aa",
+      "size_bytes": 7800
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA319.md",
+      "sha256": "61711a68e00bb31fc6d10ac033ae66e743e269bbdb69b41845991023de82cfca",
+      "size_bytes": 7936
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA324.md",
+      "sha256": "d97f8be8d70cbab9a7039138dd31c26f9e9d6c8b83e6b6d09a65c28e7e0c170a",
+      "size_bytes": 7925
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA331.md",
+      "sha256": "6eef6279a9950b25d37e8e1586930bbba9e99bc0d2ad3c8e2f6ee2ceea146b0b",
+      "size_bytes": 7734
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA409.md",
+      "sha256": "304d69aac8d2c868b8ed30773454425eb2d38a19e082460d462f02aed447999d",
+      "size_bytes": 7984
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA411.md",
+      "sha256": "23a514ad5b6a2afd46e8d1ab74f5c2faecf5792830628fb95977332c2fd75dcd",
+      "size_bytes": 7830
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA434.md",
+      "sha256": "d7de6fa13ca8ff8f8975669f807aea25b6238fc264aa6188e431f77d40e3270a",
+      "size_bytes": 7947
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA514.md",
+      "sha256": "3c56b820fdb36842b97e5e66b686d28881f8d1455947382f9758da738eacd97b",
+      "size_bytes": 7678
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA764.md",
+      "sha256": "b3b4b0541d6b55d3cf0f9b8838749ea22f7bf0ae44ffa1766d32bfa9e952723a",
+      "size_bytes": 8055
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA859.md",
+      "sha256": "6da25d2aef0d9b47b94f1d05459c8b78df6cb028b9097d8e959bc80ea0cb3116",
+      "size_bytes": 7854
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AC030.md",
+      "sha256": "eec99ea7296dad28dd5cfed07ca256fd5a774cd570176826616d6f547fb7c396",
+      "size_bytes": 7735
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AC202.md",
+      "sha256": "68efeab7874a1c19f20dd55e7f4456e7dc978023773ead8f34edbc89a8a56b3f",
+      "size_bytes": 7709
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AC203.md",
+      "sha256": "76dc5d7899c60498c23985c5747608025426dd17c9adfc7513355078a7d53509",
+      "size_bytes": 7724
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AC301.md",
+      "sha256": "e3af836537e4de64eb930614ef8bdfd7e908a133a9706589a486a2ff8bba667d",
+      "size_bytes": 7832
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AD100.md",
+      "sha256": "b27721ad5693bd069614b76fdf22534199bc19a102233e44bdeb2d1387755d32",
+      "size_bytes": 7930
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AE264.md",
+      "sha256": "cf27b2643897fdcd66e6db2510f71b2d4097b3368de4801edb095eca8eea9ff5",
+      "size_bytes": 7902
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/index.md",
+      "sha256": "8cf2ce01dabe3ee721ae0c765155679a64874aeab49c51a99b163a91767a160b",
+      "size_bytes": 494
     }
   ],
-  "generated_at_utc": "2026-04-11T08:58:43+00:00",
+  "generated_at_utc": "2026-04-21T17:57:04+00:00",
   "missing_files": [],
-  "n_files": 21,
+  "n_files": 54,
   "project_root": "/Users/umut/Projeler/plasmid-priority",
   "provenance": {
-    "benchmark_contract_hash": "8e20fc93cc05dace274784d0102c61bc70f5e7b138cfb544cd9e804b713bd243",
-    "benchmark_contract_version": "2026-04-10",
+    "benchmark_contract_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",
+    "benchmark_contract_version": "2025-07-15",
     "benchmark_scope": {
       "accepted_audit_gates": [
         "matched_knownness_gap_min",
@@ -126,26 +291,39 @@
         "ece_max": "Expected calibration error upper bound.",
         "selection_adjusted_p_max": "Selection-adjusted empirical p-value upper bound."
       },
+      "eligibility_rules": {
+        "require_temporal_metadata": true,
+        "require_training_only_assignment": true,
+        "required_assignment_mode": "training_only"
+      },
       "eligible_cohort": {
+        "forbidden_features": [],
+        "horizon_years": 5,
         "min_new_countries_for_spread": 3,
+        "min_new_host_families_for_transfer": 1,
+        "min_new_host_genera_for_transfer": 2,
+        "require_training_only_assignment": true,
         "requires_temporal_metadata": true,
         "temporal_split_year": 2015
       },
       "official_model_names": [
-        "discovery_12f_source",
-        "phylo_support_fusion_priority",
+        "discovery_boosted",
+        "governance_linear",
         "baseline_both"
       ],
       "outcome_definition": {
+        "horizon_years": 5,
         "min_new_countries_for_spread": 3,
+        "min_new_host_families_for_transfer": 1,
+        "min_new_host_genera_for_transfer": 2,
         "outcome_label": "spread_label",
         "split_year": 2015
       },
       "required_assignment_mode": "training_only",
       "split_year": 2015
     },
-    "git_commit": "f9608e937c16251b6510e2d045b0c7e66cb68c21",
-    "lockfile_sha256": "cf1d2f4e44c39bf28858d9adac4fa2328c1dad9b5764b27afea70f81636a4bb9",
+    "git_commit": "f3d5620d137b08fc99285a8cb3e8931e65ba5268",
+    "lockfile_sha256": "1f6bd98219c1d22cc3131013b15640da6b5f289cb1c2710a73a868b6749ebcf4",
     "official_model_names": [
       "discovery_12f_source",
       "parsimonious_priority",

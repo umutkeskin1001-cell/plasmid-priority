@@ -520,7 +520,7 @@ def _ensure_config_loaded() -> None:
 @dataclass
 class ModelResult:
     name: str
-    metrics: dict[str, float]
+    metrics: dict[str, Any]
     predictions: pd.DataFrame
     status: str = "ok"
     error_message: str | None = None
@@ -1095,6 +1095,26 @@ def _stratified_folds(
     return [
         (train_idx, test_idx) for train_idx, test_idx in skf.split(np.zeros(len(y), dtype=int), y)
     ]
+
+
+def build_model_folds(
+    frame: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    strategy: str,
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Resolve and build cross-validation folds for the requested strategy."""
+    normalized = str(strategy or "stratified_repeated").strip().lower()
+    if normalized == "stratified_repeated":
+        return _stratified_folds(y, n_splits=n_splits, n_repeats=n_repeats, seed=seed)
+    if normalized == "temporal_group":
+        from plasmid_priority.modeling.temporal_cv import temporal_group_folds
+
+        return temporal_group_folds(frame, n_splits=n_splits)
+    raise ValueError(f"Unsupported split_strategy: {strategy}")
 
 
 def _oof_predictions(

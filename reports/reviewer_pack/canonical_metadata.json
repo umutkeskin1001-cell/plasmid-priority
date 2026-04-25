@@ -313,9 +313,9 @@
     }
   },
   "benchmarks_hash": "93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201",
-  "config_sha": "e2e48334bb0812bc17115002e1aa7fec2af209612db1a6f6c7547a63859c929a",
-  "data_contract_sha": "43968ff4bdfe1e93efa526f5e2e3151de14d0a81ba29fa9afde6b2ff5aa438b2",
-  "metadata_hash": "3b25a9edef5c51c7864d9d7b88e0f1220c74a527738385ea6553086e07c0ba9f",
+  "config_sha": "a2184360153a06a563a59585d60275581b81c68253427064f75aeec460030efc",
+  "data_contract_sha": "da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b",
+  "metadata_hash": "61a570d9636ad2ed77baea188e0ab55869d51b2e6474a7f36b1e92aa4aa5789b",
   "protocol": {
     "ablation_model_names": [
       "T_only",

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from plasmid_priority.protocol import _coerce_float, _coerce_int
 from plasmid_priority.schemas import DataAssetSpec, DataContract
@@ -55,6 +55,41 @@ class PipelineConfig(BaseModel):
     host_evenness_bias_power: float = DEFAULT_HOST_EVENNESS_BIAS_POWER
     host_phylo_breadth_weight: float = DEFAULT_HOST_PHYLO_BREADTH_WEIGHT
     host_phylo_dispersion_weight: float = DEFAULT_HOST_PHYLO_DISPERSION_WEIGHT
+
+    @field_validator("split_year")
+    @classmethod
+    def _validate_split_year(cls, value: int) -> int:
+        if value < 1900 or value > 2100:
+            raise ValueError("split_year must be between 1900 and 2100")
+        return value
+
+    @field_validator(
+        "horizon_years",
+        "min_new_host_genera_for_transfer",
+        "min_new_host_families_for_transfer",
+    )
+    @classmethod
+    def _validate_non_negative_int(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("value must be non-negative")
+        return value
+
+    @field_validator("clinical_escalation_thresholds", "ood_thresholds")
+    @classmethod
+    def _validate_unit_interval_mapping(cls, value: dict[str, float]) -> dict[str, float]:
+        for key, raw in value.items():
+            numeric = float(raw)
+            if numeric < 0.0 or numeric > 1.0:
+                raise ValueError(f"{key} must be in [0, 1]")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_consensus_weights(self) -> "PipelineConfig":
+        if self.consensus_weights:
+            total = sum(float(value) for value in self.consensus_weights.values())
+            if abs(total - 1.0) > 1e-6:
+                raise ValueError("consensus_weights must sum to 1.0")
+        return self
 
 
 class ProjectConfig(BaseModel):

@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from types import ModuleType
 from unittest import mock
 
 import pandas as pd
@@ -12,7 +13,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_script(module_name: str):
+def _load_script(module_name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         module_name,
         PROJECT_ROOT / "scripts" / "generate_hardening_snapshot.py",

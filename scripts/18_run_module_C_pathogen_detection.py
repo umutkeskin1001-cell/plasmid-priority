@@ -126,7 +126,7 @@ def main() -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
         },
     }
@@ -145,15 +145,15 @@ def main() -> int:
             metadata=cache_metadata,
         ):
             run.note(
-                "Inputs, code, and config unchanged; reusing cached Pathogen Detection support outputs."
+                "Inputs, code, and config unchanged; reusing cached Pathogen Detection support outputs.",
             )
             run.set_metric("cache_hit", True)
             return 0
         run.note(
-            "Supportive descriptive analysis only. This module is not treated as independent validation."
+            "Supportive descriptive analysis only. This module is not treated as independent validation.",
         )
         run.note(
-            "Clinical and environmental Pathogen Detection strata are analyzed separately when local metadata tables are present."
+            "Clinical and environmental Pathogen Detection strata are analyzed separately when local metadata tables are present.",
         )
 
         scored = read_tsv(scored_path)
@@ -174,7 +174,7 @@ def main() -> int:
         eligible_count = int(scored["spread_label"].notna().sum())
         n_per_group = max(25, int(round(eligible_count * 0.25))) if eligible_count > 0 else 25
         run.note(
-            f"Pathogen Detection contrasts use headline-model quartile extremes (top/bottom {n_per_group}) rather than a fixed top/bottom 100."
+            f"Pathogen Detection contrasts use headline-model quartile extremes (top/bottom {n_per_group}) rather than a fixed top/bottom 100.",
         )
 
         targets = build_pathogen_targets(
@@ -190,7 +190,7 @@ def main() -> int:
         for dataset_name, metadata_path, dataset_detail_path, dataset_summary_path in dataset_specs:
             if dataset_name != "combined" and not metadata_path.exists():
                 run.warn(
-                    f"Optional Pathogen Detection {dataset_name} table not found: {metadata_path}"
+                    f"Optional Pathogen Detection {dataset_name} table not found: {metadata_path}",
                 )
                 continue
 
@@ -207,7 +207,9 @@ def main() -> int:
         if max_workers <= 1:
             for dataset_name, metadata_path, _, _ in active_specs:
                 _, detail, summary = _build_pathogen_support_task(
-                    targets, metadata_path, dataset_name
+                    targets,
+                    metadata_path,
+                    dataset_name,
                 )
                 dataset_results[dataset_name] = (detail, summary)
         else:
@@ -215,7 +217,10 @@ def main() -> int:
                 with ProcessPoolExecutor(max_workers=max_workers) as executor:
                     future_map = {
                         executor.submit(
-                            _build_pathogen_support_task, targets, metadata_path, dataset_name
+                            _build_pathogen_support_task,
+                            targets,
+                            metadata_path,
+                            dataset_name,
                         ): (
                             dataset_name,
                             dataset_detail_path,
@@ -229,11 +234,13 @@ def main() -> int:
                         dataset_results[result_name] = (detail, summary)
             except (PermissionError, OSError, NotImplementedError):
                 run.warn(
-                    "ProcessPoolExecutor unavailable in this environment; falling back to serial Pathogen Detection support."
+                    "ProcessPoolExecutor unavailable in this environment; falling back to serial Pathogen Detection support.",
                 )
                 for dataset_name, metadata_path, _, _ in active_specs:
                     _, detail, summary = _build_pathogen_support_task(
-                        targets, metadata_path, dataset_name
+                        targets,
+                        metadata_path,
+                        dataset_name,
                     )
                     dataset_results[dataset_name] = (detail, summary)
 
@@ -245,10 +252,12 @@ def main() -> int:
             run.record_output(dataset_detail_path)
             run.record_output(dataset_summary_path)
             run.set_rows_out(
-                f"{dataset_name}_pathogen_detection_detail_rows", int(len(dataset_detail))
+                f"{dataset_name}_pathogen_detection_detail_rows",
+                int(len(dataset_detail)),
             )
             run.set_rows_out(
-                f"{dataset_name}_pathogen_detection_summary_rows", int(len(dataset_summary))
+                f"{dataset_name}_pathogen_detection_summary_rows",
+                int(len(dataset_summary)),
             )
             summary_frames[dataset_name] = dataset_summary.drop(columns=["pathogen_dataset"])
             if dataset_name == "combined":

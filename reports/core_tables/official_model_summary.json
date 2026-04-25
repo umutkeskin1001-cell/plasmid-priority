@@ -1,0 +1,14 @@
+{
+  "candidate_count": 19,
+  "decision_model_name": "conservative_evidence_consensus",
+  "decision_surface": "conservative_evidence_consensus",
+  "duplicate_model_names": [],
+  "experimental_model_count": 0,
+  "missing_roles": [],
+  "model_count": 5,
+  "official_model_family_status": "pass",
+  "primary_model_name": "sparse_calibrated_logistic",
+  "reasons": [],
+  "review_not_rank_count": 19,
+  "status": "pass"
+}

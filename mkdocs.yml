@@ -25,6 +25,26 @@ plugins:
             show_root_heading: true
             show_category_heading: true
 
+not_in_nav: |
+  JURY_SUMMARY.md
+  SOTA_TECHNICAL_PLAN.md
+  benchmark_contract.md
+  data_card.md
+  data_cleaning_contract.md
+  disposition_ledger.md
+  final_project_ascension_plan.md
+  label_card_bundle.md
+  macos_compatibility.md
+  model_card.md
+  plugins.md
+  pre_registration.md
+  scientific_protocol.md
+  runbooks/ci_failure_triage.md
+  runbooks/jury_presentation.md
+  runbooks/model_update.md
+  runbooks/new_data_source.md
+  superpowers/plans/*
+
 nav:
   - Home: index.md
   - Runbooks:

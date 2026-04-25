@@ -3,14 +3,17 @@ from __future__ import annotations
 import unittest
 
 import pandas as pd
+import pytest
 
 from plasmid_priority.backbone import (
     assign_backbone_ids,
     assign_backbone_ids_training_only,
+    compute_backbone_coherence,
     fallback_backbone_key,
 )
 from plasmid_priority.config import DEFAULT_MIN_NEW_COUNTRIES_FOR_SPREAD
 from plasmid_priority.features import build_backbone_table
+from plasmid_priority.shared.temporal import TemporalMetadataError
 
 
 class BackboneTests(unittest.TestCase):
@@ -269,3 +272,34 @@ class BackboneTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_training_only_assignment_rejects_missing_resolved_year() -> None:
+    records = pd.DataFrame(
+        {
+            "resolved_year": [2014, None],
+            "primary_cluster_id": ["C1", "C2"],
+            "predicted_mobility": ["mobilizable", "mobilizable"],
+            "mpf_type": ["F", "F"],
+            "primary_replicon": ["IncF", "IncF"],
+            "sequence_length": [1000, 1000],
+        }
+    )
+
+    with pytest.raises(TemporalMetadataError):
+        assign_backbone_ids_training_only(records, split_year=2015)
+
+
+def test_coherence_rejects_invalid_resolved_year() -> None:
+    records = pd.DataFrame(
+        {
+            "resolved_year": [2014, "unknown"],
+            "backbone_id": ["B1", "B1"],
+            "predicted_mobility": ["mobilizable", "mobilizable"],
+            "primary_replicon": ["IncF", "IncF"],
+            "topology": ["circular", "circular"],
+        }
+    )
+
+    with pytest.raises(TemporalMetadataError):
+        compute_backbone_coherence(records, split_year=2015)

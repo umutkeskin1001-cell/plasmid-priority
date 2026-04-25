@@ -31,7 +31,7 @@ def _tree_model_usage() -> list[str]:
             "scripts",
             "tests",
             "-S",
-        ]
+        ],
     )
     if not output:
         return []
@@ -91,7 +91,7 @@ def _render() -> str:
             "",
             "### scripts/archive inventory",
             "",
-        ]
+        ],
     )
     if archive_entries:
         lines.append("```text")
@@ -108,7 +108,7 @@ def _render() -> str:
             "No new legacy wrapper, archive script, or re-export stub should be added",
             "without an explicit ledger entry and planned deletion path.",
             "",
-        ]
+        ],
     )
     return "\n".join(lines)
 

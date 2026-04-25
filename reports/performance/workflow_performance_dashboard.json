@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-04-23T18:44:05+00:00",
+  "history_path": "/Users/umut/Projeler/plasmid-priority/data/tmp/logs/workflow_profile_history.jsonl",
+  "summaries": [
+    {
+      "mode": "smoke-local",
+      "n_runs": 0
+    },
+    {
+      "mode": "dev-refresh",
+      "n_runs": 0
+    },
+    {
+      "mode": "model-refresh",
+      "n_runs": 0
+    },
+    {
+      "mode": "report-refresh",
+      "n_runs": 0
+    },
+    {
+      "mode": "release-full",
+      "n_runs": 0
+    }
+  ]
+}

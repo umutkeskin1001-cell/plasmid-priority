@@ -9,6 +9,14 @@ from plasmid_priority.validation.falsification import (
     build_outcome_permutation_falsification,
     summarize_falsification_findings,
 )
+from plasmid_priority.validation.fast_metrics import (
+    bootstrap_ci_fast,
+    fast_auc,
+    fast_average_precision,
+    fast_brier_score,
+    fast_top_k_precision_recall,
+    permutation_null_fast,
+)
 from plasmid_priority.validation.metrics import (
     average_precision,
     average_precision_enrichment,
@@ -69,6 +77,12 @@ from plasmid_priority.validation.vif import (
 )
 
 __all__ = [
+    "bootstrap_ci_fast",
+    "fast_auc",
+    "fast_average_precision",
+    "fast_brier_score",
+    "fast_top_k_precision_recall",
+    "permutation_null_fast",
     "average_precision",
     "average_precision_enrichment",
     "average_precision_lift",

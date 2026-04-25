@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Jury Dashboard</title>
+<style>body{font-family:system-ui,sans-serif;margin:24px;max-width:1100px;}code{font-size:0.9em;}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;} .card{border:1px solid #ddd;padding:12px;border-radius:10px;background:#fff;} ul{padding-left:20px;} </style>
+</head><body>
+<h1>Jury Dashboard</h1>
+<p>Generated at: <code>2026-04-23T18:44:06+00:00</code></p>
+<div class='grid'>
+<div class='card'><h2>Release Readiness</h2><pre>{
+  "artifact_integrity_errors": [],
+  "checks": {
+    "api_artifact_backed_non_placeholder": true,
+    "artifact_integrity": true,
+    "async_batch_surface_present": true,
+    "claim_levels_complete": true,
+    "compute_targets_configured": true,
+    "graphql_surface_present": true,
+    "independent_audit_script_present": true,
+    "jury_dashboard_html_present": true,
+    "pre_registration_present": true,
+    "rag_corpus_config_present": true,
+    "reviewer_package_one_command": true,
+    "sdk_present": true,
+    "sensitivity_reporting_incremental": true,
+    "validation_gauntlet_present": true
+  },
+  "failed_checks": [],
+  "generated_at": "2026-04-23T18:38:10+00:00",
+  "scientific_contract_errors": [],
+  "status": "pass"
+}</pre></div>
+<div class='card'><h2>Performance Summary</h2><pre>{
+  "generated_at": "2026-04-23T18:44:05+00:00",
+  "history_path": "/Users/umut/Projeler/plasmid-priority/data/tmp/logs/workflow_profile_history.jsonl",
+  "summaries": [
+    {
+      "mode": "smoke-local",
+      "n_runs": 0
+    },
+    {
+      "mode": "dev-refresh",
+      "n_runs": 0
+    },
+    {
+      "mode": "model-refresh",
+      "n_runs": 0
+    },
+    {
+      "mode": "report-refresh",
+      "n_runs": 0
+    },
+    {
+      "mode": "release-full",
+      "n_runs": 0
+    }
+  ]
+}</pre></div>
+</div>
+<div class='card'><h2>RAG Q&A Evidence</h2>
+<h3>What evidence supports external validation and claim levels?</h3><ul><li><strong>Plasmid Priority — TÜBİTAK Jury Technical Summary</strong> <em>(score=0.440685)</em><br># Plasmid Priority — TÜBİTAK Jury Technical Summary  > **Revision:** April 2026 | **Version:** 0.3.0   > **Contact:** See repository README for principal investigator details.  ---  ## ⚠️ Scientific Scope  This system is a **retrospective genomic surveillance prioritization tool**.  It **does NOT**: - Make clinical diagnoses or treatment recommendations - Predict individual patient outcomes   - Re</li><li><strong>Benchmark Contract</strong> <em>(score=0.180769)</em><br># Benchmark Contract  This document is generated from canonical scientific metadata.  ## Version  - protocol_hash: `c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a` - benchmarks_hash: `93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201` - data_contract_sha: `da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b` - config_sha: `4607bb0d0c4752b169f34cbb264f9</li><li><strong>Model Card</strong> <em>(score=0.0915)</em><br># Model Card  ## Official Surface  - official_model_names: `['discovery_boosted', 'governance_linear', 'baseline_both']` - core_model_names: `['baseline_both', 'governance_linear', 'discovery_boosted', 'discovery_graph_boosted', 'T_only', 'H_only', 'A_only', 'T_plus_H_plus_A', 'parsimonious_priority', 'support_synergy_priority']` - research_model_names: `['H_plus_A', 'T_plus_A', 'T_plus_H', 'balan</li><li><strong>Pre-registration Protocol</strong> <em>(score=0.090625)</em><br># Pre-registration Protocol  ## Scope - Study: Plasmid Priority retrospective genomic surveillance ranking. - Frozen evaluation surfaces: temporal holdout, source holdout, spatial holdout. - Primary endpoint: `spread_label` operational utility under governance constraints.  ## Hypotheses 1. Governance-approved official model preserves ranking utility under holdout shifts. 2. Calibration and uncert</li></ul>
+<h3>What are the strongest release readiness checks and failures?</h3><ul><li><strong>Pre-registration Protocol</strong> <em>(score=0.404514)</em><br># Pre-registration Protocol  ## Scope - Study: Plasmid Priority retrospective genomic surveillance ranking. - Frozen evaluation surfaces: temporal holdout, source holdout, spatial holdout. - Primary endpoint: `spread_label` operational utility under governance constraints.  ## Hypotheses 1. Governance-approved official model preserves ranking utility under holdout shifts. 2. Calibration and uncert</li><li><strong>Plasmid Priority — TÜBİTAK Jury Technical Summary</strong> <em>(score=0.392074)</em><br># Plasmid Priority — TÜBİTAK Jury Technical Summary  > **Revision:** April 2026 | **Version:** 0.3.0   > **Contact:** See repository README for principal investigator details.  ---  ## ⚠️ Scientific Scope  This system is a **retrospective genomic surveillance prioritization tool**.  It **does NOT**: - Make clinical diagnoses or treatment recommendations - Predict individual patient outcomes   - Re</li><li><strong>reproducibility_manifest.json</strong> <em>(score=0.239951)</em><br>{   "artifacts": {     "calibration_artifact_hash": "0c1379f19102b3fa6145fc2a8ffbaa481c57166a6f2c0c8864465143d353d90b",     "feature_schema_hash": "1f268fb9face6f64f0c7e1d841edacbc8252c4f6e7987972a23a520ff94d1b7d",     "model_version": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",     "protocol_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",     "tr</li><li><strong>Benchmark Contract</strong> <em>(score=0.161325)</em><br># Benchmark Contract  This document is generated from canonical scientific metadata.  ## Version  - protocol_hash: `c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a` - benchmarks_hash: `93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201` - data_contract_sha: `da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b` - config_sha: `4607bb0d0c4752b169f34cbb264f9</li></ul>
+<h3>What are the key reproducibility and protocol guarantees?</h3><ul><li><strong>Plasmid Priority — TÜBİTAK Jury Technical Summary</strong> <em>(score=0.528822)</em><br># Plasmid Priority — TÜBİTAK Jury Technical Summary  > **Revision:** April 2026 | **Version:** 0.3.0   > **Contact:** See repository README for principal investigator details.  ---  ## ⚠️ Scientific Scope  This system is a **retrospective genomic surveillance prioritization tool**.  It **does NOT**: - Make clinical diagnoses or treatment recommendations - Predict individual patient outcomes   - Re</li><li><strong>Pre-registration Protocol</strong> <em>(score=0.271875)</em><br># Pre-registration Protocol  ## Scope - Study: Plasmid Priority retrospective genomic surveillance ranking. - Frozen evaluation surfaces: temporal holdout, source holdout, spatial holdout. - Primary endpoint: `spread_label` operational utility under governance constraints.  ## Hypotheses 1. Governance-approved official model preserves ranking utility under holdout shifts. 2. Calibration and uncert</li><li><strong>Benchmark Contract</strong> <em>(score=0.271154)</em><br># Benchmark Contract  This document is generated from canonical scientific metadata.  ## Version  - protocol_hash: `c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a` - benchmarks_hash: `93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201` - data_contract_sha: `da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b` - config_sha: `4607bb0d0c4752b169f34cbb264f9</li><li><strong>reproducibility_manifest.json</strong> <em>(score=0.269118)</em><br>{   "artifacts": {     "calibration_artifact_hash": "0c1379f19102b3fa6145fc2a8ffbaa481c57166a6f2c0c8864465143d353d90b",     "feature_schema_hash": "1f268fb9face6f64f0c7e1d841edacbc8252c4f6e7987972a23a520ff94d1b7d",     "model_version": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",     "protocol_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",     "tr</li></ul>
+</div>
+</body></html>

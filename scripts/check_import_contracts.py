@@ -78,7 +78,8 @@ def check_import_contracts() -> list[Violation]:
     violations: list[Violation] = []
     for file_path in _iter_python_files(SRC_ROOT):
         module_name = "plasmid_priority." + str(file_path.relative_to(SRC_ROOT)).replace(
-            "/", "."
+            "/",
+            ".",
         ).removesuffix(".py")
         source_layer = _module_layer(module_name)
         if source_layer is None:
@@ -97,12 +98,12 @@ def check_import_contracts() -> list[Violation]:
                                 f"layer breach: `{source_layer}` imported higher layer "
                                 f"`{target_layer}`"
                             ),
-                        )
+                        ),
                     )
 
             for forbidden_prefix in FORBIDDEN_IMPORT_PREFIXES.get(module_name, ()):
                 if imported_module == forbidden_prefix or imported_module.startswith(
-                    f"{forbidden_prefix}."
+                    f"{forbidden_prefix}.",
                 ):
                     if not _is_allowlisted(allowlist, module_name, imported_module):
                         violations.append(
@@ -112,14 +113,14 @@ def check_import_contracts() -> list[Violation]:
                                 message=(
                                     f"forbidden import: `{module_name}` -> `{imported_module}`"
                                 ),
-                            )
+                            ),
                         )
 
             for module_prefix, blocked in FORBIDDEN_IMPORT_PREFIXES.items():
                 if module_name == module_prefix or module_name.startswith(f"{module_prefix}."):
                     for blocked_prefix in blocked:
                         if imported_module == blocked_prefix or imported_module.startswith(
-                            f"{blocked_prefix}."
+                            f"{blocked_prefix}.",
                         ):
                             if not _is_allowlisted(allowlist, module_name, imported_module):
                                 violations.append(
@@ -130,7 +131,7 @@ def check_import_contracts() -> list[Violation]:
                                             f"forbidden import: `{module_name}` -> "
                                             f"`{imported_module}`"
                                         ),
-                                    )
+                                    ),
                                 )
     return violations
 
@@ -156,10 +157,10 @@ def _is_allowlisted(
 ) -> bool:
     for source_prefix, import_prefix in allowlist:
         source_match = source_module == source_prefix or source_module.startswith(
-            f"{source_prefix}."
+            f"{source_prefix}.",
         )
         target_match = imported_module == import_prefix or imported_module.startswith(
-            f"{import_prefix}."
+            f"{import_prefix}.",
         )
         if source_match and target_match:
             return True

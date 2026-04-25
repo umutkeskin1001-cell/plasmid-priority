@@ -1,0 +1,42 @@
+{
+  "artifact_integrity": {
+    "errors": [],
+    "status": "pass"
+  },
+  "checks": {
+    "artifact_integrity_pass": true,
+    "pre_registration_present": true,
+    "release_readiness_pass": true,
+    "scientific_contract_pass": true
+  },
+  "failed_checks": [],
+  "generated_at": "2026-04-23T18:44:08+00:00",
+  "pre_registration_path": "/Users/umut/Projeler/plasmid-priority/docs/pre_registration.md",
+  "release_readiness": {
+    "artifact_integrity_errors": [],
+    "checks": {
+      "api_artifact_backed_non_placeholder": true,
+      "artifact_integrity": true,
+      "async_batch_surface_present": true,
+      "claim_levels_complete": true,
+      "compute_targets_configured": true,
+      "graphql_surface_present": true,
+      "independent_audit_script_present": true,
+      "jury_dashboard_html_present": true,
+      "pre_registration_present": true,
+      "rag_corpus_config_present": true,
+      "reviewer_package_one_command": true,
+      "sdk_present": true,
+      "sensitivity_reporting_incremental": true,
+      "validation_gauntlet_present": true
+    },
+    "failed_checks": [],
+    "scientific_contract_errors": [],
+    "status": "pass"
+  },
+  "scientific_contract": {
+    "errors": [],
+    "status": "pass"
+  },
+  "status": "pass"
+}

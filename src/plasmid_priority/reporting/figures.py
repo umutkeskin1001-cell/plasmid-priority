@@ -2990,7 +2990,10 @@ def generate_all_figures(
     governance_model_name: str | None = None,
     figures_dir: Path,
     primary_model_name: str,
+    report_cache: object | None = None,
+    report_mode: str = "report-full",
 ) -> list[str]:
+    _ = (report_cache, report_mode)
     core_dir = figures_dir.parent / "core_figures"
     ensure_directory(core_dir)
     candidate_portfolio = candidate_portfolio if candidate_portfolio is not None else pd.DataFrame()

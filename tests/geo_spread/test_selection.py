@@ -60,6 +60,43 @@ class GeoSpreadSelectionTests(unittest.TestCase):
         self.assertIn("roc_auc", blend.metrics)
         self.assertEqual(len(blend.predictions), 4)
 
+    def test_build_geo_spread_blended_result_uses_feature_ensemble_when_scored_available(self) -> None:
+        n = 12
+        labels = [0, 1] * (n // 2)
+        scored = pd.DataFrame(
+            {
+                "backbone_id": [f"bb_{i}" for i in range(n)],
+                "spread_label": labels,
+                "n_new_countries": [1 if value == 0 else 4 for value in labels],
+                "split_year": [2015] * n,
+                "backbone_assignment_mode": ["training_only"] * n,
+                "max_resolved_year_train": [2014] * n,
+                "min_resolved_year_test": [2017] * n,
+                "training_only_future_unseen_backbone_flag": [False] * n,
+                "knownness_score": [0.2 + (i / n) * 0.6 for i in range(n)],
+                "T_eff_norm": [0.15 + (i / n) * 0.8 for i in range(n)],
+                "H_obs_specialization_norm": [0.9 - (i / n) * 0.7 for i in range(n)],
+                "A_eff_norm": [0.2 + (i / n) * 0.6 for i in range(n)],
+                "coherence_score": [0.1 + (i / n) * 0.8 for i in range(n)],
+                "backbone_purity_norm": [0.2 + (i / n) * 0.5 for i in range(n)],
+                "assignment_confidence_norm": [0.3 + (i / n) * 0.55 for i in range(n)],
+                "mash_neighbor_distance_train_norm": [0.8 - (i / n) * 0.6 for i in range(n)],
+                "orit_support": [0.05 + (i / n) * 0.6 for i in range(n)],
+                "H_external_host_range_norm": [0.85 - (i / n) * 0.7 for i in range(n)],
+                "geo_country_entropy_train": [0.1 + (i / n) * 0.8 for i in range(n)],
+                "geo_macro_region_entropy_train": [0.15 + (i / n) * 0.7 for i in range(n)],
+                "geo_dominant_region_share_train": [0.9 - (i / n) * 0.7 for i in range(n)],
+                "geo_country_record_count_train": [1.0 + (i / n) * 7.0 for i in range(n)],
+            }
+        )
+        blend = build_geo_spread_blended_result({}, scored=scored, include_ci=False)
+        self.assertEqual(blend.status, "ok")
+        self.assertTrue(bool(blend.metrics.get("blend_is_feature_ensemble")))
+        self.assertIn("blend_weight_hist_gradient_boosting", blend.metrics)
+        self.assertGreaterEqual(float(blend.metrics.get("roc_auc", 0.0)), 0.0)
+        self.assertLessEqual(float(blend.metrics.get("roc_auc", 0.0)), 1.0)
+        self.assertEqual(len(blend.predictions), n)
+
     def test_build_geo_spread_adaptive_result_returns_model_result(self) -> None:
         labels = [0, 0, 1, 1]
         scored = pd.DataFrame(

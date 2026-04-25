@@ -24,7 +24,10 @@ def _path_signature(path: Path) -> dict[str, object]:
 
 
 def _load_cached_stats(
-    manifest_path: Path, input_paths: list[Path], *, dry_run: bool
+    manifest_path: Path,
+    input_paths: list[Path],
+    *,
+    dry_run: bool,
 ) -> dict[str, object] | None:
     if dry_run or not manifest_path.exists():
         return None
@@ -80,7 +83,7 @@ def main() -> int:
         stats = _load_cached_stats(manifest_path, input_paths, dry_run=args.dry_run)
         if stats is not None and output_path.exists():
             run.note(
-                "Input FASTA files unchanged; reusing existing combined FASTA and cached record statistics."
+                "Input FASTA files unchanged; reusing existing combined FASTA and cached record statistics.",
             )
         else:
             stats = concatenate_fastas(
@@ -104,10 +107,10 @@ def main() -> int:
         run.set_metric("dry_run", args.dry_run)
         run.set_metric("record_count", stats["record_count"])
         run.set_metric("base_count", stats["base_count"])
-        for input_file in stats["input_files"]:
+        for input_file in stats["input_files"]:  # type: ignore
             path = Path(str(input_file["path"]))
             run.set_rows_in(path.name, int(input_file["record_count"]))
-        run.set_rows_out("combined_records", int(stats["record_count"]))
+        run.set_rows_out("combined_records", int(stats["record_count"]))  # type: ignore
 
     return 0
 

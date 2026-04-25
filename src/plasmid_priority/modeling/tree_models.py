@@ -14,7 +14,12 @@ from typing import Any
 
 import pandas as pd
 
-from plasmid_priority.modeling.module_a_support import ModelResult, build_failed_model_result
+from plasmid_priority.modeling.module_a_support import (
+    MODULE_A_FEATURE_SETS,
+    ModelResult,
+    _ensure_config_loaded,
+    build_failed_model_result,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -39,16 +44,26 @@ def _extract_xy(
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Extract feature matrix X and label vector y from scored table.
 
-    Drops non-feature columns (labels, IDs, metadata) so that only
-    genuine numeric features remain in X.
+    Prefers configured Module A feature sets as an allow-list. Falls back
+    to a conservative numeric projection if no configured features are present.
     """
     if label_col not in scored.columns:
         raise KeyError(f"Label column '{label_col}' not found")
     y = scored[label_col].astype(float)
-    # Non-feature columns that must be excluded even though they are numeric.
-    # ⚠ FRAGILE: new outcome/metadata columns added elsewhere must be added here
-    #   too.  Prefer deriving features from the configured feature_sets when
-    #   the model name is available.
+
+    _ensure_config_loaded()
+    configured_features: list[str] = []
+    seen: set[str] = set()
+    for feature_columns in MODULE_A_FEATURE_SETS.values():
+        for column in feature_columns:
+            if column in scored.columns and column not in seen:
+                configured_features.append(column)
+                seen.add(column)
+    if configured_features:
+        return scored.loc[:, configured_features].select_dtypes(include="number"), y
+
+    # Backward-compatible fallback for ad-hoc datasets that do not contain
+    # configured model features.
     _NON_FEATURE_COLUMNS = frozenset(
         {
             label_col,

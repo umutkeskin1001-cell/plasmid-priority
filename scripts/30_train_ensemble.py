@@ -72,13 +72,13 @@ X = df.loc[valid_mask, pred_cols].fillna(0.5).values  # Fill missing with 0.5
 
 print("\n[2/5] Data prepared")
 print(f"  Samples: {len(y):,}")
-print(f"  Positive rate: {y.mean():.3f}")
+print(f"  Positive rate: {y.mean():.3f}")  # type: ignore
 print(f"  Features (base model preds): {len(pred_cols)}")
 
 print("\n[3/5] Base model performances:")
 base_aucs = {}
 for i, col in enumerate(pred_cols):
-    auc = roc_auc_score(y, X[:, i])
+    auc = roc_auc_score(y, X[:, i])  # type: ignore
     base_aucs[col] = auc
     print(f"  {col:40s}: {auc:.4f}")
 
@@ -120,15 +120,15 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(X_top, y)):
 print("\n[5/5] Results")
 print("-" * 80)
 
-final_auc = roc_auc_score(y, oof_preds)
-final_ap = average_precision(y, oof_preds)
-final_brier = brier_score(y, oof_preds)
+final_auc = roc_auc_score(y, oof_preds)  # type: ignore
+final_ap = average_precision(y, oof_preds)  # type: ignore
+final_brier = brier_score(y, oof_preds)  # type: ignore
 
 # Calibrate
 iso_cal = IsotonicRegression(out_of_bounds="clip")
 iso_cal.fit(oof_preds.reshape(-1, 1), y)
 cal_preds = iso_cal.predict(oof_preds.reshape(-1, 1))
-cal_auc = roc_auc_score(y, cal_preds)
+cal_auc = roc_auc_score(y, cal_preds)  # type: ignore
 
 print(f"  Mean CV AUC:     {np.mean(fold_aucs):.4f} (±{np.std(fold_aucs):.4f})")
 print("")
@@ -185,7 +185,7 @@ pred_df = pd.DataFrame(
         "y_true": y,
         "y_pred": oof_preds,
         "y_pred_calibrated": cal_preds,
-    }
+    },
 )
 
 pred_file = output_dir / "meta_sovereign_ensemble_predictions.tsv"

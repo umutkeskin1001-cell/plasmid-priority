@@ -86,7 +86,8 @@ def main() -> int:
 
             run.note(f"Missingness audit written to {audit_dir}")
             run.set_metric(
-                "missingness_audit_status", audit_result.get("overall_status", "unknown")
+                "missingness_audit_status",
+                audit_result.get("overall_status", "unknown"),
             )
 
     return 0

@@ -1,6 +1,6 @@
 # Plasmid Priority — TÜBİTAK Jury Technical Summary
 
-> **Revision:** April 2026 | **Version:** 0.3.0  
+> **Revision:** April 2026 | **Version:** 0.3.0
 > **Contact:** See repository README for principal investigator details.
 
 ---
@@ -11,7 +11,7 @@ This system is a **retrospective genomic surveillance prioritization tool**.
 
 It **does NOT**:
 - Make clinical diagnoses or treatment recommendations
-- Predict individual patient outcomes  
+- Predict individual patient outcomes
 - Replace clinical microbiology or infection control workflows
 - Operate in real-time on patient samples
 
@@ -173,22 +173,22 @@ The following are **explicitly out of scope** and are stated in all reports:
 
 ## 8. FAQ for Jury
 
-**Q: Why not use a deep learning model?**  
-A: Sample size (~N backbones eligible) limits deep learning benefit. Interpretable models 
+**Q: Why not use a deep learning model?**
+A: Sample size (~N backbones eligible) limits deep learning benefit. Interpretable models
 (LightGBM + logistic) outperform or match in this regime and provide feature attribution.
 
-**Q: What database was used?**  
+**Q: What database was used?**
 A: PLSDB + RefSeq plasmid sequences + Pathogen Detection metadata. All public databases.
 
-**Q: How do you handle the class imbalance?**  
-A: Class-balanced + IPW-balanced sample weighting. We report AP (prevalence-sensitive) 
+**Q: How do you handle the class imbalance?**
+A: Class-balanced + IPW-balanced sample weighting. We report AP (prevalence-sensitive)
 alongside ROC AUC. See sınıf dengesizliği note in `tubitak_final_metrics.txt`.
 
-**Q: Can this system be updated as new sequences are deposited?**  
-A: Yes. Pipeline is fully reproducible. Running `make full-local` with an updated data root 
+**Q: Can this system be updated as new sequences are deposited?**
+A: Yes. Pipeline is fully reproducible. Running `make full-local` with an updated data root
 will regenerate all outputs from scratch with new data.
 
-**Q: What makes this different from existing plasmid databases?**  
-A: Existing databases (PlasmidFinder, MOB-suite) focus on classification, not risk 
-prioritization. This is the first framework to fuse T/H/A surveillance signals at the 
+**Q: What makes this different from existing plasmid databases?**
+A: Existing databases (PlasmidFinder, MOB-suite) focus on classification, not risk
+prioritization. This is the first framework to fuse T/H/A surveillance signals at the
 backbone-class level with a formally validated retrospective design.

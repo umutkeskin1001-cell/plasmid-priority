@@ -23,6 +23,8 @@ from plasmid_priority.geo_spread.select import (
     GEO_SPREAD_BLEND_COMPONENTS,
     GEO_SPREAD_META_PRIORITY,
     GEO_SPREAD_RELIABILITY_BLEND,
+    GEO_SPREAD_RELIABILITY_ESTIMATOR_WEIGHTS,
+    GEO_SPREAD_RELIABILITY_FEATURE_COLUMNS,
 )
 from plasmid_priority.geo_spread.specs import GeoSpreadConfig, load_geo_spread_config
 from plasmid_priority.shared.provenance import (  # noqa: F401 – re-exported for backward compatibility
@@ -105,10 +107,15 @@ def build_geo_spread_run_provenance(
         normalized_name = str(model_name)
         if normalized_name == GEO_SPREAD_RELIABILITY_BLEND:
             feature_surface[normalized_name] = {
-                "derived_from": [
+                "feature_columns": list(GEO_SPREAD_RELIABILITY_FEATURE_COLUMNS),
+                "ensemble_estimators": [
+                    {"name": str(component_name), "weight": float(weight)}
+                    for component_name, weight in GEO_SPREAD_RELIABILITY_ESTIMATOR_WEIGHTS
+                ],
+                "fallback_components": [
                     {"model_name": str(component_name), "weight": float(weight)}
                     for component_name, weight in GEO_SPREAD_BLEND_COMPONENTS
-                ]
+                ],
             }
             continue
         if normalized_name == GEO_SPREAD_ADAPTIVE_PRIORITY:

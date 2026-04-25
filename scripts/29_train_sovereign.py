@@ -51,7 +51,9 @@ def _load_frame(path: Path) -> pd.DataFrame:
 
 
 def _best_existing_model_auc(
-    analysis_dir: Path, *, exclude_model_name: str | None = None
+    analysis_dir: Path,
+    *,
+    exclude_model_name: str | None = None,
 ) -> tuple[str | None, float]:
     metrics_path = analysis_dir / "module_a_metrics.json"
     if not metrics_path.exists():
@@ -82,23 +84,23 @@ def _best_existing_model_auc(
 def _build_candidate_scorecard(results: dict[str, object]) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for model_name, result in results.items():
-        metrics = result.metrics
+        metrics = result.metrics  # type: ignore
         fit_kwargs = module_a_support_impl._model_fit_kwargs(model_name)
         rows.append(
             {
                 "model_name": model_name,
                 "sample_weight_mode": fit_kwargs.get("sample_weight_mode"),
-                "l2": float(fit_kwargs.get("l2", float("nan"))),
+                "l2": float(fit_kwargs.get("l2", float("nan"))),  # type: ignore
                 "preprocess_mode": fit_kwargs.get("preprocess_mode"),
                 "roc_auc": float(metrics.get("roc_auc", float("nan"))),
                 "average_precision": float(metrics.get("average_precision", float("nan"))),
                 "brier_score": float(metrics.get("brier_score", float("nan"))),
                 "expected_calibration_error": float(
-                    metrics.get("expected_calibration_error", float("nan"))
+                    metrics.get("expected_calibration_error", float("nan")),
                 ),
                 "knownness_matched_gap": float(metrics.get("knownness_matched_gap", float("nan"))),
                 "feature_count": len(MODULE_A_FEATURE_SETS[model_name]),
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -111,7 +113,12 @@ def _candidate_model_names() -> list[str]:
 
 
 def _cache_metadata(
-    *, n_splits: int, n_repeats: int, seed: int, jobs: int, skip_full_fit: bool
+    *,
+    n_splits: int,
+    n_repeats: int,
+    seed: int,
+    jobs: int,
+    skip_full_fit: bool,
 ) -> dict[str, object]:
     return {
         "candidate_models": _candidate_model_names(),
@@ -179,12 +186,12 @@ def _choose_best_candidate(scorecard: pd.DataFrame) -> dict[str, object]:
             and float(challenger["feature_count"]) <= float(leader["feature_count"])
         ):
             leader = challenger
-    return leader.to_dict()
+    return leader.to_dict()  # type: ignore
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Evaluate sovereign candidates with cache-aware native Module A execution."
+        description="Evaluate sovereign candidates with cache-aware native Module A execution.",
     )
     parser.add_argument(
         "--n-splits",
@@ -329,14 +336,14 @@ def main(argv: list[str] | None = None) -> int:
             "selected_model_name": winner_name,
             "candidate_scorecard_path": str(scorecard_path),
             "sample_weight_mode": winner.get("sample_weight_mode"),
-            "l2": float(winner["l2"]),
+            "l2": float(winner["l2"]),  # type: ignore
             "preprocess_mode": winner.get("preprocess_mode"),
-            "roc_auc": float(winner["roc_auc"]),
-            "average_precision": float(winner["average_precision"]),
-            "brier_score": float(winner["brier_score"]),
-            "expected_calibration_error": float(winner["expected_calibration_error"]),
-            "knownness_matched_gap": float(winner["knownness_matched_gap"]),
-            "n_features_used": int(winner["feature_count"]),
+            "roc_auc": float(winner["roc_auc"]),  # type: ignore
+            "average_precision": float(winner["average_precision"]),  # type: ignore
+            "brier_score": float(winner["brier_score"]),  # type: ignore
+            "expected_calibration_error": float(winner["expected_calibration_error"]),  # type: ignore
+            "knownness_matched_gap": float(winner["knownness_matched_gap"]),  # type: ignore
+            "n_features_used": int(winner["feature_count"]),  # type: ignore
             "n_samples": int(len(valid)),
             "positive_rate": float(valid["spread_label"].mean()),
             "training_input_path": str(features_path),
@@ -345,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
             if pd.notna(best_existing_auc)
             else None,
             "improvement_over_best": (
-                float(winner["roc_auc"]) - float(best_existing_auc)
+                float(winner["roc_auc"]) - float(best_existing_auc)  # type: ignore
                 if pd.notna(best_existing_auc)
                 else None
             ),
@@ -388,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
         run.set_metric("cache_hit", False)
         run.set_metric("candidate_count", len(candidate_names))
         run.set_metric("jobs", jobs)
-        run.set_metric("winner_roc_auc", float(winner["roc_auc"]))
+        run.set_metric("winner_roc_auc", float(winner["roc_auc"]))  # type: ignore
 
         print("\n[5/5] Saved outputs")
         print(f"  Scorecard: {scorecard_path}")

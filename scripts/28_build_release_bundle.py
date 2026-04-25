@@ -4,19 +4,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import subprocess
 import sys
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 from pandas.errors import EmptyDataError
-
-try:  # Python 3.11+
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - compatibility for older test runtimes
-    import tomli as tomllib
 
 from plasmid_priority.config import build_context
 from plasmid_priority.protocol import ScientificProtocol, build_protocol_hash
@@ -35,6 +33,10 @@ RELEASE_FILES = (
     "reports/core_tables/model_selection_summary.tsv",
     "reports/core_tables/model_selection_scorecard.tsv",
     "reports/core_tables/single_model_official_decision.tsv",
+    "reports/core_tables/official_model_scores.tsv",
+    "reports/core_tables/official_model_scorecard.tsv",
+    "reports/core_tables/official_candidate_decisions.tsv",
+    "reports/core_tables/official_model_summary.json",
     "reports/diagnostic_tables/single_model_pareto_screen.tsv",
     "reports/diagnostic_tables/single_model_pareto_finalists.tsv",
     "reports/core_tables/candidate_portfolio.tsv",
@@ -45,7 +47,24 @@ RELEASE_FILES = (
     "reports/core_figures/score_distribution.png",
     "reports/core_figures/temporal_design.png",
     "reports/core_figures/knownness_vs_oof_score_scatter.png",
+    # Scientific/reproducibility surface
+    "docs/model_card.md",
+    "docs/data_card.md",
+    "docs/benchmark_contract.md",
+    "docs/scientific_protocol.md",
+    "docs/label_card_bundle.md",
+    "docs/reproducibility_manifest.json",
+    "reports/reviewer_pack/README.md",
+    "reports/reviewer_pack/canonical_metadata.json",
+    "reports/reviewer_pack/run_reproducibility.sh",
+    # Performance dashboard
+    "reports/performance/workflow_performance_dashboard.json",
+    "reports/performance/workflow_performance_dashboard.md",
+    "reports/release/release_readiness_report.json",
+    "reports/release/release_readiness_report.md",
 )
+
+RELEASE_GLOB_FILES = ("reports/reviewer_pack/candidate_evidence_dossiers/*.md",)
 
 
 def _sha256(path: Path) -> str:
@@ -110,7 +129,7 @@ def _official_model_names(project_root: Path) -> list[str]:
     )
 
 
-def _release_protocol(context) -> ScientificProtocol:
+def _release_protocol(context: Any) -> ScientificProtocol:
     config = context.config if isinstance(context.config, dict) else {}
     models = dict(config.get("models", {})) if isinstance(config.get("models", {}), dict) else {}
     pipeline = (
@@ -137,7 +156,7 @@ def _release_protocol(context) -> ScientificProtocol:
     return ScientificProtocol.from_config(payload)
 
 
-def _build_release_manifest(context) -> dict[str, object]:
+def _build_release_manifest(context: Any) -> dict[str, object]:
     protocol = _release_protocol(context)
     release_info_path = context.release_dir / "bundle" / "RELEASE_INFO.txt"
     decision_path = context.root / "reports/core_tables/single_model_official_decision.tsv"
@@ -150,7 +169,7 @@ def _build_release_manifest(context) -> dict[str, object]:
         if not decision_frame.empty:
             decision_status = str(
                 decision_frame.iloc[0].get("scientific_acceptance_status", "not_scored")
-                or "not_scored"
+                or "not_scored",
             ).strip()
     return {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -181,6 +200,7 @@ def _build_release_info(context_root: Path) -> str:
     single_model_decision_path = (
         context_root / "reports/core_tables/single_model_official_decision.tsv"
     )
+    official_summary_path = context_root / "reports/core_tables/official_model_summary.json"
     version = _project_version(context_root)
     if not metrics_path.exists():
         return (
@@ -189,7 +209,7 @@ def _build_release_info(context_root: Path) -> str:
                     "Plasmid Priority Release Bundle",
                     f"Version: {version}",
                     f"Generated on: {datetime.now().date().isoformat()}",
-                ]
+                ],
             )
             + "\n"
         )
@@ -212,10 +232,12 @@ def _build_release_info(context_root: Path) -> str:
     permutation_text = "NA"
     selection_adjusted_text = "NA"
     permutation_p = pd.to_numeric(
-        pd.Series([row.get("permutation_p_roc_auc")]), errors="coerce"
+        pd.Series([row.get("permutation_p_roc_auc")]),
+        errors="coerce",
     ).iloc[0]
     selection_adjusted_p = pd.to_numeric(
-        pd.Series([row.get("selection_adjusted_empirical_p_roc_auc")]), errors="coerce"
+        pd.Series([row.get("selection_adjusted_empirical_p_roc_auc")]),
+        errors="coerce",
     ).iloc[0]
     if pd.notna(permutation_p):
         permutation_text = (
@@ -228,10 +250,12 @@ def _build_release_info(context_root: Path) -> str:
             else f"= {float(selection_adjusted_p):.3f}"
         )
     fixed_score_n_permutations = pd.to_numeric(
-        pd.Series([row.get("n_permutations", pd.NA)]), errors="coerce"
+        pd.Series([row.get("n_permutations", pd.NA)]),
+        errors="coerce",
     ).iloc[0]
     selection_adjusted_n_permutations = pd.to_numeric(
-        pd.Series([row.get("n_permutations_selection_adjusted", pd.NA)]), errors="coerce"
+        pd.Series([row.get("n_permutations_selection_adjusted", pd.NA)]),
+        errors="coerce",
     ).iloc[0]
     fixed_score_n_permutations_text = (
         str(int(fixed_score_n_permutations)) if pd.notna(fixed_score_n_permutations) else "NA"
@@ -243,8 +267,24 @@ def _build_release_info(context_root: Path) -> str:
     )
     decision_reason = str(decision_row.get("decision_reason", "") or "").strip()
     decision_status = str(
-        decision_row.get("scientific_acceptance_status", "not_scored") or "not_scored"
+        decision_row.get("scientific_acceptance_status", "not_scored") or "not_scored",
     ).strip()
+    official_summary_lines: list[str] = []
+    if official_summary_path.exists():
+        try:
+            official_summary = json.loads(official_summary_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            official_summary = {}
+        official_status = str(official_summary.get("official_model_family_status", "unknown"))
+        decision_surface = str(official_summary.get("decision_surface", "unknown"))
+        candidate_count = int(official_summary.get("candidate_count", 0) or 0)
+        review_not_rank_count = int(official_summary.get("review_not_rank_count", 0) or 0)
+        official_summary_lines = [
+            f"Official model family status: {official_status}",
+            f"Official decision surface: {decision_surface}",
+            "Official candidate decisions: "
+            f"{candidate_count} total; {review_not_rank_count} review_not_rank",
+        ]
     return (
         "\n".join(
             [
@@ -259,7 +299,8 @@ def _build_release_info(context_root: Path) -> str:
                 "Selection-adjusted permutation p "
                 f"{selection_adjusted_text} (n={selection_adjusted_n_permutations_text})",
                 f"Fixed-score permutation p {permutation_text} (n={fixed_score_n_permutations_text})",
-            ]
+                *official_summary_lines,
+            ],
         )
         + "\n"
     )
@@ -278,7 +319,21 @@ def main() -> int:
     with ManagedScriptRun(context, "28_build_release_bundle") as run:
         missing: list[str] = []
         manifest = _build_release_manifest(context)
+        copy_targets: list[Path] = []
         for relpath in RELEASE_FILES:
+            copy_targets.append(context.root / relpath)
+        for pattern in RELEASE_GLOB_FILES:
+            copy_targets.extend(sorted(context.root.glob(pattern)))
+
+        seen_relpaths: set[str] = set()
+        for source in copy_targets:
+            try:
+                relpath = relative_path_str(source, context.root)
+            except Exception:
+                continue
+            if relpath in seen_relpaths:
+                continue
+            seen_relpaths.add(relpath)
             source = context.root / relpath
             if not source.exists():
                 missing.append(relpath)
@@ -292,7 +347,7 @@ def main() -> int:
                     "relative_path": relpath,
                     "size_bytes": int(stat.st_size),
                     "sha256": _sha256(source),
-                }
+                },
             )
             run.record_input(source)
             run.record_output(destination)
@@ -317,7 +372,7 @@ def main() -> int:
                     "Core tables and figures are copied from the latest successful local build.",
                     "",
                     "See plasmid_priority_release_manifest.json for checksums.",
-                ]
+                ],
             )
             + "\n",
             encoding="utf-8",

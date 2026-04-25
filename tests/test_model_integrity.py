@@ -63,9 +63,9 @@ def test_primary_model_fallback_in_feature_sets() -> None:
         PRIMARY_MODEL_FALLBACK,
     )
 
-    assert PRIMARY_MODEL_FALLBACK in MODULE_A_FEATURE_SETS, (
-        f"Primary model fallback '{PRIMARY_MODEL_FALLBACK}' not in MODULE_A_FEATURE_SETS."
-    )
+    assert (
+        PRIMARY_MODEL_FALLBACK in MODULE_A_FEATURE_SETS
+    ), f"Primary model fallback '{PRIMARY_MODEL_FALLBACK}' not in MODULE_A_FEATURE_SETS."
 
 
 def test_governance_model_in_feature_sets() -> None:
@@ -73,9 +73,9 @@ def test_governance_model_in_feature_sets() -> None:
     from plasmid_priority.modeling.module_a import MODULE_A_FEATURE_SETS  # noqa: PLC0415
     from plasmid_priority.modeling.module_a_support import GOVERNANCE_MODEL_NAME  # noqa: PLC0415
 
-    assert GOVERNANCE_MODEL_NAME in MODULE_A_FEATURE_SETS, (
-        f"Governance model '{GOVERNANCE_MODEL_NAME}' missing from MODULE_A_FEATURE_SETS."
-    )
+    assert (
+        GOVERNANCE_MODEL_NAME in MODULE_A_FEATURE_SETS
+    ), f"Governance model '{GOVERNANCE_MODEL_NAME}' missing from MODULE_A_FEATURE_SETS."
 
 
 # ─── Test: Feature set completeness ──────────────────────────────────────────

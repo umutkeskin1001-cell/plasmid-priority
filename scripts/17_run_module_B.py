@@ -47,9 +47,9 @@ def main() -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
-        }
+        },
     }
 
     with ManagedScriptRun(context, "17_run_module_B") as run:
@@ -84,7 +84,9 @@ def main() -> int:
         )
 
         merged = accessions.merge(
-            selected[["backbone_id", "priority_group"]], on="backbone_id", how="inner"
+            selected[["backbone_id", "priority_group"]],
+            on="backbone_id",
+            how="inner",
         )
         merged = merged.merge(amr, on="sequence_accession", how="left")
         exploded = _explode_classes(merged)
@@ -98,7 +100,9 @@ def main() -> int:
         summary["group_total_accessions"] = summary["priority_group"].map(totals)
         summary["prevalence"] = summary["n_accessions"] / summary["group_total_accessions"]
         pivot = summary.pivot(
-            index="amr_drug_classes", columns="priority_group", values="prevalence"
+            index="amr_drug_classes",
+            columns="priority_group",
+            values="prevalence",
         ).fillna(0.0)
         pivot["prevalence_delta_high_minus_low"] = pivot.get("high", 0.0) - pivot.get("low", 0.0)
         output = pivot.reset_index().sort_values("prevalence_delta_high_minus_low", ascending=False)

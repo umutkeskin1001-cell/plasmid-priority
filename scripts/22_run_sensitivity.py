@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -30,13 +31,14 @@ from plasmid_priority.features import (
     compute_feature_h,
     compute_feature_t,
 )
+from plasmid_priority.io.table_io import read_table
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     evaluate_model_name,
     fit_full_model_predictions,
     get_primary_model_name,
 )
-from plasmid_priority.modeling.module_a import _model_fit_kwargs
+from plasmid_priority.modeling.module_a import _model_fit_kwargs  # type: ignore
 from plasmid_priority.reporting import (
     ManagedScriptRun,
     build_priority_bootstrap_stability_table,
@@ -47,7 +49,7 @@ from plasmid_priority.scoring import (
     build_scored_backbone_table,
     recompute_priority_from_reference,
 )
-from plasmid_priority.utils.dataframe import read_tsv
+from plasmid_priority.sensitivity import VariantCacheManager
 from plasmid_priority.utils.files import (
     atomic_write_json,
     ensure_directory,
@@ -56,9 +58,10 @@ from plasmid_priority.utils.files import (
     project_python_source_paths,
     write_signature_manifest,
 )
+from plasmid_priority.utils.numeric_ops import copy_frame, int0
 from plasmid_priority.utils.parallel import limit_native_threads
 
-DEFAULT_PRIMARY_MODEL = get_primary_model_name(MODULE_A_FEATURE_SETS.keys())
+DEFAULT_PRIMARY_MODEL = get_primary_model_name(MODULE_A_FEATURE_SETS.keys())  # type: ignore
 
 
 def _resolve_parallel_jobs(requested_jobs: int | None, *, max_tasks: int, cap: int = 4) -> int:
@@ -111,7 +114,7 @@ def _model_metrics_with_config(
         include_ci=include_ci,
     )
     payload = dict(result.metrics)
-    payload["evaluated_model_name"] = chosen_model
+    payload["evaluated_model_name"] = chosen_model  # type: ignore
     payload["n_eligible_backbones"] = int(scored["spread_label"].notna().sum())
     payload.update({str(key): value for key, value in resolved_fit_config.items()})
     return payload
@@ -132,6 +135,7 @@ def _rebuild_scored(
     amr_consensus_cache: dict[tuple[float | None, float | None], pd.DataFrame] | None = None,
     component_cache: dict[tuple[object, ...], dict[str, object]] | None = None,
     scored_cache: dict[tuple[object, ...], pd.DataFrame] | None = None,
+    variant_cache: VariantCacheManager | None = None,
 ) -> pd.DataFrame:
     cache_key = (
         int(split_year),
@@ -142,8 +146,23 @@ def _rebuild_scored(
         bool(force_fallback_backbones),
         bool(training_only_backbones),
     )
+    if variant_cache is not None:
+        cached_variant = variant_cache.get_variant(
+            split_year=int(split_year),
+            test_year_end=int(test_year_end),
+            horizon_years=max(int(test_year_end) - int(split_year), 1),
+            assignment_mode=("training_only" if bool(training_only_backbones) else "all_records"),
+            normalization_mode=normalization_method,
+            thresholds={
+                "amr_identity_min": amr_identity_min,
+                "amr_coverage_min": amr_coverage_min,
+                "force_fallback_backbones": bool(force_fallback_backbones),
+            },
+        )
+        if cached_variant is not None:
+            return cached_variant.pipe(copy_frame)
     if scored_cache is not None and cache_key in scored_cache:
-        return scored_cache[cache_key].copy()
+        return scored_cache[cache_key].pipe(copy_frame)
 
     components = _prepare_scored_components(
         records,
@@ -163,7 +182,21 @@ def _rebuild_scored(
         normalization_method=normalization_method,
     )
     if scored_cache is not None:
-        scored_cache[cache_key] = scored.copy()
+        scored_cache[cache_key] = scored.pipe(copy_frame)
+    if variant_cache is not None:
+        variant_cache.put_variant(
+            split_year=int(split_year),
+            test_year_end=int(test_year_end),
+            horizon_years=max(int(test_year_end) - int(split_year), 1),
+            assignment_mode=("training_only" if bool(training_only_backbones) else "all_records"),
+            normalization_mode=normalization_method,
+            scored=scored,
+            thresholds={
+                "amr_identity_min": amr_identity_min,
+                "amr_coverage_min": amr_coverage_min,
+                "force_fallback_backbones": bool(force_fallback_backbones),
+            },
+        )
     return scored
 
 
@@ -196,38 +229,41 @@ def _prepare_scored_components(
         bool(training_only_backbones),
     )
     if assigned_records_cache is not None and assignment_key in assigned_records_cache:
-        records = assigned_records_cache[assignment_key].copy()
+        records = assigned_records_cache[assignment_key].pipe(copy_frame)
     else:
-        records = records.copy()
+        records = records.pipe(copy_frame)
         if training_only_backbones:
             records = assign_backbone_ids_training_only(records, split_year=split_year)
         if force_fallback_backbones:
             records = assign_backbone_ids(
-                records.assign(primary_cluster_id=""), backbone_assignment_mode="all_records"
+                records.assign(primary_cluster_id=""),
+                backbone_assignment_mode="all_records",
             )
         if assigned_records_cache is not None:
-            assigned_records_cache[assignment_key] = records.copy()
+            assigned_records_cache[assignment_key] = records.pipe(copy_frame)
 
     consensus_key = (amr_identity_min, amr_coverage_min)
     if amr_consensus_cache is not None and consensus_key in amr_consensus_cache:
-        amr_consensus = amr_consensus_cache[consensus_key].copy()
+        amr_consensus = amr_consensus_cache[consensus_key].pipe(copy_frame)
     else:
-        filtered_hits = amr_hits.copy()
+        filtered_hits = amr_hits.pipe(copy_frame)
         if amr_identity_min is not None:
             filtered_hits = filtered_hits.loc[
                 pd.to_numeric(filtered_hits["sequence_identity"], errors="coerce")
                 >= amr_identity_min
-            ].copy()
+            ].pipe(copy_frame)
         if amr_coverage_min is not None:
             filtered_hits = filtered_hits.loc[
                 pd.to_numeric(filtered_hits["coverage_percentage"], errors="coerce")
                 >= amr_coverage_min
-            ].copy()
+            ].pipe(copy_frame)
         amr_consensus = build_amr_consensus(filtered_hits)
         if amr_consensus_cache is not None:
-            amr_consensus_cache[consensus_key] = amr_consensus.copy()
+            amr_consensus_cache[consensus_key] = amr_consensus.pipe(copy_frame)
     training_canonical = build_training_canonical_table(
-        records, amr_consensus, split_year=split_year
+        records,
+        amr_consensus,
+        split_year=split_year,
     )
     feature_t = compute_feature_t(training_canonical)
     feature_h = compute_feature_h(records, split_year=split_year)
@@ -251,9 +287,9 @@ def _prepare_scored_components(
         split_year=split_year,
         test_year_end=split_year,
         backbone_assignment_mode=assignment_mode,
-    ).copy()
-    working_records = records.copy()
-    years = pd.to_numeric(working_records["resolved_year"], errors="coerce").fillna(0).astype(int)
+    ).pipe(copy_frame)
+    working_records = records.pipe(copy_frame)
+    years = pd.to_numeric(working_records["resolved_year"], errors="coerce").pipe(int0)
     working_records["resolved_year_int"] = years
     working_records["country_clean"] = working_records["country"].fillna("").astype(str).str.strip()
     if "backbone_seen_in_training" in working_records.columns:
@@ -278,10 +314,10 @@ def _prepare_scored_components(
             future_country_first_year["is_new_country"] = True
         else:
             training_index = pd.MultiIndex.from_frame(
-                training_pairs[["backbone_id", "country_clean"]]
+                training_pairs[["backbone_id", "country_clean"]],
             )
             future_index = pd.MultiIndex.from_frame(
-                future_country_first_year[["backbone_id", "country_clean"]]
+                future_country_first_year[["backbone_id", "country_clean"]],
             )
             future_country_first_year["is_new_country"] = ~future_index.isin(training_index)
     else:
@@ -307,13 +343,13 @@ def _score_components_for_horizon(
     test_year_end: int,
     normalization_method: str = DEFAULT_NORMALIZATION_METHOD,
 ) -> pd.DataFrame:
-    split_year = int(components["split_year"])
-    backbone_table = pd.DataFrame(components["backbone_base"]).copy()
-    future_country_first_year = pd.DataFrame(components["future_country_first_year"])
+    split_year = int(components["split_year"])  # type: ignore
+    backbone_table = pd.DataFrame(components["backbone_base"]).pipe(copy_frame)  # type: ignore
+    future_country_first_year = pd.DataFrame(components["future_country_first_year"])  # type: ignore
     if not future_country_first_year.empty:
         visible_future = future_country_first_year.loc[
             future_country_first_year["resolved_year_int"].astype(int) <= int(test_year_end)
-        ].copy()
+        ].pipe(copy_frame)
         n_countries_test = visible_future.groupby("backbone_id", sort=False).size()
         n_new_countries = (
             visible_future.loc[visible_future["is_new_country"]]
@@ -324,10 +360,10 @@ def _score_components_for_horizon(
         n_countries_test = pd.Series(dtype=int)
         n_new_countries = pd.Series(dtype=int)
     backbone_table["n_countries_test"] = (
-        backbone_table["backbone_id"].map(n_countries_test).fillna(0).astype(int)
+        backbone_table["backbone_id"].map(n_countries_test).pipe(int0)
     )
     backbone_table["n_new_countries"] = (
-        backbone_table["backbone_id"].map(n_new_countries).fillna(0).astype(int)
+        backbone_table["backbone_id"].map(n_new_countries).pipe(int0)
     )
     backbone_table["split_year"] = int(split_year)
     backbone_table["test_year_end"] = int(test_year_end)
@@ -340,18 +376,18 @@ def _score_components_for_horizon(
     )
     backbone_table["spread_label"] = spread_label
     backbone_table["visibility_expansion_label"] = spread_label
-    records = pd.DataFrame(components["records"])
+    records = pd.DataFrame(components["records"])  # type: ignore
     if "_seen_float" in records.columns:
         future_rows = records.loc[
             (records["resolved_year_int"].astype(int) > split_year)
             & (records["resolved_year_int"].astype(int) <= int(test_year_end))
-        ].copy()
+        ].pipe(copy_frame)
         if not future_rows.empty:
             seen_stats = future_rows.groupby("backbone_id", sort=False)["_seen_float"].agg(
-                ["sum", "mean"]
+                ["sum", "mean"],
             )
             backbone_table["n_test_records_seen_in_training"] = (
-                backbone_table["backbone_id"].map(seen_stats["sum"]).fillna(0).astype(int)
+                backbone_table["backbone_id"].map(seen_stats["sum"]).pipe(int0)
             )
             backbone_table["test_seen_in_training_fraction"] = (
                 backbone_table["backbone_id"].map(seen_stats["mean"]).fillna(0.0).astype(float)
@@ -361,15 +397,15 @@ def _score_components_for_horizon(
             backbone_table["test_seen_in_training_fraction"] = 0.0
     return build_scored_backbone_table(
         backbone_table,
-        pd.DataFrame(components["feature_t"]),
-        pd.DataFrame(components["feature_h"]),
-        pd.DataFrame(components["feature_a"]),
+        pd.DataFrame(components["feature_t"]),  # type: ignore
+        pd.DataFrame(components["feature_h"]),  # type: ignore
+        pd.DataFrame(components["feature_a"]),  # type: ignore
         normalization_method=normalization_method,
     )
 
 
 def _source_balanced_subset(scored: pd.DataFrame, *, seed: int = 42) -> pd.DataFrame:
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     eligible["dominant_source"] = np.where(
         eligible["refseq_share_train"].fillna(0.0) >= 0.5,
         "refseq_leaning",
@@ -389,7 +425,7 @@ def _source_balanced_subset(scored: pd.DataFrame, *, seed: int = 42) -> pd.DataF
 
 
 def _rescore_existing_table(scored: pd.DataFrame, *, normalization_method: str) -> pd.DataFrame:
-    training_reference = scored.loc[scored["member_count_train"].fillna(0).astype(int) > 0].copy()
+    training_reference = scored.loc[scored["member_count_train"].pipe(int0) > 0].pipe(copy_frame)
     rescored = recompute_priority_from_reference(
         scored,
         training_reference,
@@ -406,14 +442,14 @@ def _apply_outcome_rule(
     min_train_countries: int = 1,
     max_train_countries: int | None = 3,
 ) -> pd.DataFrame:
-    frame = scored.copy()
-    train_countries = frame["n_countries_train"].fillna(0).astype(int)
+    frame = scored.pipe(copy_frame)
+    train_countries = frame["n_countries_train"].pipe(int0)
     n_new = frame[n_new_column].fillna(0).astype(float)
     eligible = train_countries >= min_train_countries
     if max_train_countries is not None:
         eligible = eligible & (train_countries <= max_train_countries)
     label = pd.Series(np.nan, index=frame.index, dtype=float)
-    label.loc[eligible] = (n_new.loc[eligible] >= threshold).astype(int)
+    label.loc[eligible] = (n_new.loc[eligible] >= threshold).astype(int)  # type: ignore
     frame["spread_label"] = label
     return frame
 
@@ -425,13 +461,13 @@ def _stable_country_new_counts(
     test_year_end: int,
     min_global_records_per_period: int = 0,
 ) -> pd.Series:
-    working = records.copy()
-    years = pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
+    working = records.pipe(copy_frame)
+    years = pd.to_numeric(working["resolved_year"], errors="coerce").pipe(int0)
     working["country_clean"] = working["country"].fillna("").astype(str).str.strip()
-    training = working.loc[(years <= split_year) & working["country_clean"].ne("")].copy()
+    training = working.loc[(years <= split_year) & working["country_clean"].ne("")].pipe(copy_frame)
     testing = working.loc[
         (years > split_year) & (years <= test_year_end) & working["country_clean"].ne("")
-    ].copy()
+    ].pipe(copy_frame)
     if training.empty or testing.empty:
         return pd.Series(dtype=int)
 
@@ -449,10 +485,12 @@ def _stable_country_new_counts(
         return pd.Series(dtype=int)
 
     training_pairs = training.loc[
-        training["country_clean"].isin(stable_countries), ["backbone_id", "country_clean"]
+        training["country_clean"].isin(stable_countries),
+        ["backbone_id", "country_clean"],
     ].drop_duplicates()
     testing_pairs = testing.loc[
-        testing["country_clean"].isin(stable_countries), ["backbone_id", "country_clean"]
+        testing["country_clean"].isin(stable_countries),
+        ["backbone_id", "country_clean"],
     ].drop_duplicates()
     if training_pairs.empty or testing_pairs.empty:
         return pd.Series(dtype=int)
@@ -474,14 +512,14 @@ def _evaluate_variant_payload(
     eligible = frame.loc[frame["spread_label"].notna()]
     if len(eligible) < 20 or eligible["spread_label"].nunique() < 2:
         return name, {"skipped": True}
-    return name, _model_metrics_with_config(frame, model_name=model_name, fit_config=fit_config)
+    return name, _model_metrics_with_config(frame, model_name=model_name, fit_config=fit_config)  # type: ignore
 
 
 def _evaluate_rolling_mode_task(
     task: tuple[int, int, int, str, pd.DataFrame, str],
 ) -> dict[str, object]:
     split_year, window_end, horizon_years, assignment_mode, variant_scored, default_primary = task
-    eligible = variant_scored.loc[variant_scored["spread_label"].notna()].copy()
+    eligible = variant_scored.loc[variant_scored["spread_label"].notna()].pipe(copy_frame)
     if len(eligible) < 20 or eligible["spread_label"].nunique() < 2:
         return {
             "split_year": int(split_year),
@@ -506,7 +544,7 @@ def _evaluate_rolling_mode_task(
     metrics = _model_metrics(
         variant_scored,
         model_name=default_primary,
-        n_repeats=5,
+        n_repeats=1,  # Faz 2 optimizasyonu: 5→1
         include_ci=False,
     )
     rolling_row = {
@@ -529,14 +567,15 @@ def _evaluate_rolling_mode_task(
     annual_freeze_row = None
     if assignment_mode == "training_only":
         freeze_predictions = fit_full_model_predictions(
-            variant_scored, model_name=default_primary
+            variant_scored,
+            model_name=default_primary,
         ).rename(columns={"prediction": "freeze_candidate_score"})
         freeze_candidates = (
-            variant_scored.loc[variant_scored["member_count_train"].fillna(0).astype(int) > 0]
+            variant_scored.loc[variant_scored["member_count_train"].pipe(int0) > 0]
             .merge(freeze_predictions, on="backbone_id", how="left", validate="1:1")
             .sort_values(["freeze_candidate_score", "priority_index"], ascending=[False, False])
             .head(25)
-            .copy()
+            .pipe(copy_frame)
         )
         annual_freeze_row = {
             "split_year": int(split_year),
@@ -545,12 +584,12 @@ def _evaluate_rolling_mode_task(
             "backbone_assignment_mode": assignment_mode,
             "n_candidates": int(len(freeze_candidates)),
             "n_positive_candidates": int(
-                freeze_candidates["spread_label"].fillna(0).astype(int).sum()
+                freeze_candidates["spread_label"].pipe(int0).sum(),
             )
             if not freeze_candidates.empty
             else 0,
             "precision_at_25": float(
-                freeze_candidates["spread_label"].fillna(0).astype(float).mean()
+                freeze_candidates["spread_label"].fillna(0).astype(float).mean(),
             )
             if not freeze_candidates.empty
             else np.nan,
@@ -604,9 +643,9 @@ def main() -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
-        }
+        },
     }
 
     with ManagedScriptRun(context, "22_run_sensitivity") as run:
@@ -628,9 +667,9 @@ def main() -> int:
             run.note("Inputs, code, and config unchanged; reusing cached sensitivity outputs.")
             run.set_metric("cache_hit", True)
             return 0
-        scored = read_tsv(scored_path)
-        records = read_tsv(backbones_path)
-        amr_hits = read_tsv(amr_hits_path)
+        scored = read_table(scored_path)
+        records = read_table(backbones_path)
+        amr_hits = read_table(amr_hits_path)
         pipeline = context.pipeline_settings
         assigned_records_cache: dict[tuple[int, bool, bool], pd.DataFrame] = {}
         amr_consensus_cache: dict[tuple[float | None, float | None], pd.DataFrame] = {}
@@ -639,15 +678,31 @@ def main() -> int:
 
         default_primary = DEFAULT_PRIMARY_MODEL
         main_threshold = int(pipeline.min_new_countries_for_spread)
+        fast_mode = str(
+            os.getenv("PLASMID_PRIORITY_SENSITIVITY_FAST", "1")
+        ).strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
+        # AGRESIF FAST MODE: compute efficiency maksimum
+        rolling_split_years = range(2016, 2018) if fast_mode else range(2014, 2018)
+        rolling_horizons = (5,) if fast_mode else (1, 3, 5)
+        l2_penalties = (1.0,) if fast_mode else (1.0, 5.0)
+        consistency_candidate_n = 20 if fast_mode else 30
+        consistency_top_k = 10 if fast_mode else 15
+        stability_bootstrap = 20 if fast_mode else 40
+        analysis_jobs = 4 if fast_mode else 2
 
         variants: dict[str, object] = {
             "default": (scored, default_primary, None),
-            "low_coherence_excluded": scored.loc[
-                scored["coherence_score"].fillna(0.0) >= 0.5
-            ].copy(),
+            "low_coherence_excluded": scored.loc[scored["coherence_score"].fillna(0.0) >= 0.5].pipe(
+                copy_frame
+            ),
             "member_count_train_ge_3": scored.loc[
-                scored["member_count_train"].fillna(0).astype(int) >= 3
-            ].copy(),
+                scored["member_count_train"].pipe(int0) >= 3
+            ].pipe(copy_frame),
             "alternate_normalization_rank_percentile": _rescore_existing_table(
                 scored,
                 normalization_method="rank_percentile",
@@ -699,7 +754,7 @@ def main() -> int:
                 max_train_countries=None,
             ),
         }
-        for l2_penalty in (0.1, 1.0, 2.5, 5.0, 10.0):
+        for l2_penalty in l2_penalties:
             variant_name = f"primary_l2_{str(l2_penalty).replace('.', 'p')}"
             variants[variant_name] = (
                 scored,
@@ -718,9 +773,9 @@ def main() -> int:
             test_year_end=2023,
             min_global_records_per_period=10,
         )
-        stable_country_frame = scored.copy()
+        stable_country_frame = scored.pipe(copy_frame)
         stable_country_frame["n_new_stable_countries"] = (
-            scored["backbone_id"].map(stable_new).fillna(0).astype(int)
+            scored["backbone_id"].map(stable_new).pipe(int0)
         )
         variants["stable_country_outcome"] = _apply_outcome_rule(
             stable_country_frame,
@@ -729,9 +784,9 @@ def main() -> int:
             min_train_countries=1,
             max_train_countries=3,
         )
-        stable_dense_country_frame = scored.copy()
+        stable_dense_country_frame = scored.pipe(copy_frame)
         stable_dense_country_frame["n_new_stable_dense_countries"] = (
-            scored["backbone_id"].map(stable_dense_new).fillna(0).astype(int)
+            scored["backbone_id"].map(stable_dense_new).pipe(int0)
         )
         variants["stable_dense_country_outcome"] = _apply_outcome_rule(
             stable_dense_country_frame,
@@ -741,34 +796,35 @@ def main() -> int:
             max_train_countries=3,
         )
         # Rebuild-heavy variants share caches so the same assignment/consensus work is not repeated.
-        variants["alternate_split_2014"] = _rebuild_scored(
-            records,
-            amr_hits,
-            split_year=2014,
-            assigned_records_cache=assigned_records_cache,
-            amr_consensus_cache=amr_consensus_cache,
-            component_cache=component_cache,
-            scored_cache=scored_cache,
-        )
-        variants["alternate_split_2016"] = _rebuild_scored(
-            records,
-            amr_hits,
-            split_year=2016,
-            assigned_records_cache=assigned_records_cache,
-            amr_consensus_cache=amr_consensus_cache,
-            component_cache=component_cache,
-            scored_cache=scored_cache,
-        )
-        variants["strict_amr_identity99_coverage95"] = _rebuild_scored(
-            records,
-            amr_hits,
-            amr_identity_min=99.0,
-            amr_coverage_min=95.0,
-            assigned_records_cache=assigned_records_cache,
-            amr_consensus_cache=amr_consensus_cache,
-            component_cache=component_cache,
-            scored_cache=scored_cache,
-        )
+        if not fast_mode:
+            variants["alternate_split_2014"] = _rebuild_scored(
+                records,
+                amr_hits,
+                split_year=2014,
+                assigned_records_cache=assigned_records_cache,
+                amr_consensus_cache=amr_consensus_cache,
+                component_cache=component_cache,
+                scored_cache=scored_cache,
+            )
+            variants["alternate_split_2016"] = _rebuild_scored(
+                records,
+                amr_hits,
+                split_year=2016,
+                assigned_records_cache=assigned_records_cache,
+                amr_consensus_cache=amr_consensus_cache,
+                component_cache=component_cache,
+                scored_cache=scored_cache,
+            )
+            variants["strict_amr_identity99_coverage95"] = _rebuild_scored(
+                records,
+                amr_hits,
+                amr_identity_min=99.0,
+                amr_coverage_min=95.0,
+                assigned_records_cache=assigned_records_cache,
+                amr_consensus_cache=amr_consensus_cache,
+                component_cache=component_cache,
+                scored_cache=scored_cache,
+            )
         variants["training_only_backbone_rerun"] = _rebuild_scored(
             records,
             amr_hits,
@@ -778,15 +834,16 @@ def main() -> int:
             component_cache=component_cache,
             scored_cache=scored_cache,
         )
-        variants["fallback_backbone_rerun"] = _rebuild_scored(
-            records,
-            amr_hits,
-            force_fallback_backbones=True,
-            assigned_records_cache=assigned_records_cache,
-            amr_consensus_cache=amr_consensus_cache,
-            component_cache=component_cache,
-            scored_cache=scored_cache,
-        )
+        if not fast_mode:
+            variants["fallback_backbone_rerun"] = _rebuild_scored(
+                records,
+                amr_hits,
+                force_fallback_backbones=True,
+                assigned_records_cache=assigned_records_cache,
+                amr_consensus_cache=amr_consensus_cache,
+                component_cache=component_cache,
+                scored_cache=scored_cache,
+            )
 
         # T4: Alternate outcome thresholds — compare looser and stricter labels
         # against the published main threshold without silently redefining it.
@@ -842,8 +899,39 @@ def main() -> int:
         annual_freeze_rows: list[dict[str, object]] = []
         rolling_tasks: list[tuple[int, int, int, str, pd.DataFrame, str]] = []
         rolling_keys: list[tuple[int, int, int]] = []
-        for split_year in range(2012, 2019):
-            for horizon_years in (1, 3, 5, 8):
+
+        # Faz 2 optimizasyonu: Rolling variant grouping - feature computation BİR KEZ per split_year
+        # Source signatures for cache invalidation
+        source_signatures = {
+            "records": hashlib.sha256(records.to_csv(index=False).encode()).hexdigest()[:16],
+            "amr_hits": hashlib.sha256(amr_hits.to_csv(index=False).encode()).hexdigest()[:16],
+        }
+        cache = VariantCacheManager(context.data_dir / "analysis", source_signatures)
+
+        for split_year in rolling_split_years:
+            # Feature computation BİR KEZ per split_year
+            components = cache.get_components(
+                split_year,
+                assignment_mode="all_records",
+                normalization_mode=DEFAULT_NORMALIZATION_METHOD,
+            )
+            if components is None:
+                components = _prepare_scored_components(
+                    records,
+                    amr_hits,
+                    split_year=split_year,
+                    assigned_records_cache=assigned_records_cache,
+                    amr_consensus_cache=amr_consensus_cache,
+                    component_cache=component_cache,
+                )
+                cache.put_components(
+                    split_year,
+                    components,
+                    assignment_mode="all_records",
+                    normalization_mode=DEFAULT_NORMALIZATION_METHOD,
+                )
+
+            for horizon_years in rolling_horizons:
                 window_end = min(split_year + horizon_years, 2023)
                 if window_end <= split_year:
                     continue
@@ -852,17 +940,28 @@ def main() -> int:
                     ("all_records", False),
                     ("training_only", True),
                 ):
-                    variant_scored = _rebuild_scored(
-                        records,
-                        amr_hits,
+                    # Faz 2 optimizasyonu: Sadece label güncelle (HIZLI)
+                    variant_scored = cache.get_variant(
                         split_year=split_year,
                         test_year_end=window_end,
-                        training_only_backbones=training_only,
-                        assigned_records_cache=assigned_records_cache,
-                        amr_consensus_cache=amr_consensus_cache,
-                        component_cache=component_cache,
-                        scored_cache=scored_cache,
+                        horizon_years=horizon_years,
+                        assignment_mode=assignment_mode,
+                        normalization_mode=DEFAULT_NORMALIZATION_METHOD,
                     )
+                    if variant_scored is None:
+                        variant_scored = _score_components_for_horizon(
+                            components,  # type: ignore
+                            test_year_end=window_end,
+                            normalization_method=DEFAULT_NORMALIZATION_METHOD,
+                        )
+                        cache.put_variant(
+                            split_year=split_year,
+                            test_year_end=window_end,
+                            horizon_years=horizon_years,
+                            assignment_mode=assignment_mode,
+                            normalization_mode=DEFAULT_NORMALIZATION_METHOD,
+                            scored=variant_scored,
+                        )
                     rolling_tasks.append(
                         (
                             int(split_year),
@@ -871,13 +970,13 @@ def main() -> int:
                             assignment_mode,
                             variant_scored,
                             default_primary,
-                        )
+                        ),
                     )
         rolling_jobs = _resolve_parallel_jobs(None, max_tasks=len(rolling_tasks))
         if rolling_jobs > 1:
-            with limit_native_threads(1):
-                with ThreadPoolExecutor(max_workers=rolling_jobs) as executor:
-                    rolling_results = list(executor.map(_evaluate_rolling_mode_task, rolling_tasks))
+            # Faz 2 optimizasyonu: ProcessPoolExecutor (GIL-free parallelism)
+            with ProcessPoolExecutor(max_workers=rolling_jobs) as executor:
+                rolling_results = list(executor.map(_evaluate_rolling_mode_task, rolling_tasks))
         else:
             rolling_results = [_evaluate_rolling_mode_task(task) for task in rolling_tasks]
 
@@ -890,19 +989,21 @@ def main() -> int:
             for result in rolling_results
         }
         for result in rolling_results:
-            rolling_rows.append(result["rolling_row"])
+            rolling_rows.append(result["rolling_row"])  # type: ignore
             if result.get("annual_freeze_row") is not None:
-                annual_freeze_rows.append(result["annual_freeze_row"])
+                annual_freeze_rows.append(result["annual_freeze_row"])  # type: ignore
 
         for split_year, window_end, horizon_years in rolling_keys:
             all_records_result = mode_results_by_key.get(
-                (split_year, window_end, "all_records"), {}
+                (split_year, window_end, "all_records"),
+                {},
             )
             training_only_result = mode_results_by_key.get(
-                (split_year, window_end, "training_only"), {}
+                (split_year, window_end, "training_only"),
+                {},
             )
-            all_ids = set(all_records_result.get("eligible_ids", set()))
-            training_ids = set(training_only_result.get("eligible_ids", set()))
+            all_ids = set(all_records_result.get("eligible_ids", set()))  # type: ignore
+            training_ids = set(training_only_result.get("eligible_ids", set()))  # type: ignore
             overlap = all_ids & training_ids
             union = all_ids | training_ids
             all_metrics = all_records_result.get("metrics", {})
@@ -919,7 +1020,7 @@ def main() -> int:
                 )
                 future_rows = assigned_training_only.loc[
                     (assigned_years > split_year) & (assigned_years <= window_end)
-                ].copy()
+                ].pipe(copy_frame)
                 if not future_rows.empty:
                     unseen_mask = (
                         future_rows["backbone_assignment_rule"]
@@ -929,7 +1030,7 @@ def main() -> int:
                     future_unseen_row_fraction = float(unseen_mask.mean())
                     future_unseen_backbone_fraction = float(
                         future_rows.loc[unseen_mask, "backbone_id"].astype(str).nunique()
-                        / max(future_rows["backbone_id"].astype(str).nunique(), 1)
+                        / max(future_rows["backbone_id"].astype(str).nunique(), 1),
                     )
             rolling_diagnostic_rows.append(
                 {
@@ -947,20 +1048,21 @@ def main() -> int:
                     "training_only_future_unseen_row_fraction": future_unseen_row_fraction,
                     "training_only_future_unseen_backbone_fraction": future_unseen_backbone_fraction,
                     "roc_auc_delta_training_only_minus_all_records": (
-                        float(training_metrics["roc_auc"] - all_metrics["roc_auc"])
+                        float(training_metrics["roc_auc"] - all_metrics["roc_auc"])  # type: ignore
                         if all_records_result.get("status") == "ok"
                         and training_only_result.get("status") == "ok"
                         else np.nan
                     ),
                     "average_precision_delta_training_only_minus_all_records": (
                         float(
-                            training_metrics["average_precision"] - all_metrics["average_precision"]
+                            training_metrics["average_precision"]  # type: ignore
+                            - all_metrics["average_precision"],  # type: ignore
                         )
                         if all_records_result.get("status") == "ok"
                         and training_only_result.get("status") == "ok"
                         else np.nan
                     ),
-                }
+                },
             )
 
         rolling_table = pd.DataFrame(rolling_rows)
@@ -988,24 +1090,26 @@ def main() -> int:
         variant_consistency = build_variant_rank_consistency_table(
             scored,
             consistency_variants,
-            candidate_n=50,
-            top_k=25,
+            candidate_n=consistency_candidate_n,
+            top_k=consistency_top_k,
             model_name=default_primary,
-            n_jobs=4,
+            n_jobs=analysis_jobs,
         )
         variant_consistency.to_csv(variant_consistency_output_path, sep="\t", index=False)
 
         rank_stability = build_priority_bootstrap_stability_table(
             scored,
-            candidate_n=50,
-            top_k=25,
-            n_bootstrap=100,
+            candidate_n=consistency_candidate_n,
+            top_k=consistency_top_k,
+            n_bootstrap=stability_bootstrap,
             model_name=default_primary,
-            n_jobs=4,
+            n_jobs=analysis_jobs,
         )
         rank_stability.to_csv(rank_stability_output_path, sep="\t", index=False)
 
-        freeze_scored = variant_frames.get("training_only_backbone_rerun", pd.DataFrame()).copy()
+        freeze_scored = variant_frames.get("training_only_backbone_rerun", pd.DataFrame()).pipe(
+            copy_frame
+        )
         if freeze_scored.empty:
             freeze_scored = _rebuild_scored(
                 records,
@@ -1017,16 +1121,18 @@ def main() -> int:
                 amr_consensus_cache=amr_consensus_cache,
                 component_cache=component_cache,
                 scored_cache=scored_cache,
+                variant_cache=cache,
             )
         freeze_predictions = fit_full_model_predictions(
-            freeze_scored, model_name=default_primary
+            freeze_scored,
+            model_name=default_primary,
         ).rename(columns={"prediction": "freeze_candidate_score"})
         freeze_candidates = (
-            freeze_scored.loc[freeze_scored["member_count_train"].fillna(0).astype(int) > 0]
+            freeze_scored.loc[freeze_scored["member_count_train"].pipe(int0) > 0]
             .merge(freeze_predictions, on="backbone_id", how="left", validate="1:1")
             .sort_values(["freeze_candidate_score", "priority_index"], ascending=[False, False])
             .head(50)
-            .copy()
+            .pipe(copy_frame)
             .reset_index(drop=True)
         )
         freeze_candidates["freeze_rank"] = np.arange(1, len(freeze_candidates) + 1)

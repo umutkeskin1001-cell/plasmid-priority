@@ -100,6 +100,67 @@ class RunModeTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 run_mode_script.main(["fast-local", "--dry-run"])
 
+    def test_full_local_uses_settings_workflow_and_max_workers_defaults(self) -> None:
+        completed = mock.Mock(returncode=0)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_root = Path(tmp_dir)
+
+            class _FakeSettings:
+                workflow_mode = "release"
+                max_jobs = 2
+
+            with (
+                mock.patch.object(run_mode_script, "get_settings", return_value=_FakeSettings()),
+                mock.patch.object(
+                    run_mode_script.subprocess, "run", return_value=completed
+                ) as run_mock,
+            ):
+                result = run_mode_script.main(
+                    ["full-local", "--data-root", str(data_root), "--dry-run"]
+                )
+        self.assertEqual(result, 0)
+        command = run_mock.call_args.args[0]
+        self.assertIn("release", command)
+        self.assertIn("--max-workers", command)
+        self.assertIn("2", command)
+
+    def test_run_mode_exports_report_mode_and_compute_tier_env(self) -> None:
+        completed = mock.Mock(returncode=0)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_root = Path(tmp_dir)
+            with mock.patch.object(
+                run_mode_script.subprocess, "run", return_value=completed
+            ) as run_mock:
+                result = run_mode_script.main(
+                    [
+                        "full-local",
+                        "--data-root",
+                        str(data_root),
+                        "--dry-run",
+                        "--report-mode",
+                        "report-diff",
+                        "--compute-tier",
+                        "dev",
+                    ],
+                )
+        self.assertEqual(result, 0)
+        env = run_mock.call_args.kwargs["env"]
+        self.assertEqual(env.get("PLASMID_PRIORITY_REPORT_MODE"), "report-diff")
+        self.assertEqual(env.get("PLASMID_PRIORITY_COMPUTE_TIER"), "dev")
+
+    def test_run_mode_triggers_profile_and_dashboard_after_success(self) -> None:
+        completed = mock.Mock(returncode=0)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            data_root = Path(tmp_dir)
+            with mock.patch.object(
+                run_mode_script.subprocess,
+                "run",
+                side_effect=[completed, completed, completed, completed, completed, completed],
+            ) as run_mock:
+                result = run_mode_script.main(["full-local", "--data-root", str(data_root)])
+        self.assertEqual(result, 0)
+        self.assertEqual(run_mock.call_count, 6)
+
 
 if __name__ == "__main__":
     unittest.main()

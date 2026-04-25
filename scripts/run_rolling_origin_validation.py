@@ -21,13 +21,13 @@ from plasmid_priority.utils.files import ensure_directory
 from plasmid_priority.validation.rolling_origin import run_rolling_origin_validation
 
 
-def _scored_path(context, scored_path: str | None) -> Path:
+def _scored_path(context, scored_path: str | None) -> Path:  # type: ignore
     if scored_path:
         return Path(scored_path).expanduser().resolve()
     candidate = context.data_dir / "scores/backbone_scored.tsv"
     if candidate.exists():
-        return candidate
-    return context.root / "data/scores/backbone_scored.tsv"
+        return candidate  # type: ignore
+    return context.root / "data/scores/backbone_scored.tsv"  # type: ignore
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
             include_ci=False,
         )
         return {
-            "status": str(result.metrics.get("status", "ok")),
+            "status": str(result.metrics.get("status", "ok")),  # type: ignore
             "roc_auc": float(result.metrics.get("roc_auc", float("nan"))),
             "average_precision": float(result.metrics.get("average_precision", float("nan"))),
             "ece": float(result.metrics.get("ece", float("nan"))),
@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         model_name=args.model_name,
         horizon_years=int(args.horizon_years),
         assignment_mode=str(args.assignment_mode),
-        model_evaluator=_model_evaluator,
+        model_evaluator=_model_evaluator,  # type: ignore
     )
 
     analysis_dir = context.data_dir / "analysis"
@@ -104,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
             },
             indent=2,
             sort_keys=True,
-        )
+        ),
     )
     return 0
 

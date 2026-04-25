@@ -114,9 +114,9 @@ def main() -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
-        }
+        },
     }
 
     with ManagedScriptRun(context, "27_run_advanced_audits") as run:
@@ -176,7 +176,7 @@ def main() -> int:
         if adaptive_predictions_path.exists():
             adaptive = read_tsv(adaptive_predictions_path)
             if {"backbone_id", "adaptive_prediction", "spread_label", "model_name"} <= set(
-                adaptive.columns
+                adaptive.columns,
             ):
                 adaptive_predictions = adaptive[
                     ["backbone_id", "adaptive_prediction", "spread_label", "model_name"]
@@ -190,10 +190,10 @@ def main() -> int:
                 )
 
         primary_model_name = get_primary_model_name(
-            predictions["model_name"].astype(str).unique().tolist()
+            predictions["model_name"].astype(str).unique().tolist(),
         )
         conservative_model_name = get_conservative_model_name(
-            predictions["model_name"].astype(str).unique().tolist()
+            predictions["model_name"].astype(str).unique().tolist(),
         )
         model_names = [
             name
@@ -328,7 +328,11 @@ def main() -> int:
             usecols=["NUCCORE_ACC", "NUCCORE_Completeness", "NUCCORE_DuplicatedEntry"],
         )
         metadata_quality = build_metadata_quality_table(
-            backbones, scored, assembly, biosample, nucc_identical
+            backbones,
+            scored,
+            assembly,
+            biosample,
+            nucc_identical,
         )
         metadata_quality.to_csv(metadata_quality_output, sep="\t", index=False)
 
@@ -341,12 +345,16 @@ def main() -> int:
             model_names=model_names,
         )
         country_missingness_sensitivity.to_csv(
-            country_missingness_sensitivity_output, sep="\t", index=False
+            country_missingness_sensitivity_output,
+            sep="\t",
+            index=False,
         )
 
         changes = read_tsv(changes_path, usecols=["NUCCORE_ACC", "Flag", "Comment"])
         duplicate_quality = build_duplicate_completeness_change_audit(
-            backbones, nucc_identical, changes
+            backbones,
+            nucc_identical,
+            changes,
         )
         duplicate_quality.to_csv(duplicate_quality_output, sep="\t", index=False)
 
@@ -410,7 +418,8 @@ def main() -> int:
         run.set_rows_out("ordinal_outcome_rows", int(len(ordinal_outcome)))
         run.set_rows_out("country_missingness_rows", int(len(country_missingness_bounds)))
         run.set_rows_out(
-            "country_missingness_sensitivity_rows", int(len(country_missingness_sensitivity))
+            "country_missingness_sensitivity_rows",
+            int(len(country_missingness_sensitivity)),
         )
         run.set_rows_out("geographic_jump_rows", int(len(geographic_jump)))
         run.set_rows_out("duplicate_quality_rows", int(len(duplicate_quality)))

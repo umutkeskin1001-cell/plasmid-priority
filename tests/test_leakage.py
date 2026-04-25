@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from plasmid_priority.features.core import _training_period_records
+from plasmid_priority.features.temporal_leak import detect_temporal_leak
 
 
 class TestTemporalLeakage(unittest.TestCase):
@@ -141,6 +142,29 @@ class TestTemporalLeakage(unittest.TestCase):
             label="test_training_period_records_ignore_missing_years",
         )
         self.assertListEqual(training["backbone_id"].tolist(), ["BB1"])
+
+    def test_detect_temporal_leak_severity_uses_absolute_correlation(self) -> None:
+        years = np.arange(2010, 2020, dtype=float)
+        scored = pd.DataFrame(
+            {
+                "year": years,
+                "spread_label": np.array([0, 1] * 5, dtype=float),
+                "anti_year_signal": -years,
+                "noise_feature": np.linspace(0.1, 0.9, num=len(years)),
+            }
+        )
+
+        result = detect_temporal_leak(scored, year_column="year", label_column="spread_label")
+
+        self.assertTrue(result["has_leak"])
+        self.assertGreaterEqual(float(result["leak_severity"]), 0.99)
+        leak_by_feature = {row["feature"]: row for row in result["leak_features"]}
+        self.assertIn("anti_year_signal", leak_by_feature)
+        self.assertAlmostEqual(
+            float(result["leak_severity"]),
+            abs(float(leak_by_feature["anti_year_signal"]["correlation"])),
+            places=6,
+        )
 
 
 if __name__ == "__main__":

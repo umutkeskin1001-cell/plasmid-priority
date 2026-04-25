@@ -71,7 +71,7 @@ def _function_violations(path: Path, thresholds: Thresholds) -> list[FunctionVio
                     end_line=int(end_line),
                     line_count=length,
                     limit=limit,
-                )
+                ),
             )
     return violations
 
@@ -88,7 +88,7 @@ def _build_report(target_roots: tuple[str, ...], thresholds: Thresholds) -> dict
                     path=str(path.relative_to(PROJECT_ROOT)),
                     line_count=count,
                     limit=thresholds.max_file_lines,
-                )
+                ),
             )
         function_violations.extend(_function_violations(path, thresholds))
     return {

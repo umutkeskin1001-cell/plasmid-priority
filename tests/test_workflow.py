@@ -6,6 +6,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import TracebackType
+from typing import Literal
 from unittest import mock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +49,12 @@ class _FakeValidationRun:
     def __enter__(self) -> _FakeValidationRun:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> Literal[False]:
         return False
 
     def record_input(self, path: Path) -> None:
@@ -160,15 +167,32 @@ class WorkflowTests(unittest.TestCase):
     def test_release_workflow_contains_bundle_and_registry_steps(self) -> None:
         steps = run_workflow_script._workflow_steps("release")
         names = [step.name for step in steps]
+        self.assertIn("52_build_official_release_artifacts", names)
         self.assertIn("28_build_release_bundle", names)
         self.assertIn("29_build_experiment_registry", names)
+        self.assertIn("41_build_performance_dashboard", names)
+        self.assertIn("42_release_readiness_report", names)
+        official_step = next(
+            step for step in steps if step.name == "52_build_official_release_artifacts"
+        )
+        readiness_step = next(step for step in steps if step.name == "42_release_readiness_report")
         release_step = next(step for step in steps if step.name == "28_build_release_bundle")
-        self.assertEqual(release_step.deps, ("24_build_reports", "25_export_tubitak_summary"))
+        self.assertEqual(official_step.deps, ("24_build_reports",))
+        self.assertIn("52_build_official_release_artifacts", readiness_step.deps)
+        self.assertEqual(release_step.deps, ("42_release_readiness_report",))
 
     def test_reports_only_workflow_keeps_report_tail(self) -> None:
         steps = run_workflow_script._workflow_steps("reports-only")
         names = [step.name for step in steps]
         self.assertEqual(names, ["24_build_reports", "25_export_tubitak_summary"])
+
+    def test_demo_pipeline_does_not_enforce_full_report_boundary(self) -> None:
+        report_step = run_workflow_script.STEP_LIBRARY["24_build_reports"]
+        check_step = run_workflow_script.STEP_LIBRARY["01_check_inputs"]
+
+        self.assertFalse(run_workflow_script._enforce_step_boundary("demo-pipeline", report_step))
+        self.assertTrue(run_workflow_script._enforce_step_boundary("demo-pipeline", check_step))
+        self.assertTrue(run_workflow_script._enforce_step_boundary("pipeline", report_step))
 
     def test_auto_job_cap_splits_cpu_budget_across_workers(self) -> None:
         with mock.patch.object(run_workflow_script.os, "cpu_count", return_value=12):
@@ -318,6 +342,89 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("reports/headline_validation_summary.md", release_files)
         self.assertIn("reports/core_tables/headline_validation_summary.tsv", release_files)
         self.assertIn("reports/core_tables/single_model_official_decision.tsv", release_files)
+        self.assertIn("reports/core_tables/official_model_scores.tsv", release_files)
+        self.assertIn("reports/core_tables/official_model_scorecard.tsv", release_files)
+        self.assertIn("reports/core_tables/official_candidate_decisions.tsv", release_files)
+        self.assertIn("reports/core_tables/official_model_summary.json", release_files)
+        self.assertIn("docs/reproducibility_manifest.json", release_files)
+        self.assertIn("reports/reviewer_pack/run_reproducibility.sh", release_files)
+        self.assertIn("reports/performance/workflow_performance_dashboard.md", release_files)
+        self.assertIn("reports/release/release_readiness_report.md", release_files)
+
+    def test_release_info_includes_official_model_family_summary_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "reports/core_tables").mkdir(parents=True)
+            (root / "reports/core_tables/model_metrics.tsv").write_text(
+                "\n".join(
+                    [
+                        "model_name\troc_auc\troc_auc_ci_lower\troc_auc_ci_upper\taverage_precision\taverage_precision_ci_lower\taverage_precision_ci_upper",
+                        "pareto_model\t0.83\t0.80\t0.86\t0.75\t0.71\t0.79",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "reports/core_tables/official_model_summary.json").write_text(
+                '{"official_model_family_status": "pass", "candidate_count": 12, "review_not_rank_count": 3, "decision_surface": "conservative_evidence_consensus"}\n',
+                encoding="utf-8",
+            )
+
+            release_info = build_release_bundle_script._build_release_info(root)
+
+        self.assertIn("Official model family status: pass", release_info)
+        self.assertIn("Official decision surface: conservative_evidence_consensus", release_info)
+        self.assertIn("Official candidate decisions: 12 total; 3 review_not_rank", release_info)
+
+    def test_release_bundle_includes_candidate_dossier_glob_surface(self) -> None:
+        glob_patterns = set(build_release_bundle_script.RELEASE_GLOB_FILES)
+        self.assertIn("reports/reviewer_pack/candidate_evidence_dossiers/*.md", glob_patterns)
+
+    def test_release_workflow_fails_when_artifact_integrity_gate_fails(self) -> None:
+        with (
+            mock.patch.object(run_workflow_script.registry, "discover_entry_points"),
+            mock.patch.object(run_workflow_script, "_workflow_steps", return_value=[]),
+            mock.patch.object(
+                run_workflow_script,
+                "validate_release_scientific_contract",
+                return_value={"status": "pass", "errors": []},
+            ),
+            mock.patch.object(
+                run_workflow_script,
+                "validate_release_artifact_integrity",
+                return_value={"status": "fail", "errors": ["broken"]},
+            ),
+            mock.patch.object(
+                run_workflow_script,
+                "evaluate_release_readiness",
+                return_value={"status": "pass", "failed_checks": []},
+            ),
+        ):
+            result = run_workflow_script.run_workflow("release", max_workers=1, resume=False)
+        self.assertEqual(result, 5)
+
+    def test_release_workflow_fails_when_readiness_gate_fails(self) -> None:
+        with (
+            mock.patch.object(run_workflow_script.registry, "discover_entry_points"),
+            mock.patch.object(run_workflow_script, "_workflow_steps", return_value=[]),
+            mock.patch.object(
+                run_workflow_script,
+                "validate_release_scientific_contract",
+                return_value={"status": "pass", "errors": []},
+            ),
+            mock.patch.object(
+                run_workflow_script,
+                "validate_release_artifact_integrity",
+                return_value={"status": "pass", "errors": []},
+            ),
+            mock.patch.object(
+                run_workflow_script,
+                "evaluate_release_readiness",
+                return_value={"status": "fail", "failed_checks": ["x"]},
+            ),
+        ):
+            result = run_workflow_script.run_workflow("release", max_workers=1, resume=False)
+        self.assertEqual(result, 6)
 
     def test_workflow_discovers_entry_point_plugins_before_execution(self) -> None:
         with mock.patch.object(run_workflow_script.registry, "discover_entry_points") as discover:
@@ -396,6 +503,39 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("Primary model: phylo_support_fusion_priority", release_info)
         self.assertIn("Selection-adjusted permutation p = 0.005 (n=200)", release_info)
         self.assertIn("Fixed-score permutation p NA (n=NA)", release_info)
+
+    def test_runtime_budget_blocks_release_mode_when_exceeded(self) -> None:
+        budgets = {
+            "modes": {"release-full": {"budget_seconds": 10}},
+            "enforcement": {
+                "default_exceedance_tolerance": 0.1,
+                "release_block_on_exceedance": True,
+            },
+        }
+        ok, message = run_workflow_script._evaluate_runtime_budget(
+            workflow_mode="release",
+            total_runtime_seconds=20.0,
+            budgets=budgets,
+        )
+        self.assertFalse(ok)
+        self.assertIn("exceeded=true", message)
+        self.assertIn("release-full", message)
+
+    def test_runtime_budget_does_not_block_non_release_without_strict_flag(self) -> None:
+        budgets = {
+            "modes": {"dev-refresh": {"budget_seconds": 10}},
+            "enforcement": {
+                "default_exceedance_tolerance": 0.0,
+                "release_block_on_exceedance": True,
+            },
+        }
+        ok, message = run_workflow_script._evaluate_runtime_budget(
+            workflow_mode="analysis-refresh",
+            total_runtime_seconds=15.0,
+            budgets=budgets,
+        )
+        self.assertTrue(ok)
+        self.assertIn("exceeded=true", message)
 
 
 if __name__ == "__main__":

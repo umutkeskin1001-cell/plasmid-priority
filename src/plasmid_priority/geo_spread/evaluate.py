@@ -234,7 +234,11 @@ def evaluate_geo_spread_branch(
         prepared_scored=prepared_scored,
     )
     if include_blend:
-        blend = build_geo_spread_blended_result(results, include_ci=include_ci)
+        blend = build_geo_spread_blended_result(
+            results,
+            scored=prepared_scored,
+            include_ci=include_ci,
+        )
         results[blend.name] = blend
     if include_adaptive:
         adaptive = build_geo_spread_adaptive_result(

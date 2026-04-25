@@ -36,6 +36,18 @@ jobs:
       - name: Protocol freshness gate
         run: make protocol-freshness
 
+      - name: Runtime budget gate
+        run: make runtime-budget-gate
+
+      - name: Scientific contract gate
+        run: make scientific-contract-gate
+
+      - name: Artifact integrity gate
+        run: make artifact-integrity
+
+      - name: Release readiness gate
+        run: make release-readiness
+
       - name: Import contract gate
         run: make import-contract
 
@@ -47,6 +59,22 @@ jobs:
 
       - name: Run tests with coverage
         run: make test-cov
+
+      - name: Critical-path coverage
+        run: |
+          python -m coverage erase
+          python -m coverage run --source=src/plasmid_priority -m pytest -q \
+            tests/test_temporal_contracts.py \
+            tests/test_probabilistic_labels.py \
+            tests/test_modeling_temporal_cv.py \
+            tests/test_leakage.py \
+            tests/test_config.py \
+            tests/test_model_caches.py \
+            -o addopts=''
+          python -m coverage report \
+            --include='src/plasmid_priority/shared/temporal.py,src/plasmid_priority/labels/probabilistic.py,src/plasmid_priority/modeling/temporal_cv.py,src/plasmid_priority/config.py' \
+            --fail-under=90 \
+            --show-missing
 
       - name: Security audit (pip-audit)
         run: make security

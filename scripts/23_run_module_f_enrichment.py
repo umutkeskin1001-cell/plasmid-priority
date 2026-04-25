@@ -43,9 +43,9 @@ def main() -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
-        }
+        },
     }
 
     with ManagedScriptRun(context, "23_run_module_f_enrichment") as run:
@@ -75,10 +75,15 @@ def main() -> int:
             split_year=pipeline.split_year,
         )
         enrichment = build_module_f_enrichment_table(
-            identity, label_column="spread_label", min_backbones=10
+            identity,
+            label_column="spread_label",
+            min_backbones=10,
         )
         top_hits = build_module_f_top_hits(
-            enrichment, q_threshold=0.05, max_per_group=3, max_total=20
+            enrichment,
+            q_threshold=0.05,
+            max_per_group=3,
+            max_total=20,
         )
 
         identity.to_csv(identity_output, sep="\t", index=False)

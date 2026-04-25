@@ -42,7 +42,7 @@ def main() -> int:
 
         if not report.ok:
             raise RuntimeError(
-                "Input validation failed. See data/tmp/logs/01_check_inputs_summary.json."
+                "Input validation failed. See data/tmp/logs/01_check_inputs_summary.json.",
             )
 
     return 0

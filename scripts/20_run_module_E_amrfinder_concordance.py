@@ -94,7 +94,7 @@ def main() -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
         },
         "probe_panel": {"n_per_group": int(args.n_per_group)},
@@ -117,12 +117,12 @@ def main() -> int:
             metadata=cache_metadata,
         ):
             run.note(
-                "Inputs, code, config, and AMRFinder environment unchanged; reusing cached concordance probe outputs."
+                "Inputs, code, config, and AMRFinder environment unchanged; reusing cached concordance probe outputs.",
             )
             run.set_metric("cache_hit", True)
             return 0
         run.note(
-            "AMRFinder probe is a concordance sanity check on a small representative panel, not a full resequencing annotation pass."
+            "AMRFinder probe is a concordance sanity check on a small representative panel, not a full resequencing annotation pass.",
         )
 
         scored = read_tsv(scored_path)
@@ -164,14 +164,14 @@ def main() -> int:
         )
         if extraction["missing"]:
             run.warn(
-                f"AMRFinder probe FASTA missing {len(extraction['missing'])} selected accessions."
+                f"AMRFinder probe FASTA missing {len(extraction['missing'])} selected accessions.",  # type: ignore
             )
-        run.set_metric("amrfinder_probe_requested", int(extraction["requested"]))
-        run.set_metric("amrfinder_probe_found", int(extraction["found"]))
+        run.set_metric("amrfinder_probe_requested", int(extraction["requested"]))  # type: ignore
+        run.set_metric("amrfinder_probe_found", int(extraction["found"]))  # type: ignore
 
         if amrfinder_executable is None:
             run.warn(
-                "AMRFinder executable not found in PATH; skipping supportive concordance probe."
+                "AMRFinder executable not found in PATH; skipping supportive concordance probe.",
             )
             # Write a valid TSV with headers instead of empty file to avoid boundary validation error
             pd.DataFrame(
@@ -180,7 +180,7 @@ def main() -> int:
                     "amrfinder_gene_symbols",
                     "amrfinder_class_tokens",
                     "amrfinder_hit_count",
-                ]
+                ],
             ).to_csv(probe_hits_path, sep="\t", index=False)
             concordance_detail, concordance_summary = build_amrfinder_concordance_tables(
                 panel.head(0),
@@ -194,12 +194,14 @@ def main() -> int:
                 amrfinder_db_root=amrfinder_db_root,
                 threads=args.threads,
             )
-            if probe_result["stderr"].strip():
-                run.note(probe_result["stderr"].strip())
+            if probe_result["stderr"].strip():  # type: ignore
+                run.note(probe_result["stderr"].strip())  # type: ignore
 
             amrfinder_probe = parse_amrfinder_probe_report(probe_hits_path)
             concordance_detail, concordance_summary = build_amrfinder_concordance_tables(
-                panel, amr_consensus, amrfinder_probe
+                panel,
+                amr_consensus,
+                amrfinder_probe,
             )
         concordance_detail.to_csv(concordance_detail_path, sep="\t", index=False)
         concordance_summary.to_csv(concordance_summary_path, sep="\t", index=False)

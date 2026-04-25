@@ -7,6 +7,8 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from plasmid_priority.utils.temporal import coerce_required_years
+
 
 def _length_bin(length_val: float) -> str:
     try:
@@ -100,8 +102,12 @@ def assign_backbone_ids_training_only(
 ) -> pd.DataFrame:
     """Assign backbones using only training-period signatures and mark unseen future-only groups."""
     assigned = records.copy()
-    years = pd.to_numeric(assigned["resolved_year"], errors="coerce").fillna(0).astype(int)
-    training_mask = years <= split_year
+    years = coerce_required_years(
+        assigned,
+        "resolved_year",
+        context="assign_backbone_ids_training_only",
+    )
+    training_mask = years <= int(split_year)
     primary = assigned["primary_cluster_id"].fillna("").astype(str).str.strip()
     fallback_key = _fallback_key_series(assigned)
 
@@ -221,7 +227,12 @@ _dominant_share = _dominant_share_by_backbone
 
 def compute_backbone_coherence(records: pd.DataFrame, *, split_year: int = 2015) -> pd.DataFrame:
     """Compute a conservative within-backbone coherence score on training-period rows."""
-    training = records.loc[records["resolved_year"].fillna(0).astype(int) <= split_year].copy()
+    years = coerce_required_years(
+        records,
+        "resolved_year",
+        context="compute_backbone_coherence",
+    )
+    training = records.loc[years <= int(split_year)].copy()
     if training.empty:
         return pd.DataFrame(
             columns=[

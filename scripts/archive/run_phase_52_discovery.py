@@ -104,7 +104,7 @@ def run_preflight_checks(scored: pd.DataFrame, split_year: int) -> None:
     baseline_track = get_model_track("discovery_boosted")
     if baseline_track != "discovery":
         raise ValueError(
-            f"Baseline discovery_boosted has track '{baseline_track}' but expected 'discovery'"
+            f"Baseline discovery_boosted has track '{baseline_track}' but expected 'discovery'",
         )
 
     # 3. Feature column presence check
@@ -147,7 +147,7 @@ def compute_selection_adjusted_p_value(
     Returns:
         p-value from paired DeLong test (candidate vs baseline).
     """
-    from plasmid_priority.modeling.module_a import (
+    from plasmid_priority.modeling.module_a import (  # type: ignore
         _ensure_feature_columns,
         _model_fit_kwargs,
         _oof_predictions_from_eligible,
@@ -424,7 +424,7 @@ def write_phase_52_artifacts(
                     "leakage_review_status"
                 ],  # "required" = no explicit signal
                 "gate_overall": gates["overall"],
-            }
+            },
         )
     summary_table = pd.DataFrame(summary_rows)
     summary_path = reports_dir / "phase_52_per_model_summary.tsv"
@@ -449,7 +449,7 @@ def write_phase_52_artifacts(
                     "leakage_review_status"
                 ],  # "required" = no explicit signal
                 "overall": gates["overall"],
-            }
+            },
         )
     gate_table = pd.DataFrame(gate_rows)
     gate_path = reports_dir / "phase_52_gate_evaluation.tsv"
@@ -461,7 +461,7 @@ def write_phase_52_artifacts(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run Phase 5.2 Discovery Batch execution and reporting pipeline."
+        description="Run Phase 5.2 Discovery Batch execution and reporting pipeline.",
     )
     parser.add_argument(
         "--jobs",

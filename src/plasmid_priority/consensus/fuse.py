@@ -296,6 +296,126 @@ def build_operational_consensus_frame(
     return out
 
 
+def _combined_discrimination_score(
+    y_true: pd.Series,
+    score: pd.Series,
+) -> float | None:
+    y_numeric = pd.to_numeric(y_true, errors="coerce")
+    score_numeric = pd.to_numeric(score, errors="coerce")
+    valid_mask = y_numeric.notna() & score_numeric.notna()
+    if int(valid_mask.sum()) < 2:
+        return None
+    y_clean = y_numeric.loc[valid_mask].astype(int)
+    score_clean = score_numeric.loc[valid_mask].astype(float)
+    if y_clean.nunique() < 2 or score_clean.nunique() < 2:
+        return None
+    try:
+        y_np = y_clean.to_numpy(dtype=int, copy=False)
+        score_np = score_clean.to_numpy(dtype=float, copy=False)
+        return float(0.6 * roc_auc_score(y_np, score_np) + 0.4 * average_precision(y_np, score_np))
+    except ValueError:
+        return None
+
+
+def _select_best_weights(
+    frame: pd.DataFrame,
+    y_true: pd.Series,
+    candidate_weights: tuple[dict[str, float], ...],
+) -> dict[str, float]:
+    best_weights = candidate_weights[0]
+    best_score = float("-inf")
+    for weights in candidate_weights:
+        candidate_frame = build_operational_consensus_frame(frame, weights=weights)
+        score = pd.to_numeric(
+            candidate_frame["consensus_score"],
+            errors="coerce",
+        ).reindex(y_true.index)
+        combined = _combined_discrimination_score(y_true, score)
+        if combined is None:
+            continue
+        if combined > best_score:
+            best_score = combined
+            best_weights = weights
+    return best_weights
+
+
+def _select_best_attenuation_params(
+    frame: pd.DataFrame,
+    y_true: pd.Series,
+    *,
+    weights: Mapping[str, float],
+    candidate_attenuation_params: tuple[dict[str, float], ...],
+) -> dict[str, float]:
+    best_score = float("-inf")
+    best_params: dict[str, float] = {}
+    for attenuation_params in candidate_attenuation_params:
+        candidate_frame = build_operational_consensus_frame(
+            frame,
+            weights=weights,
+            attenuation_params=attenuation_params,
+        )
+        score = pd.to_numeric(
+            candidate_frame["consensus_score"],
+            errors="coerce",
+        ).reindex(y_true.index)
+        combined = _combined_discrimination_score(y_true, score)
+        if combined is None:
+            continue
+        if combined > best_score:
+            best_score = combined
+            best_params = attenuation_params
+    return best_params
+
+
+def _disjoint_research_score(
+    labeled_frame: pd.DataFrame,
+    labeled_y: pd.Series,
+    *,
+    candidate_weights: tuple[dict[str, float], ...],
+    candidate_attenuation_params: tuple[dict[str, float], ...],
+) -> float:
+    if len(labeled_y) < 8 or labeled_y.nunique() < 2:
+        return float("nan")
+    class_counts = labeled_y.value_counts()
+    if class_counts.empty or int(class_counts.min()) < 2:
+        return float("nan")
+    n_splits = min(5, int(class_counts.min()))
+    if n_splits < 2:
+        return float("nan")
+
+    frame_reset = labeled_frame.reset_index(drop=True)
+    y_reset = labeled_y.reset_index(drop=True).astype(int)
+    splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    fold_scores: list[float] = []
+    for train_idx, valid_idx in splitter.split(np.zeros(len(y_reset)), y_reset):
+        train_frame = frame_reset.iloc[train_idx].copy()
+        train_y = y_reset.iloc[train_idx].copy()
+        fold_weights = _select_best_weights(train_frame, train_y, candidate_weights)
+        fold_attenuation_params = _select_best_attenuation_params(
+            train_frame,
+            train_y,
+            weights=fold_weights,
+            candidate_attenuation_params=candidate_attenuation_params,
+        )
+        valid_frame = build_operational_consensus_frame(
+            frame_reset.iloc[valid_idx].copy(),
+            weights=fold_weights,
+            attenuation_params=fold_attenuation_params or None,
+        )
+        valid_score = pd.to_numeric(
+            valid_frame["consensus_score"],
+            errors="coerce",
+        ).reset_index(drop=True)
+        valid_y = y_reset.iloc[valid_idx].reset_index(drop=True)
+        fold_score = _combined_discrimination_score(valid_y, valid_score)
+        if fold_score is not None:
+            fold_scores.append(fold_score)
+
+    if not fold_scores:
+        return float("nan")
+    return float(np.mean(fold_scores))
+
+
 def build_research_consensus_frame(
     merged: pd.DataFrame,
     *,
@@ -321,26 +441,10 @@ def build_research_consensus_frame(
         for geo_weight in geo_grid
     )
     best_weights = candidate_weights[0]
-    best_weight_score = float("-inf")
     valid_index = valid.index[valid]
     valid_y = y.loc[valid_index].astype(int)
-    for weights in candidate_weights:
-        frame = build_operational_consensus_frame(working, weights=weights)
-        score = pd.to_numeric(frame["consensus_score"], errors="coerce").loc[valid_index]
-        if score.nunique() < 2:
-            continue
-        try:
-            valid_y_np = valid_y.to_numpy(dtype=int, copy=False)
-            score_np = score.to_numpy(dtype=float, copy=False)
-            combined = float(
-                0.6 * roc_auc_score(valid_y_np, score_np)
-                + 0.4 * average_precision(valid_y_np, score_np)
-            )
-        except ValueError:
-            continue
-        if combined > best_weight_score:
-            best_weight_score = combined
-            best_weights = weights
+    labeled_frame = working.loc[valid_index].copy()
+    best_weights = _select_best_weights(labeled_frame, valid_y, candidate_weights)
 
     candidate_attenuation_params = tuple(
         {
@@ -371,61 +475,23 @@ def build_research_consensus_frame(
         )
     )
 
-    frame_for_tuning = working.loc[valid_index].copy()
-    y_for_tuning = valid_y
-    if len(y_for_tuning) >= 6 and y_for_tuning.nunique() == 2:
-        n_splits = min(5, int(y_for_tuning.value_counts().min()))
-        n_splits = max(n_splits, 2)
-        splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
-        fold_indices = list(splitter.split(np.zeros(len(y_for_tuning)), y_for_tuning))
-    else:
-        fold_indices = [(np.arange(len(y_for_tuning)), np.arange(len(y_for_tuning)))]
-
-    best_score = float("-inf")
-    best_attenuation_params: dict[str, float] = {}
-    best_frame = build_operational_consensus_frame(working, weights=best_weights)
-    for attenuation_params in candidate_attenuation_params:
-        candidate_frame = build_operational_consensus_frame(
-            frame_for_tuning,
-            weights=best_weights,
-            attenuation_params=attenuation_params,
-        )
-        score = pd.to_numeric(candidate_frame["consensus_score"], errors="coerce").reset_index(
-            drop=True
-        )
-        fold_scores: list[float] = []
-        for _, fold_valid in fold_indices:
-            fold_score = score.iloc[fold_valid]
-            fold_y = y_for_tuning.reset_index(drop=True).iloc[fold_valid]
-            # Guard against NaN — sklearn metrics crash on NaN input
-            if fold_score.isna().any() or fold_y.isna().any():
-                valid_mask = fold_score.notna() & fold_y.notna()
-                fold_score = fold_score[valid_mask]
-                fold_y = fold_y[valid_mask]
-                if len(fold_score) < 4:
-                    continue
-            if fold_score.nunique() < 2 or fold_y.nunique() < 2:
-                continue
-            try:
-                fold_scores.append(
-                    float(
-                        0.6 * roc_auc_score(fold_y.astype(int), fold_score)
-                        + 0.4 * average_precision(fold_y.astype(int), fold_score)
-                    )
-                )
-            except ValueError:
-                continue
-        if not fold_scores:
-            continue
-        combined = float(np.mean(fold_scores))
-        if combined > best_score:
-            best_score = combined
-            best_attenuation_params = attenuation_params
-            best_frame = build_operational_consensus_frame(
-                working,
-                weights=best_weights,
-                attenuation_params=attenuation_params,
-            )
+    best_attenuation_params = _select_best_attenuation_params(
+        labeled_frame,
+        valid_y,
+        weights=best_weights,
+        candidate_attenuation_params=candidate_attenuation_params,
+    )
+    best_frame = build_operational_consensus_frame(
+        working,
+        weights=best_weights,
+        attenuation_params=best_attenuation_params or None,
+    )
+    best_score = _disjoint_research_score(
+        labeled_frame,
+        valid_y,
+        candidate_weights=candidate_weights,
+        candidate_attenuation_params=candidate_attenuation_params,
+    )
 
     best_frame = best_frame.copy()
     best_frame["research_weight_geo"] = best_weights["p_geo"]

@@ -1,0 +1,71 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Phase 2 Optimization: DVC Pipeline
+# - cache: true on all outputs (avoid recompute)
+# - freeze layer for immutable data processing stages
+# - priority tags for execution order hints
+# ═══════════════════════════════════════════════════════════════════════════════
+
+stages:
+  fetch_external:
+    cmd: PYTHONPATH=src uv run python scripts/run_workflow.py fetch-external
+    deps:
+      - scripts/run_workflow.py
+      - scripts/00_fetch_external_data.py
+      - src/plasmid_priority
+      - config.yaml
+      - config
+    # External data fetch is idempotent — cache aggressively
+    cache: true
+
+  core_refresh:
+    cmd: PYTHONPATH=src uv run python scripts/run_workflow.py core-refresh
+    deps:
+      - scripts/run_workflow.py
+      - src/plasmid_priority
+      - config.yaml
+      - config
+      - data
+    outs:
+      - reports/validation:
+          cache: true
+          persist: true
+    # Core data processing is expensive — freeze once stable
+    # To skip: dvc freeze core_refresh
+    # To unfreeze: dvc unfreeze core_refresh
+
+  support_refresh:
+    cmd: PYTHONPATH=src uv run python scripts/run_workflow.py support-refresh
+    deps:
+      - scripts/run_workflow.py
+      - src/plasmid_priority
+      - config.yaml
+      - config
+      - reports/validation
+    outs:
+      - reports/reviewer_pack:
+          cache: true
+          persist: true
+
+  reports_only:
+    cmd: PYTHONPATH=src uv run python scripts/run_workflow.py reports-only
+    deps:
+      - scripts/24_build_reports.py
+      - reports/validation
+      - reports/reviewer_pack
+    outs:
+      - reports/release:
+          cache: true
+          persist: true
+
+  release_bundle:
+    cmd: PYTHONPATH=src uv run python scripts/run_workflow.py release
+    deps:
+      - scripts/run_workflow.py
+      - scripts/28_build_release_bundle.py
+      - scripts/29_build_experiment_registry.py
+      - reports/release
+    outs:
+      - reports/release/bundle:
+          cache: true
+      - reports/release/plasmid_priority_release_manifest.json:
+          cache: true

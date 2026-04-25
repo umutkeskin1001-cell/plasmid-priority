@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,6 +38,34 @@ from plasmid_priority.utils.files import (
 )
 from plasmid_priority.validation import calibration_slope_intercept
 
+COMPUTE_TIERS_PATH = PROJECT_ROOT / "config" / "model_compute_tiers.yaml"
+DEFAULT_COMPUTE_TIERS: dict[str, dict[str, int]] = {
+    "smoke": {"n_splits": 2, "n_repeats": 1},
+    "dev": {"n_splits": 3, "n_repeats": 1},
+    "model-refresh": {"n_splits": 5, "n_repeats": 1},
+    "release-full": {"n_splits": 5, "n_repeats": 5},
+}
+
+
+def _load_compute_tiers(path: Path = COMPUTE_TIERS_PATH) -> dict[str, dict[str, int]]:
+    if not path.exists():
+        return dict(DEFAULT_COMPUTE_TIERS)
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return dict(DEFAULT_COMPUTE_TIERS)
+    tiers = payload.get("tiers", {}) if isinstance(payload, dict) else {}
+    if not isinstance(tiers, dict):
+        return dict(DEFAULT_COMPUTE_TIERS)
+    merged = dict(DEFAULT_COMPUTE_TIERS)
+    for name, values in tiers.items():
+        if not isinstance(values, dict):
+            continue
+        n_splits = int(values.get("n_splits", merged.get(name, {}).get("n_splits", 5)))
+        n_repeats = int(values.get("n_repeats", merged.get(name, {}).get("n_repeats", 1)))
+        merged[str(name)] = {"n_splits": max(n_splits, 2), "n_repeats": max(n_repeats, 1)}
+    return merged
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the primary retrospective modeling stack.")
@@ -60,6 +89,18 @@ def main(argv: list[str] | None = None) -> int:
         "--official-only",
         action="store_true",
         help="Run only the three jury-facing official models: discovery, governance, and baseline.",
+    )
+    parser.add_argument(
+        "--compute-tier",
+        type=str,
+        default=os.environ.get("PLASMID_PRIORITY_COMPUTE_TIER", "model-refresh"),
+        help="Compute tier key from config/model_compute_tiers.yaml (smoke|dev|model-refresh|release-full).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for repeated stratified folds.",
     )
     args = parser.parse_args(argv)
 
@@ -88,10 +129,16 @@ def main(argv: list[str] | None = None) -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
         },
+        "compute_tier": str(args.compute_tier),
+        "seed": int(args.seed),
     }
+    compute_tiers = _load_compute_tiers()
+    tier = compute_tiers.get(str(args.compute_tier), compute_tiers["model-refresh"])
+    n_splits = int(tier["n_splits"])
+    n_repeats = int(tier["n_repeats"])
 
     with ManagedScriptRun(context, "16_run_module_A") as run:
         run.record_input(scored_path)
@@ -166,6 +213,9 @@ def main(argv: list[str] | None = None) -> int:
         results = run_module_a(
             scored,
             model_names=model_names,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=int(args.seed),
             n_jobs=max(int(args.jobs), 1),
         )
 
@@ -197,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 result_metrics["calibration_slope"] = None
                 result_metrics["calibration_intercept"] = None
-            metrics_payload[name] = result_metrics
+            metrics_payload[name] = result_metrics  # type: ignore
         predictions = []
         for name, result in results.items():
             preds = result.predictions.copy()
@@ -216,6 +266,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         run.set_rows_out("module_a_prediction_rows", int(len(prediction_table)))
         run.set_metric("models_run", len(results))
+        run.set_metric("n_splits", n_splits)
+        run.set_metric("n_repeats", n_repeats)
+        run.set_metric("compute_tier", str(args.compute_tier))
         run.set_metric("cache_hit", False)
     return 0
 

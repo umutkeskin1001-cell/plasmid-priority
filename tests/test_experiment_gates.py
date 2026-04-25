@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import unittest
 
+import pandas as pd
+
 from plasmid_priority.modeling import (
     assert_all_discovery_safe,
     get_research_models_by_track,
@@ -267,6 +269,41 @@ class TestKnownnessGapOptional(unittest.TestCase):
         self.assertTrue(evaluation["overall"])
         # knownness_gap is in candidate but not part of gate evaluation
         self.assertIsNone(candidate.knownness_gap)
+
+
+def test_experiment_gates_fail_on_temporal_leakage_rows() -> None:
+    candidate = ConfigCandidate(
+        config_name="test",
+        raw_auc=0.800,
+        raw_ci=(0.78, 0.82),
+        ece=0.05,
+        selection_adjusted_p=0.01,
+        leakage_review_pass=True,
+    )
+    result = HonestModelResult(
+        selected_config=candidate,
+        top_k_configs=(candidate,),
+        reported_selection_adjusted_auc=0.800,
+        reported_ci=(0.78, 0.82),
+    )
+    gates = ExperimentAcceptanceGates()
+    audit = pd.DataFrame(
+        {
+            "feature_name": ["future_country_count"],
+            "leakage_status": ["fail"],
+            "reason": ["uses post-split evidence"],
+        }
+    )
+
+    evaluation = evaluate_experiment_gates(
+        result,
+        gates,
+        temporal_leakage_audit=audit,
+    )
+
+    assert evaluation["temporal_leakage_audit"] is False
+    assert evaluation["overall"] is False
+    assert "future_country_count" in evaluation["gate_details"]["temporal_leakage_failed_features"][0]
 
 
 class TestAssertAllDiscoverySafe(unittest.TestCase):

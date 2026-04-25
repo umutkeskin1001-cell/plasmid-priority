@@ -345,6 +345,28 @@
       "stage": "optional",
       "required": false,
       "description": "Optional BacMet annotations for stress-response and metal resistance context."
+    },
+    {
+      "key": "literature_evidence_parquet",
+      "relative_path": "data/curated/literature_evidence.parquet",
+      "kind": "file",
+      "stage": "supporting",
+      "required": false,
+      "description": "Curated literature evidence table sourced from Europe PMC query results for plasmid-AMR transfer evidence.",
+      "expected_columns": [
+        "source",
+        "pmid",
+        "pmcid",
+        "doi",
+        "title",
+        "journal",
+        "pub_year",
+        "author_string",
+        "claim_level"
+      ],
+      "notes": [
+        "Auto-refreshed by scripts/00_fetch_external_data.py (fetch_literature_evidence)."
+      ]
     }
   ]
 }

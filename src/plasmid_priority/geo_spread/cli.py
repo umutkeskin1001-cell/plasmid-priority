@@ -6,7 +6,7 @@ import argparse
 import os
 import shutil
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pandas as pd
 
@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         per_model_metrics = {
             str(name): {
-                **{str(key): value for key, value in cast(dict[str, Any], result.metrics).items()},
+                **{str(key): value for key, value in result.metrics.items()},
                 "status": result.status,
                 "error_message": result.error_message,
             }

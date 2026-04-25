@@ -6,7 +6,7 @@ import os
 import time
 import warnings
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor  # noqa: F401
-from typing import Any, cast
+from typing import Any, Mapping, cast
 
 os.environ.setdefault("LOKY_MAX_CPU_COUNT", "1")
 
@@ -50,6 +50,7 @@ from plasmid_priority.modeling.module_a_support import (
     _stratified_folds,
     _top_k_precision_recall,
     build_failed_model_result,
+    build_model_folds,
     build_single_model_candidate_family,
 )
 from plasmid_priority.modeling.module_a_support import (
@@ -1382,7 +1383,7 @@ def _evaluate_prediction_set(
     *,
     include_ci: bool = True,
     knownness_score: np.ndarray | None = None,
-    extra_metrics: dict[str, float | int | bool] | None = None,
+    extra_metrics: Mapping[str, float | int | bool | str] | None = None,
     prediction_detail: pd.DataFrame | None = None,
 ) -> ModelResult:
     if knownness_score is not None:
@@ -1395,7 +1396,7 @@ def _evaluate_prediction_set(
     precision_at_25, recall_at_25 = _top_k_precision_recall(y, preds, top_k=25)
     brier_parts = brier_decomposition(y, preds)
     utility_summary = decision_utility_summary(y, preds)
-    metrics = {
+    metrics: dict[str, float | int | bool | str] = {
         "roc_auc": roc_auc_score(y, preds),
         "average_precision": ap,
         "positive_prevalence": prevalence,
@@ -1730,6 +1731,27 @@ def get_official_model_names(
 def get_model_track(model_name: str) -> str:
     """Return the admissibility track for a configured Module A model."""
     return MODULE_A_MODEL_TRACKS[str(model_name)]
+
+
+def _default_split_strategy(model_name: str, fit_kwargs: dict[str, object] | None) -> str:
+    explicit = _fit_kwarg_str(fit_kwargs, "split_strategy", "")
+    if explicit:
+        return explicit
+    if get_model_track(model_name) == "governance":
+        return "temporal_group"
+    return "stratified_repeated"
+
+
+def _resolve_split_strategy_for_frame(frame: pd.DataFrame, strategy: str) -> str:
+    normalized = str(strategy).strip().lower()
+    if normalized == "temporal_group" and "resolved_year" not in frame.columns:
+        warnings.warn(
+            "Falling back to stratified_repeated because resolved_year is missing "
+            "for temporal_group.",
+            stacklevel=2,
+        )
+        return "stratified_repeated"
+    return normalized
 
 
 def get_feature_track(feature_name: str) -> str:
@@ -2564,6 +2586,21 @@ def evaluate_model_name(
         dtype=float
     )
     fit_kwargs = _model_fit_kwargs(model_name, fit_config)
+    split_strategy = _resolve_split_strategy_for_frame(
+        eligible,
+        _default_split_strategy(model_name, fit_kwargs),
+    )
+    resolved_fold_groups = fold_groups
+    if resolved_fold_groups is None:
+        y_for_folds = eligible["spread_label"].astype(int).to_numpy(dtype=int)
+        resolved_fold_groups = build_model_folds(
+            eligible,
+            y_for_folds,
+            strategy=split_strategy,
+            n_splits=n_splits,
+            n_repeats=n_repeats,
+            seed=seed,
+        )
     preds, y, prediction_detail = _oof_predictions_with_detail_from_eligible(
         eligible,
         columns=columns,
@@ -2571,22 +2608,25 @@ def evaluate_model_name(
         n_repeats=n_repeats,
         seed=seed,
         fit_kwargs=fit_kwargs,
+        folds_per_repeat=resolved_fold_groups,
     )
-    extra_metrics: dict[str, float | int | bool] | None = None
+    extra_metrics: dict[str, float | int | bool | str] = {"split_strategy": split_strategy}
     if prediction_detail is not None and not prediction_detail.empty:
         agreement_delta = np.abs(
             prediction_detail["logistic_base_prediction"].to_numpy(dtype=float)
             - prediction_detail["nonlinear_base_prediction"].to_numpy(dtype=float)
         )
-        extra_metrics = {
-            "mean_agreement_score": float(
-                prediction_detail["agreement_score"].astype(float).mean()
-            ),
-            "review_fraction": float(
-                prediction_detail["agreement_review_flag"].astype(float).mean()
-            ),
-            "mean_logistic_nonlinear_delta": float(np.mean(agreement_delta)),
-        }
+        extra_metrics.update(
+            {
+                "mean_agreement_score": float(
+                    prediction_detail["agreement_score"].astype(float).mean()
+                ),
+                "review_fraction": float(
+                    prediction_detail["agreement_review_flag"].astype(float).mean()
+                ),
+                "mean_logistic_nonlinear_delta": float(np.mean(agreement_delta)),
+            }
+        )
     return _evaluate_prediction_set(
         model_name,
         y,
@@ -2615,6 +2655,10 @@ def evaluate_feature_columns(
     if fit_config:
         fit_kwargs.update(fit_config)
     eligible = _ensure_feature_columns(scored, columns).loc[scored["spread_label"].notna()].copy()
+    split_strategy = _resolve_split_strategy_for_frame(
+        eligible,
+        _fit_kwarg_str(fit_kwargs, "split_strategy", "stratified_repeated"),
+    )
     eligible["spread_label"] = eligible["spread_label"].astype(int)
     from plasmid_priority.modeling.module_a import (
         _knownness_score_series,
@@ -2624,6 +2668,15 @@ def evaluate_feature_columns(
     knownness_score = _knownness_score_series(annotate_knownness_metadata(eligible)).to_numpy(
         dtype=float
     )
+    y_for_folds = eligible["spread_label"].astype(int).to_numpy(dtype=int)
+    fold_groups = build_model_folds(
+        eligible,
+        y_for_folds,
+        strategy=split_strategy,
+        n_splits=n_splits,
+        n_repeats=n_repeats,
+        seed=seed,
+    )
     preds, y, prediction_detail = _oof_predictions_with_detail_from_eligible(
         eligible,
         columns=columns,
@@ -2631,22 +2684,25 @@ def evaluate_feature_columns(
         n_repeats=n_repeats,
         seed=seed,
         fit_kwargs=fit_kwargs,
+        folds_per_repeat=fold_groups,
     )
-    extra_metrics: dict[str, float | int | bool] | None = None
+    extra_metrics: dict[str, float | int | bool | str] = {"split_strategy": split_strategy}
     if prediction_detail is not None and not prediction_detail.empty:
         agreement_delta = np.abs(
             prediction_detail["logistic_base_prediction"].to_numpy(dtype=float)
             - prediction_detail["nonlinear_base_prediction"].to_numpy(dtype=float)
         )
-        extra_metrics = {
-            "mean_agreement_score": float(
-                prediction_detail["agreement_score"].astype(float).mean()
-            ),
-            "review_fraction": float(
-                prediction_detail["agreement_review_flag"].astype(float).mean()
-            ),
-            "mean_logistic_nonlinear_delta": float(np.mean(agreement_delta)),
-        }
+        extra_metrics.update(
+            {
+                "mean_agreement_score": float(
+                    prediction_detail["agreement_score"].astype(float).mean()
+                ),
+                "review_fraction": float(
+                    prediction_detail["agreement_review_flag"].astype(float).mean()
+                ),
+                "mean_logistic_nonlinear_delta": float(np.mean(agreement_delta)),
+            }
+        )
     return _evaluate_prediction_set(
         label,
         y,

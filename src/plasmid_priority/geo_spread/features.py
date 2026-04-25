@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+import pandas as pd
+
 GEO_SPREAD_FEATURE_CATEGORIES: dict[str, str] = {
     "log1p_member_count_train": "sampling_proxy",
     "log1p_n_countries_train": "sampling_proxy",
@@ -59,3 +61,39 @@ def validate_geo_spread_feature_set(
     if unsupported:
         joined = ", ".join(f"`{feature}`" for feature in unsupported)
         raise ValueError(f"{label} contains unsupported features: {joined}")
+
+
+def build_geo_spread_features(frame: pd.DataFrame) -> pd.DataFrame:
+    """Build and return geo spread features from scored backbone data.
+
+    This function extracts geo spread branch features from scored backbone
+    records. Features include sampling proxies, geographic context, and
+    novelty indicators.
+
+    Args:
+        frame: Scored backbone DataFrame with required columns including
+            geo-related and intrinsic features.
+
+    Returns:
+        DataFrame with geo spread branch features. If backbone_id is present
+        in the input frame, it is preserved in the output for merging.
+        Returns empty DataFrame with backbone_id column if input is empty.
+    """
+    if frame.empty:
+        return pd.DataFrame(columns=["backbone_id"])
+
+    # Identify which features from the allowed set are present in the frame
+    available_features = []
+    for feature in sorted(GEO_SPREAD_ALLOWED_FEATURES):
+        if feature in frame.columns:
+            available_features.append(feature)
+
+    # Always include backbone_id if present (needed for merging)
+    result_cols = available_features.copy()
+    if "backbone_id" in frame.columns:
+        result_cols.insert(0, "backbone_id")
+
+    if not available_features:
+        return pd.DataFrame(columns=["backbone_id"])
+
+    return frame[result_cols].copy()

@@ -79,7 +79,7 @@ def main() -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
         },
     }
@@ -112,7 +112,7 @@ def main() -> int:
             run.set_metric("cache_hit", True)
             return 0
         run.note(
-            "WHO MIA, CARD, and MOB-suite outputs are supportive descriptive layers and are not used for model training."
+            "WHO MIA, CARD, and MOB-suite outputs are supportive descriptive layers and are not used for model training.",
         )
 
         scored = read_tsv(scored_path)
@@ -140,7 +140,7 @@ def main() -> int:
         eligible_count = int(scored["spread_label"].notna().sum())
         n_per_group = max(25, int(round(eligible_count * 0.25))) if eligible_count > 0 else 25
         run.note(
-            f"External support contrasts use headline-model quartile extremes (top/bottom {n_per_group}) rather than a fixed top/bottom 100."
+            f"External support contrasts use headline-model quartile extremes (top/bottom {n_per_group}) rather than a fixed top/bottom 100.",
         )
 
         priority_backbones = build_priority_backbone_support_frame(
@@ -175,11 +175,11 @@ def main() -> int:
                 int(who_reference["reference_class_present_in_text"].fillna(False).sum()),
             )
             missing_reference = int(
-                (~who_reference["reference_class_present_in_text"].fillna(False)).sum()
+                (~who_reference["reference_class_present_in_text"].fillna(False)).sum(),
             )
             if missing_reference > 0:
                 run.warn(
-                    f"WHO MIA reference text did not contain {missing_reference} curated class labels by exact normalized string match."
+                    f"WHO MIA reference text did not contain {missing_reference} curated class labels by exact normalized string match.",
                 )
         else:
             run.warn(f"Optional WHO MIA text extraction not found: {who_text_path}")
@@ -198,16 +198,18 @@ def main() -> int:
                 "card_high_backbones_with_support",
                 int(
                     card_detail.loc[
-                        card_detail["priority_group"] == "high", "card_any_support"
-                    ].sum()
+                        card_detail["priority_group"] == "high",
+                        "card_any_support",
+                    ].sum(),
                 ),
             )
             run.set_metric(
                 "card_low_backbones_with_support",
                 int(
                     card_detail.loc[
-                        card_detail["priority_group"] == "low", "card_any_support"
-                    ].sum()
+                        card_detail["priority_group"] == "low",
+                        "card_any_support",
+                    ].sum(),
                 ),
             )
         else:
@@ -215,7 +217,8 @@ def main() -> int:
 
         if mobsuite_tar_path.exists():
             mobsuite_detail, mobsuite_summary = build_mobsuite_support(
-                priority_backbones, mobsuite_tar_path
+                priority_backbones,
+                mobsuite_tar_path,
             )
             mobsuite_detail.to_csv(mobsuite_detail_path, sep="\t", index=False)
             mobsuite_summary.to_csv(mobsuite_summary_path, sep="\t", index=False)
@@ -226,7 +229,7 @@ def main() -> int:
                     mobsuite_detail.loc[
                         mobsuite_detail["priority_group"] == "high",
                         "mobsuite_any_literature_support",
-                    ].sum()
+                    ].sum(),
                 ),
             )
             run.set_metric(
@@ -235,7 +238,7 @@ def main() -> int:
                     mobsuite_detail.loc[
                         mobsuite_detail["priority_group"] == "low",
                         "mobsuite_any_literature_support",
-                    ].sum()
+                    ].sum(),
                 ),
             )
         else:

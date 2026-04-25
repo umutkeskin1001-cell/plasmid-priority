@@ -10,7 +10,11 @@ import pandas as pd
 
 from plasmid_priority.config import ProjectContext
 from plasmid_priority.io.fasta import peek_first_header
-from plasmid_priority.io.tabular import peek_table_columns, read_ncbi_assembly_summary_columns
+from plasmid_priority.io.tabular import (
+    peek_parquet_columns,
+    peek_table_columns,
+    read_ncbi_assembly_summary_columns,
+)
 from plasmid_priority.schemas import DataAssetSpec
 
 BLAST_INDEX_SUFFIXES = (".nhr", ".nin", ".nsq")
@@ -83,6 +87,8 @@ def _check_expected_columns(asset: DataAssetSpec, path: Path) -> list[str]:
         return []
     if path.name == "assembly_summary_refseq.txt":
         columns = read_ncbi_assembly_summary_columns(path)
+    elif path.suffix == ".parquet":
+        columns = list(peek_parquet_columns(path))
     else:
         delimiter = "," if path.suffix == ".csv" else "\t"
         columns = peek_table_columns(path, delimiter=delimiter)

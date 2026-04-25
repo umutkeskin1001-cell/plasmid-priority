@@ -1,0 +1,150 @@
+{
+  "generated_at": "2026-04-23T18:44:06+00:00",
+  "performance_summary": {
+    "generated_at": "2026-04-23T18:44:05+00:00",
+    "history_path": "/Users/umut/Projeler/plasmid-priority/data/tmp/logs/workflow_profile_history.jsonl",
+    "summaries": [
+      {
+        "mode": "smoke-local",
+        "n_runs": 0
+      },
+      {
+        "mode": "dev-refresh",
+        "n_runs": 0
+      },
+      {
+        "mode": "model-refresh",
+        "n_runs": 0
+      },
+      {
+        "mode": "report-refresh",
+        "n_runs": 0
+      },
+      {
+        "mode": "release-full",
+        "n_runs": 0
+      }
+    ]
+  },
+  "qa": [
+    {
+      "hits": [
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/JURY_SUMMARY.md",
+          "score": 0.440685,
+          "snippet": "# Plasmid Priority \u2014 T\u00dcB\u0130TAK Jury Technical Summary  > **Revision:** April 2026 | **Version:** 0.3.0   > **Contact:** See repository README for principal investigator details.  ---  ## \u26a0\ufe0f Scientific Scope  This system is a **retrospective genomic surveillance prioritization tool**.  It **does NOT**: - Make clinical diagnoses or treatment recommendations - Predict individual patient outcomes   - Re",
+          "title": "Plasmid Priority \u2014 T\u00dcB\u0130TAK Jury Technical Summary"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/benchmark_contract.md",
+          "score": 0.180769,
+          "snippet": "# Benchmark Contract  This document is generated from canonical scientific metadata.  ## Version  - protocol_hash: `c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a` - benchmarks_hash: `93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201` - data_contract_sha: `da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b` - config_sha: `4607bb0d0c4752b169f34cbb264f9",
+          "title": "Benchmark Contract"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/model_card.md",
+          "score": 0.0915,
+          "snippet": "# Model Card  ## Official Surface  - official_model_names: `['discovery_boosted', 'governance_linear', 'baseline_both']` - core_model_names: `['baseline_both', 'governance_linear', 'discovery_boosted', 'discovery_graph_boosted', 'T_only', 'H_only', 'A_only', 'T_plus_H_plus_A', 'parsimonious_priority', 'support_synergy_priority']` - research_model_names: `['H_plus_A', 'T_plus_A', 'T_plus_H', 'balan",
+          "title": "Model Card"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/pre_registration.md",
+          "score": 0.090625,
+          "snippet": "# Pre-registration Protocol  ## Scope - Study: Plasmid Priority retrospective genomic surveillance ranking. - Frozen evaluation surfaces: temporal holdout, source holdout, spatial holdout. - Primary endpoint: `spread_label` operational utility under governance constraints.  ## Hypotheses 1. Governance-approved official model preserves ranking utility under holdout shifts. 2. Calibration and uncert",
+          "title": "Pre-registration Protocol"
+        }
+      ],
+      "question": "What evidence supports external validation and claim levels?"
+    },
+    {
+      "hits": [
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/pre_registration.md",
+          "score": 0.404514,
+          "snippet": "# Pre-registration Protocol  ## Scope - Study: Plasmid Priority retrospective genomic surveillance ranking. - Frozen evaluation surfaces: temporal holdout, source holdout, spatial holdout. - Primary endpoint: `spread_label` operational utility under governance constraints.  ## Hypotheses 1. Governance-approved official model preserves ranking utility under holdout shifts. 2. Calibration and uncert",
+          "title": "Pre-registration Protocol"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/JURY_SUMMARY.md",
+          "score": 0.392074,
+          "snippet": "# Plasmid Priority \u2014 T\u00dcB\u0130TAK Jury Technical Summary  > **Revision:** April 2026 | **Version:** 0.3.0   > **Contact:** See repository README for principal investigator details.  ---  ## \u26a0\ufe0f Scientific Scope  This system is a **retrospective genomic surveillance prioritization tool**.  It **does NOT**: - Make clinical diagnoses or treatment recommendations - Predict individual patient outcomes   - Re",
+          "title": "Plasmid Priority \u2014 T\u00dcB\u0130TAK Jury Technical Summary"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/reproducibility_manifest.json",
+          "score": 0.239951,
+          "snippet": "{   \"artifacts\": {     \"calibration_artifact_hash\": \"0c1379f19102b3fa6145fc2a8ffbaa481c57166a6f2c0c8864465143d353d90b\",     \"feature_schema_hash\": \"1f268fb9face6f64f0c7e1d841edacbc8252c4f6e7987972a23a520ff94d1b7d\",     \"model_version\": \"c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a\",     \"protocol_hash\": \"c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a\",     \"tr",
+          "title": "reproducibility_manifest.json"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/benchmark_contract.md",
+          "score": 0.161325,
+          "snippet": "# Benchmark Contract  This document is generated from canonical scientific metadata.  ## Version  - protocol_hash: `c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a` - benchmarks_hash: `93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201` - data_contract_sha: `da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b` - config_sha: `4607bb0d0c4752b169f34cbb264f9",
+          "title": "Benchmark Contract"
+        }
+      ],
+      "question": "What are the strongest release readiness checks and failures?"
+    },
+    {
+      "hits": [
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/JURY_SUMMARY.md",
+          "score": 0.528822,
+          "snippet": "# Plasmid Priority \u2014 T\u00dcB\u0130TAK Jury Technical Summary  > **Revision:** April 2026 | **Version:** 0.3.0   > **Contact:** See repository README for principal investigator details.  ---  ## \u26a0\ufe0f Scientific Scope  This system is a **retrospective genomic surveillance prioritization tool**.  It **does NOT**: - Make clinical diagnoses or treatment recommendations - Predict individual patient outcomes   - Re",
+          "title": "Plasmid Priority \u2014 T\u00dcB\u0130TAK Jury Technical Summary"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/pre_registration.md",
+          "score": 0.271875,
+          "snippet": "# Pre-registration Protocol  ## Scope - Study: Plasmid Priority retrospective genomic surveillance ranking. - Frozen evaluation surfaces: temporal holdout, source holdout, spatial holdout. - Primary endpoint: `spread_label` operational utility under governance constraints.  ## Hypotheses 1. Governance-approved official model preserves ranking utility under holdout shifts. 2. Calibration and uncert",
+          "title": "Pre-registration Protocol"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/benchmark_contract.md",
+          "score": 0.271154,
+          "snippet": "# Benchmark Contract  This document is generated from canonical scientific metadata.  ## Version  - protocol_hash: `c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a` - benchmarks_hash: `93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201` - data_contract_sha: `da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b` - config_sha: `4607bb0d0c4752b169f34cbb264f9",
+          "title": "Benchmark Contract"
+        },
+        {
+          "path": "/Users/umut/Projeler/plasmid-priority/docs/reproducibility_manifest.json",
+          "score": 0.269118,
+          "snippet": "{   \"artifacts\": {     \"calibration_artifact_hash\": \"0c1379f19102b3fa6145fc2a8ffbaa481c57166a6f2c0c8864465143d353d90b\",     \"feature_schema_hash\": \"1f268fb9face6f64f0c7e1d841edacbc8252c4f6e7987972a23a520ff94d1b7d\",     \"model_version\": \"c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a\",     \"protocol_hash\": \"c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a\",     \"tr",
+          "title": "reproducibility_manifest.json"
+        }
+      ],
+      "question": "What are the key reproducibility and protocol guarantees?"
+    }
+  ],
+  "rag_corpus_files": [
+    "/Users/umut/Projeler/plasmid-priority/docs/scientific_protocol.md",
+    "/Users/umut/Projeler/plasmid-priority/docs/model_card.md",
+    "/Users/umut/Projeler/plasmid-priority/docs/data_card.md",
+    "/Users/umut/Projeler/plasmid-priority/docs/benchmark_contract.md",
+    "/Users/umut/Projeler/plasmid-priority/docs/reproducibility_manifest.json",
+    "/Users/umut/Projeler/plasmid-priority/docs/JURY_SUMMARY.md",
+    "/Users/umut/Projeler/plasmid-priority/docs/pre_registration.md"
+  ],
+  "release_readiness": {
+    "artifact_integrity_errors": [],
+    "checks": {
+      "api_artifact_backed_non_placeholder": true,
+      "artifact_integrity": true,
+      "async_batch_surface_present": true,
+      "claim_levels_complete": true,
+      "compute_targets_configured": true,
+      "graphql_surface_present": true,
+      "independent_audit_script_present": true,
+      "jury_dashboard_html_present": true,
+      "pre_registration_present": true,
+      "rag_corpus_config_present": true,
+      "reviewer_package_one_command": true,
+      "sdk_present": true,
+      "sensitivity_reporting_incremental": true,
+      "validation_gauntlet_present": true
+    },
+    "failed_checks": [],
+    "generated_at": "2026-04-23T18:38:10+00:00",
+    "scientific_contract_errors": [],
+    "status": "pass"
+  }
+}

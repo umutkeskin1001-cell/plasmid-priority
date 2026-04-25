@@ -221,10 +221,10 @@ def _summarize_temporal_evidence(
 
         summary[model_name] = {
             "temporal_evidence_status": status,
-            "mean_rolling_auc": float(mean_auc) if not pd.isna(mean_auc) else None,
-            "rolling_auc_std": float(std_auc) if not pd.isna(std_auc) else None,
-            "mean_ece": float(mean_ece) if not pd.isna(mean_ece) else None,
-            "mean_temporal_gap_vs_oof": float(mean_gap) if not pd.isna(mean_gap) else None,
+            "mean_rolling_auc": float(mean_auc) if not pd.isna(mean_auc) else None,  # type: ignore
+            "rolling_auc_std": float(std_auc) if not pd.isna(std_auc) else None,  # type: ignore
+            "mean_ece": float(mean_ece) if not pd.isna(mean_ece) else None,  # type: ignore
+            "mean_temporal_gap_vs_oof": float(mean_gap) if not pd.isna(mean_gap) else None,  # type: ignore
             "n_windows_evaluated": int(n_windows),
         }
 
@@ -390,7 +390,10 @@ def main() -> int:
             for assignment_mode in ("all_records", "training_only"):
                 # Filter scored data for this temporal window
                 window_scored = _filter_scored_for_temporal_window(
-                    scored, split_year, window_end, assignment_mode
+                    scored,
+                    split_year,
+                    window_end,
+                    assignment_mode,
                 )
 
                 if window_scored.empty:
@@ -405,7 +408,7 @@ def main() -> int:
                             assignment_mode,
                             window_scored,
                             model_name,
-                        )
+                        ),
                     )
 
     print(f"Total evaluation tasks: {len(rolling_tasks)}")
@@ -477,7 +480,8 @@ def main() -> int:
             {
                 "model_name": model_name,
                 "temporal_evidence_status": model_summary.get(
-                    "temporal_evidence_status", "not_evaluated"
+                    "temporal_evidence_status",
+                    "not_evaluated",
                 ),
                 "mean_rolling_auc": model_summary.get("mean_rolling_auc"),
                 "rolling_auc_std": model_summary.get("rolling_auc_std"),
@@ -496,7 +500,7 @@ def main() -> int:
                         else "CHALLENGER_ONLY"
                     )
                 ),
-            }
+            },
         )
 
     summary_df = pd.DataFrame(summary_rows)
@@ -628,7 +632,7 @@ decisions based on incomplete evidence. Re-run when data issues are resolved.
     print("\n=== GOVERNANCE TEMPORAL EVIDENCE COMPLETE ===")
     print(f"Recommendation: {recommendation}")
     print(
-        f"Windows evaluated successfully: {(rolling_df['status'] == 'ok').sum()} / {len(rolling_tasks)}"
+        f"Windows evaluated successfully: {(rolling_df['status'] == 'ok').sum()} / {len(rolling_tasks)}",
     )
 
     return 0

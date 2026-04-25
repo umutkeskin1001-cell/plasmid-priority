@@ -11,6 +11,7 @@ import re
 import shutil
 import tarfile
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from typing import Iterable
@@ -37,9 +38,16 @@ PLASMIDFINDER_DB_DOWNLOAD_URL = (
 MOBSUITE_ARCHIVE_URL = "https://zenodo.org/records/10304948/files/data.tar.gz?download=1"
 VFDB_ANNOTATIONS_URL = "https://www.mgc.ac.cn/VFs/Down/VFs.xls.gz"
 CONJSCAN_REPO_ZIP_URL = "https://codeload.github.com/macsy-models/CONJScan/zip/refs/heads/main"
-BACMET_EXP_MAPPING_URL = "http://bacmet.biomedicine.gu.se/download/BacMet2_EXP.753.mapping.txt"
-BACMET_PRE_MAPPING_URL = "http://bacmet.biomedicine.gu.se/download/BacMet2_PRE.155512.mapping.txt"
+BACMET_EXP_MAPPING_URLS = (
+    "https://bacmet.biomedicine.gu.se/download/BacMet2_EXP.753.mapping.txt",
+    "http://bacmet.biomedicine.gu.se/download/BacMet2_EXP.753.mapping.txt",
+)
+BACMET_PRE_MAPPING_URLS = (
+    "https://bacmet.biomedicine.gu.se/download/BacMet2_PRE.155512.mapping.txt",
+    "http://bacmet.biomedicine.gu.se/download/BacMet2_PRE.155512.mapping.txt",
+)
 KEGG_REST_BASE_URL = "https://rest.kegg.jp/"
+EUROPE_PMC_SEARCH_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 
 DEFAULT_PATHOGEN_GROUPS = (
     "Acinetobacter",
@@ -73,17 +81,43 @@ PATHOGEN_OUTPUT_COLUMNS = (
 )
 
 
-def _download(url: str, output_path: Path) -> None:
+def _download(url: str, output_path: Path, *, timeout_seconds: int = 60, retries: int = 3) -> None:
     ensure_directory(output_path.parent)
-    request = Request(url, headers={"User-Agent": "plasmid-priority-data-fetch/1.0"})
-    with urlopen(request) as response, output_path.open("wb") as handle:
-        shutil.copyfileobj(response, handle)
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            request = Request(url, headers={"User-Agent": "plasmid-priority-data-fetch/1.0"})
+            with (
+                urlopen(request, timeout=timeout_seconds) as response,
+                output_path.open("wb") as handle,
+            ):
+                shutil.copyfileobj(response, handle)
+            return
+        except Exception as exc:  # pragma: no cover - network failure dependent
+            last_error = exc
+            if attempt >= retries:
+                break
+            time.sleep(min(8, attempt * 2))
+    if last_error is not None:
+        raise RuntimeError(f"Failed to download {url}: {last_error}") from last_error
+    raise RuntimeError(f"Failed to download {url}")
 
 
-def _download_text(url: str) -> str:
-    request = Request(url, headers={"User-Agent": "plasmid-priority-data-fetch/1.0"})
-    with urlopen(request) as response:
-        return response.read().decode("utf-8", errors="replace")
+def _download_text(url: str, *, timeout_seconds: int = 60, retries: int = 3) -> str:
+    last_error: Exception | None = None
+    for attempt in range(1, max(1, retries) + 1):
+        try:
+            request = Request(url, headers={"User-Agent": "plasmid-priority-data-fetch/1.0"})
+            with urlopen(request, timeout=timeout_seconds) as response:
+                return response.read().decode("utf-8", errors="replace")  # type: ignore
+        except Exception as exc:  # pragma: no cover - network failure dependent
+            last_error = exc
+            if attempt >= retries:
+                break
+            time.sleep(min(8, attempt * 2))
+    if last_error is not None:
+        raise RuntimeError(f"Failed to fetch text from {url}: {last_error}") from last_error
+    raise RuntimeError(f"Failed to fetch text from {url}")
 
 
 def _download_if_needed(url: str, output_path: Path, *, force: bool = False) -> bool:
@@ -104,7 +138,7 @@ def _bitbucket_latest_download_url(downloads_url: str, *, extension: str = "tar.
     match = re.search(rf'href="([^"]+\.{re.escape(extension)})"', html)
     if not match:
         raise FileNotFoundError(f"Could not locate a {extension} archive in {downloads_url}")
-    return urljoin(downloads_url, match.group(1))
+    return urljoin(downloads_url, match.group(1))  # type: ignore
 
 
 def _tar_contains_member(archive_path: Path, member_name: str) -> bool:
@@ -134,7 +168,7 @@ def _extract_first_tar_member(
                 extracted = archive.extractfile(member)
                 if extracted is None:
                     raise FileNotFoundError(
-                        f"Member {member_name} was not readable in {archive_path}"
+                        f"Member {member_name} was not readable in {archive_path}",
                     )
                 with output_path.open("wb") as handle:
                     shutil.copyfileobj(extracted, handle)
@@ -188,7 +222,9 @@ def fetch_amrfinder_database(external_root: Path, *, force: bool = False) -> dic
     files = ("version.txt", "AMRProt.fa", "AMR_CDS.fa", "database_format_version.txt")
     for filename in files:
         _download_if_needed(
-            urljoin(AMRFINDER_BASE_URL, filename), release_dir / filename, force=force
+            urljoin(AMRFINDER_BASE_URL, filename),
+            release_dir / filename,
+            force=force,
         )
     return {
         "version": version,
@@ -276,7 +312,7 @@ def fetch_mobsuite_database(external_root: Path, *, force: bool = False) -> dict
                 extracted = source_archive.extractfile(matched)
                 if extracted is None:
                     raise FileNotFoundError(
-                        f"{target_name} could not be extracted from MOB-suite archive."
+                        f"{target_name} could not be extracted from MOB-suite archive.",
                     )
                 payload = extracted.read()
                 info = tarfile.TarInfo(name=target_name)
@@ -299,7 +335,7 @@ def fetch_vfdb_annotations(external_root: Path, *, force: bool = False) -> dict[
     if not force and output_path.exists() and output_path.stat().st_size > 0:
         return {"path": str(output_path), "downloaded": False}
 
-    import xlrd  # type: ignore[import-not-found]
+    import xlrd
 
     temp_path = _temporary_path(suffix=".xls.gz")
     try:
@@ -334,12 +370,21 @@ def fetch_bacmet_annotations(external_root: Path, *, force: bool = False) -> dic
     if not force and output_path.exists() and output_path.stat().st_size > 0:
         return {"path": str(output_path), "downloaded": False}
 
-    def _load_tsv(url: str) -> pd.DataFrame:
-        request = Request(url, headers={"User-Agent": "plasmid-priority-data-fetch/1.0"})
-        with urlopen(request) as response:
-            return pd.read_csv(response, sep="\t", dtype=str, low_memory=False)
+    def _load_tsv(urls: tuple[str, ...]) -> pd.DataFrame:
+        last_error: Exception | None = None
+        for url in urls:
+            try:
+                request = Request(url, headers={"User-Agent": "plasmid-priority-data-fetch/1.0"})
+                with urlopen(request, timeout=60) as response:
+                    return pd.read_csv(response, sep="\t", dtype=str, low_memory=False)
+            except Exception as exc:  # pragma: no cover - network dependent
+                last_error = exc
+                continue
+        if last_error is not None:
+            raise RuntimeError(f"BacMet download failed for all URLs: {last_error}") from last_error
+        raise RuntimeError("BacMet download failed for all URLs")
 
-    exp = _load_tsv(BACMET_EXP_MAPPING_URL)
+    exp = _load_tsv(BACMET_EXP_MAPPING_URLS)
     exp = exp.rename(
         columns={
             "BacMet_ID": "bacmet_id",
@@ -348,14 +393,14 @@ def fetch_bacmet_annotations(external_root: Path, *, force: bool = False) -> dic
             "Organism": "organism",
             "Location": "location",
             "Compound": "compound",
-        }
+        },
     )
     exp["dataset"] = "BacMet2_EXP"
     exp["gi_number"] = ""
     exp["genbank_id"] = ""
     exp["ncbi_annotation"] = ""
 
-    pred = _load_tsv(BACMET_PRE_MAPPING_URL)
+    pred = _load_tsv(BACMET_PRE_MAPPING_URLS)
     pred = pred.rename(
         columns={
             "GI_number": "gi_number",
@@ -364,7 +409,7 @@ def fetch_bacmet_annotations(external_root: Path, *, force: bool = False) -> dic
             "Organism": "organism",
             "Compound": "compound",
             "NCBI_annotation": "ncbi_annotation",
-        }
+        },
     )
     pred["dataset"] = "BacMet2_PRE"
     pred["bacmet_id"] = ""
@@ -384,7 +429,8 @@ def fetch_bacmet_annotations(external_root: Path, *, force: bool = False) -> dic
         "ncbi_annotation",
     ]
     combined = pd.concat(
-        [exp.reindex(columns=columns), pred.reindex(columns=columns)], ignore_index=True
+        [exp.reindex(columns=columns), pred.reindex(columns=columns)],
+        ignore_index=True,
     )
     combined.to_csv(output_path, sep="\t", index=False)
     return {
@@ -392,6 +438,64 @@ def fetch_bacmet_annotations(external_root: Path, *, force: bool = False) -> dic
         "downloaded": True,
         "rows": int(len(combined)),
     }
+
+
+def fetch_literature_evidence(context_root: Path, *, force: bool = False) -> dict[str, object]:
+    curated_root = ensure_directory(context_root / "data" / "curated")
+    parquet_path = curated_root / "literature_evidence.parquet"
+    tsv_path = curated_root / "literature_evidence.tsv"
+    if not force and parquet_path.exists() and parquet_path.stat().st_size > 0:
+        return {"path": str(parquet_path), "downloaded": False}
+
+    query = (
+        "(plasmid OR mobilome) AND (antimicrobial resistance OR AMR) AND (transfer OR transmission)"
+    )
+    url = (
+        f"{EUROPE_PMC_SEARCH_URL}?query={query.replace(' ', '%20')}"
+        "&format=json&pageSize=1000&resultType=core"
+    )
+    payload = _download_text(url)
+    parsed = json.loads(payload)
+    results = parsed.get("resultList", {}).get("result", [])
+    rows: list[dict[str, object]] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        rows.append(
+            {
+                "source": str(result.get("source", "")),
+                "pmid": str(result.get("pmid", "")),
+                "pmcid": str(result.get("pmcid", "")),
+                "doi": str(result.get("doi", "")),
+                "title": str(result.get("title", "")),
+                "journal": str(result.get("journalTitle", "")),
+                "pub_year": str(result.get("pubYear", "")),
+                "author_string": str(result.get("authorString", "")),
+                "claim_level": "literature_supported",
+            },
+        )
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        frame = pd.DataFrame(
+            columns=[
+                "source",
+                "pmid",
+                "pmcid",
+                "doi",
+                "title",
+                "journal",
+                "pub_year",
+                "author_string",
+                "claim_level",
+            ]
+        )
+    frame.to_csv(tsv_path, sep="\t", index=False)
+    try:
+        frame.to_parquet(parquet_path, index=False)
+        output_path = parquet_path
+    except Exception:  # pragma: no cover - parquet optional fallback
+        output_path = tsv_path
+    return {"path": str(output_path), "downloaded": True, "rows": int(len(frame))}
 
 
 def fetch_kegg_tables(external_root: Path, *, force: bool = False) -> dict[str, object]:
@@ -420,7 +524,10 @@ def fetch_kegg_tables(external_root: Path, *, force: bool = False) -> dict[str, 
     ko_pathway = _download_text(urljoin(KEGG_REST_BASE_URL, "link/pathway/ko"))
 
     def _two_column_tsv(
-        text: str, output_path: Path, first_name: str, second_name: str
+        text: str,
+        output_path: Path,
+        first_name: str,
+        second_name: str,
     ) -> pd.DataFrame:
         rows: list[dict[str, str]] = []
         for line in text.splitlines():
@@ -429,7 +536,7 @@ def fetch_kegg_tables(external_root: Path, *, force: bool = False) -> dict[str, 
                 continue
             left, right = line.split("\t", 1)
             rows.append(
-                {first_name: left.replace("path:", "").replace("ko:", ""), second_name: right}
+                {first_name: left.replace("path:", "").replace("ko:", ""), second_name: right},
             )
         frame = pd.DataFrame(rows)
         frame.to_csv(output_path, sep="\t", index=False)
@@ -447,7 +554,7 @@ def fetch_kegg_tables(external_root: Path, *, force: bool = False) -> dict[str, 
             {
                 "ko_id": left.replace("ko:", ""),
                 "pathway_id": right.replace("path:", ""),
-            }
+            },
         )
     ko_pathway_frame = pd.DataFrame(ko_pathway_rows)
     ko_pathway_frame.to_csv(ko_pathway_path, sep="\t", index=False)
@@ -504,7 +611,7 @@ def fetch_conjscan_annotations(external_root: Path, *, force: bool = False) -> d
                         "profile_count": len(matched_profiles),
                         "profile_files": ";".join(matched_profiles),
                         "source_repository": "https://github.com/macsy-models/CONJScan",
-                    }
+                    },
                 )
         pd.DataFrame(rows).to_csv(output_path, sep="\t", index=False)
         return {"path": str(output_path), "downloaded": True, "rows": len(rows)}
@@ -582,7 +689,7 @@ def _parse_latest_metadata_filename(directory_url: str) -> str:
     matches = re.findall(r'href="([^"]+\.metadata\.tsv)"', html)
     if not matches:
         raise FileNotFoundError(f"Could not locate a metadata TSV in {directory_url}")
-    return matches[0]
+    return matches[0]  # type: ignore
 
 
 def _normalize_pathogen_frame(frame: pd.DataFrame, *, group_name: str) -> pd.DataFrame:
@@ -621,7 +728,7 @@ def _normalize_pathogen_frame(frame: pd.DataFrame, *, group_name: str) -> pd.Dat
     for column in PATHOGEN_OUTPUT_COLUMNS:
         if column not in working.columns:
             working[column] = ""
-    return working.loc[:, PATHOGEN_OUTPUT_COLUMNS]
+    return working.loc[:, PATHOGEN_OUTPUT_COLUMNS]  # type: ignore
 
 
 def _pathogen_metadata_urls(groups: Iterable[str]) -> list[tuple[str, str]]:
@@ -679,26 +786,39 @@ def fetch_pathogen_detection_metadata(
             clinical_count = 0
             environmental_count = 0
             for chunk in pd.read_csv(
-                local_path, sep="\t", dtype=str, low_memory=False, chunksize=50000
+                local_path,
+                sep="\t",
+                dtype=str,
+                low_memory=False,
+                chunksize=50000,
             ):
                 normalized = _normalize_pathogen_frame(chunk, group_name=group)
                 normalized.to_csv(
-                    combined_handle, sep="\t", index=False, header=not combined_header_written
+                    combined_handle,
+                    sep="\t",
+                    index=False,
+                    header=not combined_header_written,
                 )
                 combined_header_written = True
                 source_type_text = normalized["Source type"].fillna("").astype(str).str.lower()
                 location_text = normalized["Location"].fillna("").astype(str).str.lower()
                 clinical_mask = source_type_text.str.contains(
-                    "clinical|hospital|patient|human", regex=True
+                    "clinical|hospital|patient|human",
+                    regex=True,
                 ) | location_text.str.contains("clinical|hospital|patient|human", regex=True)
                 environmental_mask = source_type_text.str.contains(
-                    "environmental|wastewater|soil|water|river|food", regex=True
+                    "environmental|wastewater|soil|water|river|food",
+                    regex=True,
                 ) | location_text.str.contains(
-                    "environmental|wastewater|soil|water|river|food", regex=True
+                    "environmental|wastewater|soil|water|river|food",
+                    regex=True,
                 )
                 if clinical_mask.any():
                     normalized.loc[clinical_mask].to_csv(
-                        clinical_handle, sep="\t", index=False, header=not clinical_header_written
+                        clinical_handle,
+                        sep="\t",
+                        index=False,
+                        header=not clinical_header_written,
                     )
                     clinical_header_written = True
                 if environmental_mask.any():
@@ -719,17 +839,17 @@ def fetch_pathogen_detection_metadata(
                     "rows": row_count,
                     "clinical_rows": clinical_count,
                     "environmental_rows": environmental_count,
-                }
+                },
             )
         atomic_write_json(
             manifest_path,
             {
                 "groups": list(groups),
                 "sources": source_rows,
-                "combined_rows": int(sum(entry["rows"] for entry in source_rows)),
-                "clinical_rows": int(sum(entry["clinical_rows"] for entry in source_rows)),
+                "combined_rows": int(sum(entry["rows"] for entry in source_rows)),  # type: ignore
+                "clinical_rows": int(sum(entry["clinical_rows"] for entry in source_rows)),  # type: ignore
                 "environmental_rows": int(
-                    sum(entry["environmental_rows"] for entry in source_rows)
+                    sum(entry["environmental_rows"] for entry in source_rows),  # type: ignore
                 ),
             },
         )
@@ -776,7 +896,7 @@ def fetch_clinical_context_lookup(external_root: Path, *, force: bool = False) -
             {"context_token": "soil", "clinical_prior": 0.0, "environmental_prior": 1.0},
             {"context_token": "water", "clinical_prior": 0.0, "environmental_prior": 1.0},
             {"context_token": "food", "clinical_prior": 0.0, "environmental_prior": 1.0},
-        ]
+        ],
     )
     frame.to_csv(lookup_path, sep="\t", index=False)
     return {"path": str(lookup_path), "downloaded": True}
@@ -785,7 +905,9 @@ def fetch_clinical_context_lookup(external_root: Path, *, force: bool = False) -
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--force", action="store_true", help="Re-download assets even if they already exist."
+        "--force",
+        action="store_true",
+        help="Re-download assets even if they already exist.",
     )
     parser.add_argument(
         "--include-large",
@@ -804,30 +926,81 @@ def main() -> int:
     external_root = ensure_directory(context.data_dir / "external")
     groups = tuple(args.pathogen_groups or DEFAULT_PATHOGEN_GROUPS)
 
+    print("[fetch] starting external asset refresh", flush=True)
+
+    def _safe_fetch(name: str, func: object) -> dict[str, object]:
+        try:
+            return func()  # type: ignore
+        except Exception as exc:  # pragma: no cover - network dependent
+            return {"downloaded": False, "error": str(exc)}
+
     manifest = {
-        "amrfinder_db": fetch_amrfinder_database(external_root, force=args.force),
-        "card_archive": fetch_card_archive(external_root, force=args.force),
-        "resfinder_db": fetch_resfinder_database(external_root, force=args.force),
-        "plasmidfinder_db": fetch_plasmidfinder_database(external_root, force=args.force),
-        "vfdb_annotations": fetch_vfdb_annotations(external_root, force=args.force),
-        "bacmet_annotations": fetch_bacmet_annotations(external_root, force=args.force),
-        "kegg_tables": fetch_kegg_tables(external_root, force=args.force),
-        "conjscan_annotations": fetch_conjscan_annotations(external_root, force=args.force),
-        "iceberg_annotations": fetch_iceberg_annotations(external_root, force=args.force),
-        "pathogen_detection": fetch_pathogen_detection_metadata(
-            external_root,
-            groups=groups,
-            force=args.force,
+        "amrfinder_db": _safe_fetch(
+            "amrfinder_db",
+            lambda: fetch_amrfinder_database(external_root, force=args.force),
         ),
-        "who_mia_pdf": fetch_who_mia_pdf(external_root, force=args.force),
-        "clinical_context_lookup": fetch_clinical_context_lookup(external_root, force=args.force),
+        "card_archive": _safe_fetch(
+            "card_archive",
+            lambda: fetch_card_archive(external_root, force=args.force),
+        ),
+        "resfinder_db": _safe_fetch(
+            "resfinder_db",
+            lambda: fetch_resfinder_database(external_root, force=args.force),
+        ),
+        "plasmidfinder_db": _safe_fetch(
+            "plasmidfinder_db",
+            lambda: fetch_plasmidfinder_database(external_root, force=args.force),
+        ),
+        "vfdb_annotations": _safe_fetch(
+            "vfdb_annotations",
+            lambda: fetch_vfdb_annotations(external_root, force=args.force),
+        ),
+        "bacmet_annotations": _safe_fetch(
+            "bacmet_annotations",
+            lambda: fetch_bacmet_annotations(external_root, force=args.force),
+        ),
+        "kegg_tables": _safe_fetch(
+            "kegg_tables",
+            lambda: fetch_kegg_tables(external_root, force=args.force),
+        ),
+        "conjscan_annotations": _safe_fetch(
+            "conjscan_annotations",
+            lambda: fetch_conjscan_annotations(external_root, force=args.force),
+        ),
+        "iceberg_annotations": _safe_fetch(
+            "iceberg_annotations",
+            lambda: fetch_iceberg_annotations(external_root, force=args.force),
+        ),
+        "pathogen_detection": _safe_fetch(
+            "pathogen_detection",
+            lambda: fetch_pathogen_detection_metadata(
+                external_root,
+                groups=groups,
+                force=args.force,
+            ),
+        ),
+        "who_mia_pdf": _safe_fetch(
+            "who_mia_pdf",
+            lambda: fetch_who_mia_pdf(external_root, force=args.force),
+        ),
+        "clinical_context_lookup": _safe_fetch(
+            "clinical_context_lookup",
+            lambda: fetch_clinical_context_lookup(external_root, force=args.force),
+        ),
+        "literature_evidence": _safe_fetch(
+            "literature_evidence",
+            lambda: fetch_literature_evidence(context.root, force=args.force),
+        ),
         "groups": list(groups),
         "skipped_large_assets": ["uniprot_sprot_dat"],
     }
     if args.include_large:
-        manifest["mobsuite_db"] = fetch_mobsuite_database(external_root, force=args.force)
+        manifest["mobsuite_db"] = _safe_fetch(
+            "mobsuite_db",
+            lambda: fetch_mobsuite_database(external_root, force=args.force),
+        )
     else:
-        manifest["skipped_large_assets"].append("mobsuite_db")
+        manifest["skipped_large_assets"].append("mobsuite_db")  # type: ignore
     atomic_write_json(external_root / "fetch_manifest.json", manifest)
     print(json.dumps(manifest, indent=2, sort_keys=True))
     return 0

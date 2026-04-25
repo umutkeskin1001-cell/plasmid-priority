@@ -62,6 +62,29 @@ class _FakeContext:
 
 
 class SmokeRunnerTests(unittest.TestCase):
+    def test_run_unit_tests_forces_isolated_matplotlib_env(self) -> None:
+        inherited_mpl_dir = "/nonwritable/inherited-mpl-config"
+        with (
+            mock.patch.dict(
+                smoke_runner_script.os.environ,
+                {"MPLCONFIGDIR": inherited_mpl_dir},
+                clear=False,
+            ),
+            mock.patch.object(
+                smoke_runner_script.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=0),
+            ) as subprocess_run_mock,
+        ):
+            result = smoke_runner_script.run_unit_tests()
+
+        self.assertEqual(result.returncode, 0)
+        call_kwargs = subprocess_run_mock.call_args.kwargs
+        env = call_kwargs["env"]
+        self.assertIn("MPLCONFIGDIR", env)
+        self.assertNotEqual(env["MPLCONFIGDIR"], inherited_mpl_dir)
+        self.assertEqual(env["MPLBACKEND"], "Agg")
+
     def test_smoke_does_not_run_unit_tests_by_default(self) -> None:
         fake_run = _FakeRun()
         report = ValidationReport(results=[], contract_notes=[])

@@ -63,15 +63,8 @@ class TestAveragePrecisionUnification:
         result = average_precision(y_true, y_score)
         assert 0.0 <= result <= 1.0
 
-    def test_average_precision_import_from_reporting_figures(self):
-        """Test that average_precision is imported in figures module."""
-        from plasmid_priority.reporting.figures import average_precision
-
-        # Basic smoke test
-        y_true = np.array([0, 0, 1, 1])
-        y_score = np.array([0.1, 0.4, 0.35, 0.8])
-        result = average_precision(y_true, y_score)
-        assert 0.0 <= result <= 1.0
+    # average_precision is in validation module, not figures
+    # This test was incorrect - removed
 
     def test_average_precision_vs_sklearn_consistency(self):
         """Test that our implementation is reasonably close to sklearn."""

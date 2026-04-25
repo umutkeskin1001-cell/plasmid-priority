@@ -126,7 +126,7 @@ def compute_paired_delong_p(
     Returns:
         p-value from paired DeLong test (candidate vs baseline).
     """
-    from plasmid_priority.modeling.module_a import (
+    from plasmid_priority.modeling.module_a import (  # type: ignore
         _ensure_feature_columns,
         _model_fit_kwargs,
         _oof_predictions_from_eligible,
@@ -210,8 +210,7 @@ def classify_governance_candidate(
 
     # Check gates
     if not gates_pass:
-        # Gates failure is serious but we still classify based on performance
-        pass
+        return "REJECTED"
 
     # Classify based on AUC delta
     if delta_auc >= 0.025:
@@ -498,7 +497,7 @@ def write_phase_61_artifacts(
             "rolling_origin_gap": None,
             "gate_overall": None,
             "classification": "BASELINE",
-        }
+        },
     )
 
     # Candidate row
@@ -516,7 +515,7 @@ def write_phase_61_artifacts(
             "rolling_origin_gap": candidate["rolling_origin_gap"],
             "gate_overall": gates["overall"],
             "classification": batch_output["candidate_classification"],
-        }
+        },
     )
 
     summary_table = pd.DataFrame(summary_rows)
@@ -534,7 +533,7 @@ def write_phase_61_artifacts(
                 "p_pass_or_status": gates["paired_delong_p_pass"],
                 "rolling_origin_pass_or_status": gates["rolling_origin_pass"],
                 "overall": gates["overall"],
-            }
+            },
         )
     gate_table = pd.DataFrame(gate_rows)
     gate_path = reports_dir / "phase_61_gate_evaluation.tsv"
@@ -672,7 +671,7 @@ Classification Rules:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run Phase 6.1 Governance Pruning Comparison execution and reporting pipeline."
+        description="Run Phase 6.1 Governance Pruning Comparison execution and reporting pipeline.",
     )
     parser.add_argument(
         "--jobs",

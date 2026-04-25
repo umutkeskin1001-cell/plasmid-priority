@@ -7,8 +7,11 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 
 from plasmid_priority.geo_spread.dataset import prepare_geo_spread_scored_table
 from plasmid_priority.modeling.module_a import _evaluate_prediction_set
@@ -21,6 +24,26 @@ GEO_SPREAD_META_PRIORITY = "geo_meta_knownness_priority"
 GEO_SPREAD_BLEND_COMPONENTS: tuple[tuple[str, float], ...] = (
     ("geo_context_hybrid_priority", 0.70),
     ("geo_phylo_ecology_priority", 0.30),
+)
+GEO_SPREAD_RELIABILITY_FEATURE_COLUMNS: tuple[str, ...] = (
+    "T_eff_norm",
+    "H_obs_specialization_norm",
+    "A_eff_norm",
+    "coherence_score",
+    "backbone_purity_norm",
+    "assignment_confidence_norm",
+    "mash_neighbor_distance_train_norm",
+    "orit_support",
+    "H_external_host_range_norm",
+    "geo_country_entropy_train",
+    "geo_macro_region_entropy_train",
+    "geo_dominant_region_share_train",
+    "geo_country_record_count_train",
+)
+GEO_SPREAD_RELIABILITY_ESTIMATOR_WEIGHTS: tuple[tuple[str, float], ...] = (
+    ("hist_gradient_boosting", 0.55),
+    ("logistic", 0.2025),
+    ("random_forest", 0.2475),
 )
 GEO_SPREAD_ADAPTIVE_SUPPORT_MODEL = "geo_context_hybrid_priority"
 GEO_SPREAD_ADAPTIVE_HIGH_KNOWNNESS_MODEL = GEO_SPREAD_RELIABILITY_BLEND
@@ -50,10 +73,20 @@ def _prediction_frame(result: ModelResult) -> pd.DataFrame:
 def build_geo_spread_blended_result(
     results: Mapping[str, ModelResult],
     *,
+    scored: pd.DataFrame | None = None,
     include_ci: bool = True,
     blend_name: str = GEO_SPREAD_RELIABILITY_BLEND,
 ) -> ModelResult:
     """Blend the strongest reliability-oriented geo models into one derived model."""
+    if scored is not None:
+        feature_ensemble = _build_geo_spread_feature_ensemble_result(
+            scored,
+            include_ci=include_ci,
+            blend_name=blend_name,
+        )
+        if feature_ensemble.status == "ok":
+            return feature_ensemble
+
     component_frames: list[pd.DataFrame] = []
     component_weights: dict[str, float] = {}
     for model_name, weight in GEO_SPREAD_BLEND_COMPONENTS:
@@ -102,6 +135,160 @@ def build_geo_spread_blended_result(
             "blend_component_count": float(len(component_weights)),
             **{f"blend_weight_{name}": float(weight) for name, weight in component_weights.items()},
         },
+        prediction_detail=detail,
+    )
+
+
+def _reliability_estimators() -> list[tuple[str, float, Any]]:
+    estimators: list[tuple[str, float, Any]] = []
+    for name, weight in GEO_SPREAD_RELIABILITY_ESTIMATOR_WEIGHTS:
+        if name == "hist_gradient_boosting":
+            estimators.append(
+                (
+                    name,
+                    float(weight),
+                    HistGradientBoostingClassifier(
+                        max_iter=150,
+                        learning_rate=0.035,
+                        max_leaf_nodes=10,
+                        min_samples_leaf=18,
+                        l2_regularization=0.4,
+                        random_state=7,
+                    ),
+                ),
+            )
+        elif name == "logistic":
+            estimators.append(
+                (
+                    name,
+                    float(weight),
+                    make_pipeline(
+                        StandardScaler(),
+                        LogisticRegression(max_iter=2000, C=0.4, class_weight="balanced"),
+                    ),
+                ),
+            )
+        elif name == "random_forest":
+            estimators.append(
+                (
+                    name,
+                    float(weight),
+                    RandomForestClassifier(
+                        n_estimators=300,
+                        max_depth=4,
+                        min_samples_leaf=15,
+                        class_weight="balanced_subsample",
+                        random_state=7,
+                        n_jobs=1,
+                    ),
+                ),
+            )
+    return estimators
+
+
+def _build_geo_spread_feature_ensemble_result(
+    scored: pd.DataFrame,
+    *,
+    include_ci: bool,
+    blend_name: str,
+) -> ModelResult:
+    prepared = prepare_geo_spread_scored_table(scored)
+    required_columns = {
+        "backbone_id",
+        "spread_label",
+        "knownness_score",
+        *GEO_SPREAD_RELIABILITY_FEATURE_COLUMNS,
+    }
+    missing_columns = sorted(
+        column for column in required_columns if column not in prepared.columns
+    )
+    if missing_columns:
+        return build_failed_model_result(
+            blend_name,
+            (
+                "Feature-ensemble blend requires columns: "
+                f"{', '.join(missing_columns)}"
+            ),
+        )
+
+    frame = prepared.loc[:, list(required_columns)].copy()
+    labels = pd.to_numeric(frame["spread_label"], errors="coerce")
+    valid = labels.notna()
+    if not valid.any():
+        return build_failed_model_result(
+            blend_name,
+            "No labeled rows available for reliability ensemble.",
+        )
+    frame = frame.loc[valid].reset_index(drop=True)
+    labels = labels.loc[valid].astype(int).reset_index(drop=True)
+    class_mask = labels.isin([0, 1]).to_numpy(dtype=bool)
+    frame = frame.loc[class_mask].reset_index(drop=True)
+    labels = labels.loc[class_mask].reset_index(drop=True)
+    y = labels.to_numpy(dtype=int)
+    if np.unique(y).size < 2:
+        return build_failed_model_result(
+            blend_name,
+            "Reliability ensemble requires at least two classes.",
+        )
+    positive_count = int((y == 1).sum())
+    negative_count = int((y == 0).sum())
+    n_splits = max(2, min(5, positive_count, negative_count))
+    if n_splits < 2:
+        return build_failed_model_result(
+            blend_name,
+            "Reliability ensemble requires at least two examples per class.",
+        )
+
+    X = (
+        frame.loc[:, list(GEO_SPREAD_RELIABILITY_FEATURE_COLUMNS)]
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0.0)
+        .to_numpy(dtype=float)
+    )
+    knownness = pd.to_numeric(frame["knownness_score"], errors="coerce").fillna(0.45).to_numpy(
+        dtype=float
+    )
+    oof = np.zeros(len(y), dtype=float)
+    component_predictions = {
+        name: np.zeros(len(y), dtype=float) for name, _ in GEO_SPREAD_RELIABILITY_ESTIMATOR_WEIGHTS
+    }
+    splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=7)
+    for train_idx, test_idx in splitter.split(X, y):
+        fold_score = np.zeros(len(test_idx), dtype=float)
+        for estimator_name, weight, estimator in _reliability_estimators():
+            estimator.fit(X[train_idx], y[train_idx])
+            prediction = estimator.predict_proba(X[test_idx])[:, 1]
+            component_predictions[estimator_name][test_idx] = prediction
+            fold_score += float(weight) * prediction
+        oof[test_idx] = np.asarray(fold_score, dtype=float)
+    oof = np.clip(oof, 0.0, 1.0)
+
+    detail = pd.DataFrame(
+        {
+            "knownness_score": knownness,
+            **component_predictions,
+            "blend_prediction": oof,
+        },
+    )
+    extra_metrics: dict[str, float | int | bool] = {
+        "blend_component_count": float(len(GEO_SPREAD_RELIABILITY_ESTIMATOR_WEIGHTS)),
+        "blend_feature_count": float(len(GEO_SPREAD_RELIABILITY_FEATURE_COLUMNS)),
+        "blend_cv_splits": float(n_splits),
+        "blend_is_feature_ensemble": True,
+        **{
+            f"blend_weight_{name}": float(weight)
+            for name, weight in GEO_SPREAD_RELIABILITY_ESTIMATOR_WEIGHTS
+        },
+    }
+    extra_metrics.update(_knownness_metrics(y, oof, knownness))
+    return _evaluate_prediction_set(
+        blend_name,
+        y,
+        oof,
+        frame["backbone_id"].astype(str),
+        include_ci=include_ci,
+        knownness_score=knownness,
+        extra_metrics=extra_metrics,
         prediction_detail=detail,
     )
 

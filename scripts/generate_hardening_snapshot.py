@@ -92,7 +92,7 @@ def _data_audit_paths() -> dict[str, Path]:
         "scored_backbone": context.resolve_path("data/scores/backbone_scored.tsv"),
         "harmonized_plasmids": context.resolve_path("data/harmonized/harmonized_plasmids.tsv"),
         "deduplicated_plasmids": context.resolve_path(
-            "data/deduplicated/deduplicated_plasmids.tsv"
+            "data/deduplicated/deduplicated_plasmids.tsv",
         ),
     }
 
@@ -220,22 +220,25 @@ def run_data_audits_if_available() -> dict[str, Any]:
         results["lead_time_bias_audit"] = {
             "status": summary.get("lead_time_bias", {}).get("status", "unknown"),
             "concern_level": summary.get("lead_time_bias", {}).get(
-                "overall_concern_level", "unknown"
+                "overall_concern_level",
+                "unknown",
             ),
         }
         results["missingness_audit"] = {
             "status": summary.get("missingness", {}).get("overall_status", "unknown"),
             "high_missingness_columns": summary.get("missingness", {}).get(
-                "high_missingness_columns_total", 0
+                "high_missingness_columns_total",
+                0,
             ),
         }
         results["schema_validation"] = {
             "status": summary.get("schema_validation", {}).get("overall_status", "unknown"),
             "pandera_available": summary.get("schema_validation", {}).get(
-                "pandera_available", False
+                "pandera_available",
+                False,
             ),
             "tables_validated": len(
-                summary.get("schema_validation", {}).get("tables_validated", [])
+                summary.get("schema_validation", {}).get("tables_validated", []),
             ),
         }
 
@@ -260,34 +263,34 @@ def build_hardening_snapshot() -> dict[str, Any]:
     }
 
     # Code-level hardening (always check)
-    snapshot["code_hardening"] = {
+    snapshot["code_hardening"] = {  # type: ignore
         "pre_commit": check_precommit_status(),
         "modules": check_hardening_modules(),
         "scripts": check_hardening_scripts(),
     }
 
     # Data-dependent audits (check when data available)
-    snapshot["data_audits"] = run_data_audits_if_available()
-    snapshot["data_availability"] = check_data_dependent_audits()
+    snapshot["data_audits"] = run_data_audits_if_available()  # type: ignore
+    snapshot["data_availability"] = check_data_dependent_audits()  # type: ignore
 
     # Compute overall status
     code_status = (
         "available"
         if (
-            snapshot["code_hardening"]["modules"]["status"] == "available"
-            and snapshot["code_hardening"]["scripts"]["status"] == "available"
+            snapshot["code_hardening"]["modules"]["status"] == "available"  # type: ignore
+            and snapshot["code_hardening"]["scripts"]["status"] == "available"  # type: ignore
         )
         else "partial"
     )
 
-    if snapshot["data_availability"]["any_data_available"]:
+    if snapshot["data_availability"]["any_data_available"]:  # type: ignore
         # If data exists, overall status depends on audit results
         # Priority order: error > fail > concern > incomplete > ok
         audit_statuses = [
-            snapshot["data_audits"]["epv_audit"]["status"],
-            snapshot["data_audits"]["lead_time_bias_audit"]["status"],
-            snapshot["data_audits"]["missingness_audit"]["status"],
-            snapshot["data_audits"]["schema_validation"]["status"],
+            snapshot["data_audits"]["epv_audit"]["status"],  # type: ignore
+            snapshot["data_audits"]["lead_time_bias_audit"]["status"],  # type: ignore
+            snapshot["data_audits"]["missingness_audit"]["status"],  # type: ignore
+            snapshot["data_audits"]["schema_validation"]["status"],  # type: ignore
         ]
         if any(s == "error" for s in audit_statuses):
             snapshot["overall_status"] = "error"
@@ -333,7 +336,7 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
             f"- **Hooks installed:** {precommit.get('hooks_installed', False)}",
             f"- **Status:** {precommit.get('status', 'unknown')}",
             "",
-        ]
+        ],
     )
 
     if precommit.get("status") == "config_only":
@@ -341,7 +344,7 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
             [
                 "*To install: `pip install pre-commit && pre-commit install`*",
                 "",
-            ]
+            ],
         )
 
     # Modules section
@@ -354,7 +357,7 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
             f"- **Available:** {modules.get('available_count', 0)}",
             f"- **Status:** {modules.get('status', 'unknown')}",
             "",
-        ]
+        ],
     )
 
     if modules.get("modules_available"):
@@ -375,7 +378,7 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
             f"- **Available:** {scripts.get('available_count', 0)}",
             f"- **Status:** {scripts.get('status', 'unknown')}",
             "",
-        ]
+        ],
     )
 
     if scripts.get("scripts_available"):
@@ -392,7 +395,7 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
         [
             "## Data-Dependent Audits",
             "",
-        ]
+        ],
     )
 
     if data_avail.get("any_data_available"):
@@ -400,7 +403,7 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
             [
                 "Data files are available. Audit results:",
                 "",
-            ]
+            ],
         )
 
         audits = snapshot.get("data_audits", {})
@@ -409,22 +412,22 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
 
         epv = audits.get("epv_audit", {})
         lines.append(
-            f"| EPV Audit | {epv.get('status', 'unknown')} | {epv.get('models_evaluated', 'N/A')} models |"
+            f"| EPV Audit | {epv.get('status', 'unknown')} | {epv.get('models_evaluated', 'N/A')} models |",
         )
 
         lt = audits.get("lead_time_bias_audit", {})
         lines.append(
-            f"| Lead-time Bias | {lt.get('status', 'unknown')} | concern={lt.get('concern_level', 'N/A')} |"
+            f"| Lead-time Bias | {lt.get('status', 'unknown')} | concern={lt.get('concern_level', 'N/A')} |",
         )
 
         miss = audits.get("missingness_audit", {})
         lines.append(
-            f"| Missingness | {miss.get('status', 'unknown')} | {miss.get('high_missingness_columns', 0)} high-missing cols |"
+            f"| Missingness | {miss.get('status', 'unknown')} | {miss.get('high_missingness_columns', 0)} high-missing cols |",
         )
 
         schema = audits.get("schema_validation", {})
         lines.append(
-            f"| Schema Validation | {schema.get('status', 'unknown')} | {schema.get('tables_validated', 0)} tables |"
+            f"| Schema Validation | {schema.get('status', 'unknown')} | {schema.get('tables_validated', 0)} tables |",
         )
         lines.append("")
     else:
@@ -440,7 +443,7 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
                 "",
                 "*Run the pipeline to generate data, then re-run this snapshot.*",
                 "",
-            ]
+            ],
         )
 
     lines.extend(
@@ -449,7 +452,7 @@ def format_snapshot_markdown(snapshot: dict[str, Any]) -> str:
             "",
             "*This snapshot is generated by `scripts/generate_hardening_snapshot.py`*",
             "",
-        ]
+        ],
     )
 
     return "\n".join(lines)

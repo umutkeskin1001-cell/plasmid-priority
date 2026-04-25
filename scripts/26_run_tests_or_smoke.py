@@ -17,9 +17,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Ensure matplotlib cache is always writable in CI/sandbox environments.
-os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="mplconfig-"))
-
 from plasmid_priority.config import build_context
 from plasmid_priority.harmonize import build_plsdb_canonical_metadata  # noqa: F401
 from plasmid_priority.io import iter_fasta_summaries  # noqa: F401
@@ -38,7 +35,7 @@ def _check_primary_model_backend() -> list[str]:
         issues.append(
             "LightGBM is NOT importable. The primary model (discovery_boosted) will silently "
             "fall back to hist_gbm. Install tree-models extra: "
-            "pip install -e '.[analysis,dev,tree-models]'"
+            "pip install -e '.[analysis,dev,tree-models]'",
         )
     return issues
 
@@ -72,11 +69,11 @@ def _check_primary_model_config() -> list[str]:
         from plasmid_priority.modeling import MODULE_A_FEATURE_SETS  # noqa: PLC0415
         from plasmid_priority.modeling.module_a import get_primary_model_name  # noqa: PLC0415
 
-        primary_name = get_primary_model_name(MODULE_A_FEATURE_SETS.keys())
+        primary_name = get_primary_model_name(MODULE_A_FEATURE_SETS.keys())  # type: ignore
         if primary_name not in MODULE_A_FEATURE_SETS:
             issues.append(
                 f"Primary model '{primary_name}' is not defined in MODULE_A_FEATURE_SETS. "
-                "Check config.yaml: models.primary_model_name"
+                "Check config.yaml: models.primary_model_name",
             )
         else:
             n_features = len(MODULE_A_FEATURE_SETS[primary_name])
@@ -90,7 +87,9 @@ def _check_lightgbm_has_flag() -> list[str]:
     """Verify _HAS_LIGHTGBM is True — critical for matching CI to production."""
     issues: list[str] = []
     try:
-        from plasmid_priority.modeling.module_a import _HAS_LIGHTGBM  # noqa: PLC0415
+        import plasmid_priority.modeling.module_a as mod_a  # noqa: PLC0415
+
+        _HAS_LIGHTGBM = getattr(mod_a, "_HAS_LIGHTGBM", False)
 
         if _HAS_LIGHTGBM:
             print("  ✓ _HAS_LIGHTGBM = True (primary model uses LightGBM backend)")
@@ -99,7 +98,7 @@ def _check_lightgbm_has_flag() -> list[str]:
                 "_HAS_LIGHTGBM is False — LightGBM is not installed. "
                 "Primary model (discovery_boosted) will silently use hist_gbm fallback. "
                 "This means CI is testing a DIFFERENT model than production. "
-                "Fix: pip install -e '.[analysis,dev,tree-models]'"
+                "Fix: pip install -e '.[analysis,dev,tree-models]'",
             )
     except Exception as exc:  # noqa: BLE001
         issues.append(f"Cannot check _HAS_LIGHTGBM: {exc}")
@@ -164,12 +163,19 @@ def run_unit_tests() -> subprocess.CompletedProcess[None]:
     """Run pytest test suite."""
     print("\n=== Running test suite ===\n")
     env = dict(os.environ)
-    env.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="mplconfig-"))
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short"],
-        cwd=str(PROJECT_ROOT),
-        env=env,
-    )
+    # Matplotlib reads MPLCONFIGDIR from environment; there is no rcParam key for it.
+    # Always force a temporary, writable config directory so inherited shell env cannot
+    # point to a stale or permission-denied location.
+    with tempfile.TemporaryDirectory(prefix="mplconfig-") as mplconfigdir:
+        env["MPLCONFIGDIR"] = mplconfigdir
+        # Use a headless backend by default for CI/sandbox test environments.
+        env.setdefault("MPLBACKEND", "Agg")
+        return subprocess.run(  # type: ignore
+            [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short"],
+            cwd=str(PROJECT_ROOT),
+            env=env,
+            check=False,
+        )
 
 
 def run_tests() -> int:
@@ -177,7 +183,7 @@ def run_tests() -> int:
     return run_unit_tests().returncode
 
 
-def _has_missing_required_raw_inputs(report) -> bool:
+def _has_missing_required_raw_inputs(report) -> bool:  # type: ignore
     for result in getattr(report, "errors", []):
         path = Path(str(getattr(result, "path", "")))
         if (
@@ -200,6 +206,11 @@ def main(argv: list[str] | None = None) -> int:
         "--smoke-only",
         action="store_true",
         help="Run only smoke checks, skip test suite (default behavior).",
+    )
+    parser.add_argument(
+        "--strict-inputs",
+        action="store_true",
+        help="Fail even with --with-tests when required raw inputs are missing.",
     )
     args = parser.parse_args(argv)
 
@@ -237,7 +248,11 @@ def main(argv: list[str] | None = None) -> int:
             run.set_metric("tests_run", 0)
 
         if missing_required_raw_inputs:
-            if not args.with_tests:
+            strict_inputs = args.strict_inputs or os.environ.get(
+                "PLASMID_PRIORITY_STRICT_INPUTS",
+                "",
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            if strict_inputs or not args.with_tests:
                 raise RuntimeError("Required raw inputs are missing.")
             return 0
 

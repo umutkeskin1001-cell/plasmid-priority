@@ -50,7 +50,10 @@ def _path_signature(path: Path) -> dict[str, object]:
 
 
 def _load_cached_manifest(
-    manifest_path: Path, input_paths: list[Path], *, refseq_limit: int | None
+    manifest_path: Path,
+    input_paths: list[Path],
+    *,
+    refseq_limit: int | None,
 ) -> dict[str, object] | None:
     if not manifest_path.exists():
         return None
@@ -62,7 +65,7 @@ def _load_cached_manifest(
         return None
     if payload.get("input_signatures") != [_path_signature(path) for path in input_paths]:
         return None
-    return payload
+    return payload  # type: ignore
 
 
 def main() -> int:
@@ -88,7 +91,7 @@ def main() -> int:
         run.record_output(canonical_output)
         run.record_output(inventory_output)
         run.note(
-            "RefSeq rows are emitted as header-only raw inventory records until richer harmonization is implemented."
+            "RefSeq rows are emitted as header-only raw inventory records until richer harmonization is implemented.",
         )
         cached = _load_cached_manifest(
             manifest_path,
@@ -97,10 +100,10 @@ def main() -> int:
         )
         if cached is not None and canonical_output.exists() and inventory_output.exists():
             run.note(
-                "Bronze metadata inputs unchanged; reusing existing canonical and inventory tables."
+                "Bronze metadata inputs unchanged; reusing existing canonical and inventory tables.",
             )
-            plsdb_rows = int(cached.get("plsdb_canonical_metadata_rows", 0))
-            inventory_rows = int(cached.get("bronze_inventory_rows", 0))
+            plsdb_rows = int(cached.get("plsdb_canonical_metadata_rows", 0))  # type: ignore
+            inventory_rows = int(cached.get("bronze_inventory_rows", 0))  # type: ignore
         else:
             plsdb_frame = build_plsdb_canonical_metadata(plsdb_metadata, taxonomy_csv)
             plsdb_frame.to_csv(canonical_output, sep="\t", index=False)

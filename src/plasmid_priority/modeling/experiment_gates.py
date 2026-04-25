@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 # Thresholds for gain interpretation (from v7 optimization plan)
 TIE_NOISE_THRESHOLD = 0.015  # AUC differences < 0.015 are indistinguishable from noise
@@ -169,6 +170,7 @@ def evaluate_experiment_gates(
     *,
     rolling_origin_gap: float | None = None,
     hybrid_review_fraction: float | None = None,
+    temporal_leakage_audit: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Evaluate experiment acceptance gates for a model result.
 
@@ -218,9 +220,29 @@ def evaluate_experiment_gates(
     else:
         hybrid_pass = None
 
+    temporal_leakage_pass: bool | None = None
+    temporal_leakage_failed_features: list[str] = []
+    if temporal_leakage_audit is not None and not temporal_leakage_audit.empty:
+        status_col = temporal_leakage_audit.get("leakage_status", pd.Series(dtype=str))
+        failed = temporal_leakage_audit.loc[status_col.astype(str).str.lower().eq("fail")]
+        temporal_leakage_pass = failed.empty
+        if not failed.empty:
+            temporal_leakage_failed_features = (
+                failed.get("feature_name", pd.Series(dtype=str)).astype(str).head(5).tolist()
+            )
+
     # Overall: all evaluated gates must pass
     evaluated_gates = [
-        g for g in [ece_pass, p_pass, leakage_pass, rolling_pass, hybrid_pass] if g is not None
+        g
+        for g in [
+            ece_pass,
+            p_pass,
+            leakage_pass,
+            rolling_pass,
+            hybrid_pass,
+            temporal_leakage_pass,
+        ]
+        if g is not None
     ]
     overall = all(evaluated_gates) if evaluated_gates else None
 
@@ -230,6 +252,7 @@ def evaluate_experiment_gates(
         "leakage_review": leakage_pass,
         "rolling_origin_gap": rolling_pass,
         "hybrid_review_fraction": hybrid_pass,
+        "temporal_leakage_audit": temporal_leakage_pass,
         "overall": overall,
         "gate_details": {
             "ece_value": selected.ece,
@@ -240,5 +263,6 @@ def evaluate_experiment_gates(
             "rolling_origin_gap_threshold": gates.rolling_origin_gap_max,
             "hybrid_review_fraction_value": hybrid_review_fraction,
             "hybrid_review_fraction_threshold": gates.hybrid_review_fraction_max,
+            "temporal_leakage_failed_features": temporal_leakage_failed_features,
         },
     }

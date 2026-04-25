@@ -1,0 +1,66 @@
+{
+  "artifacts": {
+    "calibration_artifact_hash": "0c1379f19102b3fa6145fc2a8ffbaa481c57166a6f2c0c8864465143d353d90b",
+    "feature_schema_hash": "1f268fb9face6f64f0c7e1d841edacbc8252c4f6e7987972a23a520ff94d1b7d",
+    "model_version": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",
+    "protocol_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",
+    "training_data_hash": "fbdb501433e45ee0c81c151001d4154d8ee5085d6e813ba2a9f494460b0e5e97"
+  },
+  "benchmarks_hash": "93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201",
+  "candidate_evidence_dossiers": [
+    "reports/reviewer_pack/candidate_evidence_dossiers/index.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA324.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA411.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA319.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AC301.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA409.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA282.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AD100.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA434.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA279.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA086.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA859.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA316.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA764.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA331.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AE264.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AC203.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AC030.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AC202.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA514.md"
+  ],
+  "claim_levels": [
+    "observed",
+    "proxy",
+    "literature_supported",
+    "externally_validated"
+  ],
+  "config_sha": "4607bb0d0c4752b169f34cbb264f9832c5069aaabe8a93b28f2efb84a0470eee",
+  "data_contract_sha": "da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b",
+  "label_cards": [
+    {
+      "caveats": "Retrospective proxy of expansion; not a prospective intervention endpoint.",
+      "description": "Binary spread target over the configured horizon and split protocol.",
+      "label_name": "spread_label"
+    },
+    {
+      "caveats": "Depends on metadata completeness and surveillance density.",
+      "description": "Mirror of spread label used in visibility and surveillance analyses.",
+      "label_name": "visibility_expansion_label"
+    }
+  ],
+  "protocol_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",
+  "reproducibility_runner": "reports/reviewer_pack/run_reproducibility.sh",
+  "reviewer_package": {
+    "dossiers_dir": "reports/reviewer_pack/candidate_evidence_dossiers",
+    "entrypoint": "make reviewer-package"
+  },
+  "validation_matrix": {
+    "calibration": "data/analysis/calibration_metrics.tsv",
+    "country_holdout": "reports/core_tables/spatial_holdout_summary.tsv",
+    "literature_validation": "/Users/umut/Projeler/plasmid-priority/reports/core_tables/literature_validation_matrix.tsv",
+    "negative_control": "reports/diagnostic_tables/negative_control_audit.tsv",
+    "source_holdout": "reports/core_tables/blocked_holdout_summary.tsv",
+    "temporal_holdout": "reports/diagnostic_tables/rolling_temporal_validation.tsv"
+  }
+}

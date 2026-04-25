@@ -25,27 +25,43 @@ class StepResult:
     rows_in: int | None = None
     rows_out: int | None = None
     duration_seconds: float | None = None
+    cache_status: str | None = None
+    bytes_read: int | None = None
+    bytes_written: int | None = None
+    peak_rss_mb: float | None = None
+    cpu_time_seconds: float | None = None
+    io_wait_hint: float | None = None
+    input_hash: str | None = None
+    output_hash: str | None = None
     warnings: list[str] = field(default_factory=list)
     scientific_notes: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["contract_hash"] = _hash_payload(
-            {
-                "step_name": self.step_name,
-                "status": self.status,
-                "inputs": self.inputs,
-                "outputs": self.outputs,
-                "protocol_hash": self.protocol_hash,
-                "rows_in": self.rows_in,
-                "rows_out": self.rows_out,
-                "duration_seconds": self.duration_seconds,
-                "warnings": self.warnings,
-                "scientific_notes": self.scientific_notes,
-                "metadata": self.metadata,
-            }
-        )
+        # Include all fields in contract hash for proper change detection
+        contract_fields = {
+            "step_name": self.step_name,
+            "status": self.status,
+            "inputs": self.inputs,
+            "outputs": self.outputs,
+            "protocol_hash": self.protocol_hash,
+            "rows_in": self.rows_in,
+            "rows_out": self.rows_out,
+            "duration_seconds": self.duration_seconds,
+            "cache_status": self.cache_status,
+            "bytes_read": self.bytes_read,
+            "bytes_written": self.bytes_written,
+            "peak_rss_mb": self.peak_rss_mb,
+            "cpu_time_seconds": self.cpu_time_seconds,
+            "io_wait_hint": self.io_wait_hint,
+            "input_hash": self.input_hash,
+            "output_hash": self.output_hash,
+            "warnings": self.warnings,
+            "scientific_notes": self.scientific_notes,
+            "metadata": self.metadata,
+        }
+        payload["contract_hash"] = _hash_payload(contract_fields)
         return payload
 
 

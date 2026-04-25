@@ -37,7 +37,8 @@ def main() -> int:
 
         run.set_rows_out("plasmid_harmonized_rows", int(len(harmonized)))
         run.set_metric(
-            "country_non_null", int(harmonized["country"].astype(str).str.len().gt(0).sum())
+            "country_non_null",
+            int(harmonized["country"].astype(str).str.len().gt(0).sum()),
         )
     return 0
 

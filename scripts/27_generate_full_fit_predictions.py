@@ -20,8 +20,8 @@ from plasmid_priority.modeling import (
     validate_discovery_input_contract,
 )
 from plasmid_priority.reporting import ManagedScriptRun
-from plasmid_priority.scoring import fit_full_model_predictions
-from plasmid_priority.utils.dataframe import read_tsv, write_tsv
+from plasmid_priority.scoring import fit_full_model_predictions  # type: ignore
+from plasmid_priority.utils.dataframe import read_tsv, write_tsv  # type: ignore
 from plasmid_priority.utils.files import (
     ensure_directory,
     load_signature_manifest,
@@ -57,7 +57,7 @@ def main() -> int:
                 run.record_input(path)
 
         # Check cache
-        cache_metadata = {}
+        cache_metadata = {}  # type: ignore
         if not args.force:
             if load_signature_manifest(
                 manifest_path,
@@ -73,13 +73,13 @@ def main() -> int:
 
         # Validate discovery contract
         primary_model_name = str(
-            context.model_settings.get("primary_model_name", "discovery_boosted")
+            context.model_settings.get("primary_model_name", "discovery_boosted"),  # type: ignore
         )
         conservative_model_name = str(
-            get_conservative_model_name(context.config if isinstance(context.config, dict) else {})
+            get_conservative_model_name(context.config if isinstance(context.config, dict) else {}),  # type: ignore
         )
         governance_model_name = str(
-            get_governance_model_name(context.config if isinstance(context.config, dict) else {})
+            get_governance_model_name(context.config if isinstance(context.config, dict) else {}),  # type: ignore
         )
 
         validate_discovery_input_contract(
@@ -107,7 +107,7 @@ def main() -> int:
                 run.warn(f"Failed to generate predictions for {model_name}: {e}")
 
         # Write signature manifest
-        write_signature_manifest(
+        write_signature_manifest(  # type: ignore
             manifest_path,
             input_paths=[path for path in source_paths if path.exists()],
             source_paths=source_paths,

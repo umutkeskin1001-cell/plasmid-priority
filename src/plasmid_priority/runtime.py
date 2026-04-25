@@ -10,6 +10,7 @@ from plasmid_priority.config import DATA_ROOT_ENV_VAR, find_project_root
 MODE_DEFAULT_WORKFLOW: dict[str, str] = {
     "fast-local": "reports-only",
     "full-local": "pipeline",
+    "demo": "demo-pipeline",
 }
 
 MODE_ALLOWED_WORKFLOWS: dict[str, tuple[str, ...]] = {
@@ -24,6 +25,10 @@ MODE_ALLOWED_WORKFLOWS: dict[str, tuple[str, ...]] = {
         "reports-only",
         "release",
     ),
+    "demo": (
+        "demo-pipeline",
+        "reports-only",
+    ),
 }
 
 
@@ -31,6 +36,8 @@ _RUNTIME_PROJECT_ROOT = find_project_root(Path(__file__).resolve())
 
 
 def default_mode_data_root(mode: str) -> Path:
+    if mode == "demo":
+        return _RUNTIME_PROJECT_ROOT / "data" / "sample"
     return Path.home() / ".cache" / "plasmid-priority" / mode / "data"
 
 
@@ -40,10 +47,23 @@ def resolve_mode_data_root(mode: str, explicit_data_root: str | Path | None = No
         if not candidate.is_absolute():
             candidate = _RUNTIME_PROJECT_ROOT / candidate
         return candidate.resolve()
+    # Check environment variable via settings
+    from plasmid_priority.settings import get_settings
+
+    settings = get_settings()
+    if settings.data_root is not None:
+        return settings.resolved_data_root()
     if mode == "full-local":
         raise ValueError(
             f"{DATA_ROOT_ENV_VAR} must be set or --data-root must be provided for full-local mode."
         )
+    if mode == "demo":
+        # For demo mode, use sample data and auto-generate if missing
+        sample_root = default_mode_data_root(mode)
+        manifest = sample_root / "SAMPLE_DATA_MANIFEST.json"
+        if not manifest.exists():
+            return sample_root  # Will trigger generation
+        return sample_root
     return default_mode_data_root(mode)
 
 

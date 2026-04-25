@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import unittest
 import warnings
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
 import pandas as pd
+from sklearn.dummy import DummyClassifier
 from sklearn.impute import KNNImputer
+from sklearn.linear_model import LogisticRegression
 
 from plasmid_priority.modeling import (
     ABLATION_MODEL_NAMES,
@@ -42,6 +45,9 @@ from plasmid_priority.modeling import (
 )
 from plasmid_priority.modeling import module_a as module_a_impl
 from plasmid_priority.modeling import module_a_support as module_a_support_impl
+from plasmid_priority.modeling import tree_models as tree_models_impl
+from plasmid_priority.modeling.nested_cv import nested_cross_validate
+from plasmid_priority.modeling.nested_cv_bayesian import NestedCVEvaluator
 
 
 class ModelingTests(unittest.TestCase):
@@ -585,6 +591,27 @@ class ModelingTests(unittest.TestCase):
         )
         self.assertIn("roc_auc", result.metrics)
         self.assertNotIn("roc_auc_ci_lower", result.metrics)
+
+    def test_evaluate_model_name_reports_selected_split_strategy(self) -> None:
+        scored = self._hybrid_ready_scored(n=36)
+        scored["resolved_year"] = np.repeat(np.arange(2010, 2019), 4)[: len(scored)]
+        discovery = evaluate_model_name(
+            scored,
+            model_name="parsimonious_priority",
+            n_splits=3,
+            n_repeats=2,
+            seed=19,
+        )
+        governance = evaluate_model_name(
+            scored,
+            model_name="governance_linear",
+            n_splits=3,
+            n_repeats=2,
+            seed=19,
+        )
+
+        self.assertEqual(discovery.metrics.get("split_strategy"), "stratified_repeated")
+        self.assertEqual(governance.metrics.get("split_strategy"), "temporal_group")
 
     def test_fit_predict_model_holdout_returns_holdout_scores(self) -> None:
         n = 30
@@ -1218,6 +1245,24 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("converged", audit.columns)
         self.assertIn("used_pinv", audit.columns)
 
+    def test_convergence_audit_includes_pairwise_model_rows(self) -> None:
+        import plasmid_priority.modeling.module_a_impl as module_a_impl_runtime
+
+        scored = self._hybrid_ready_scored(n=40)
+        audit = module_a_impl_runtime.build_logistic_convergence_audit(
+            scored,
+            model_names=["pairwise_rank_priority"],
+            n_splits=4,
+            n_repeats=2,
+            seed=17,
+        )
+        self.assertFalse(audit.empty)
+        self.assertEqual(set(audit["model_name"]), {"pairwise_rank_priority"})
+        self.assertTrue(audit["repeat_index"].notna().all())
+        self.assertTrue(audit["fold_index"].notna().all())
+        self.assertIn("converged", audit.columns)
+        self.assertIn("used_pinv", audit.columns)
+
     def test_pairwise_rank_priority_emits_predictions(self) -> None:
         scored = self._hybrid_ready_scored(n=40)
         result = evaluate_model_name(
@@ -1380,6 +1425,25 @@ class ModelingTests(unittest.TestCase):
         self.assertEqual(len(result.predictions), n)
         self.assertIn("oof_prediction", result.predictions.columns)
         self.assertTrue(result.predictions["oof_prediction"].between(0.0, 1.0).all())
+
+    def test_tree_extract_xy_uses_configured_features_allow_list(self) -> None:
+        scored = pd.DataFrame(
+            {
+                "backbone_id": ["bb1", "bb2", "bb3", "bb4"],
+                "spread_label": [0.0, 1.0, 0.0, 1.0],
+                "T_raw_norm": [0.2, 0.8, 0.3, 0.7],
+                "H_breadth_norm": [0.1, 0.9, 0.2, 0.8],
+                "A_raw_norm": [0.4, 0.6, 0.5, 0.55],
+                "future_signal_proxy": [0.0, 1.0, 0.0, 1.0],
+                "n_new_countries_future": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
+        X, y = tree_models_impl._extract_xy(scored)
+
+        self.assertListEqual(X.columns.tolist(), ["T_raw_norm", "H_breadth_norm", "A_raw_norm"])
+        self.assertNotIn("future_signal_proxy", X.columns)
+        self.assertNotIn("n_new_countries_future", X.columns)
+        self.assertListEqual(y.astype(int).tolist(), [0, 1, 0, 1])
 
     def test_lightgbm_classifier_fit_and_predict(self) -> None:
         """_fit_lightgbm_classifier should produce a model with predict_proba."""
@@ -1579,6 +1643,173 @@ class ModelingTests(unittest.TestCase):
             self.assertIn("interaction_feature", entry)
             self.assertEqual(len(entry["feature_values"]), n)
             self.assertEqual(len(entry["shap_values"]), n)
+
+    def test_nested_cross_validate_uses_inner_cv_to_select_fit_config(self) -> None:
+        scored = self._hybrid_ready_scored(n=36)
+        inner_fit_configs = [{"l2": 0.1}, {"l2": 10.0}]
+
+        def _fake_inner_eval(*_args: object, **kwargs: object) -> SimpleNamespace:
+            fit_config = kwargs.get("fit_config")
+            candidate = fit_config if isinstance(fit_config, dict) else {}
+            l2 = float(candidate.get("l2", 1.0))
+            auc = 0.91 if np.isclose(l2, 0.1) else 0.61
+            return SimpleNamespace(metrics={"roc_auc": auc})
+
+        def _fake_holdout(
+            _train_df: pd.DataFrame,
+            test_df: pd.DataFrame,
+            *,
+            model_name: str,
+            fit_config: dict[str, object] | None = None,
+            **_kwargs: object,
+        ) -> pd.DataFrame:
+            assert model_name == "bio_clean_priority"
+            candidate = fit_config if fit_config is not None else {}
+            l2 = float(candidate.get("l2", 1.0))
+            high = 0.9 if np.isclose(l2, 0.1) else 0.6
+            low = 1.0 - high
+            y = test_df["spread_label"].to_numpy(dtype=int)
+            preds = np.where(y == 1, high, low)
+            return pd.DataFrame(
+                {
+                    "backbone_id": test_df["backbone_id"].astype(str).tolist(),
+                    "spread_label": y.tolist(),
+                    "prediction": preds.tolist(),
+                },
+            )
+
+        with (
+            mock.patch(
+                "plasmid_priority.modeling.module_a.evaluate_model_name",
+                side_effect=_fake_inner_eval,
+            ) as inner_mock,
+            mock.patch(
+                "plasmid_priority.modeling.module_a.fit_predict_model_holdout",
+                side_effect=_fake_holdout,
+            ) as holdout_mock,
+        ):
+            result = nested_cross_validate(
+                scored,
+                model_name="bio_clean_priority",
+                n_outer_splits=3,
+                n_inner_splits=2,
+                n_repeats=1,
+                seed=7,
+                inner_fit_configs=inner_fit_configs,
+            )
+
+        self.assertEqual(inner_mock.call_count, 3 * len(inner_fit_configs))
+        self.assertEqual(holdout_mock.call_count, 3)
+        for called in holdout_mock.call_args_list:
+            fit_config = called.kwargs.get("fit_config")
+            self.assertIsInstance(fit_config, dict)
+            self.assertTrue(np.isclose(float(fit_config.get("l2", 1.0)), 0.1))
+        self.assertEqual(result["selection_mode"], "inner_cv_tuning")
+        self.assertTrue(bool(result["inner_cv_participated"]))
+        self.assertEqual(len(result["fold_selection_summary"]), 3)
+        self.assertTrue(
+            all(
+                fold.get("selection_mode") == "inner_cv_tuning"
+                for fold in result["fold_selection_summary"]
+            ),
+        )
+
+    def test_nested_cross_validate_reports_explicit_no_tuning_mode(self) -> None:
+        scored = self._hybrid_ready_scored(n=36)
+
+        def _fake_holdout(
+            _train_df: pd.DataFrame,
+            test_df: pd.DataFrame,
+            *,
+            model_name: str,
+            fit_config: dict[str, object] | None = None,
+            **_kwargs: object,
+        ) -> pd.DataFrame:
+            assert model_name == "bio_clean_priority"
+            y = test_df["spread_label"].to_numpy(dtype=int)
+            preds = np.where(y == 1, 0.85, 0.15)
+            return pd.DataFrame(
+                {
+                    "backbone_id": test_df["backbone_id"].astype(str).tolist(),
+                    "spread_label": y.tolist(),
+                    "prediction": preds.tolist(),
+                },
+            )
+
+        with (
+            mock.patch(
+                "plasmid_priority.modeling.module_a.evaluate_model_name",
+            ) as inner_mock,
+            mock.patch(
+                "plasmid_priority.modeling.module_a.fit_predict_model_holdout",
+                side_effect=_fake_holdout,
+            ),
+        ):
+            result = nested_cross_validate(
+                scored,
+                model_name="bio_clean_priority",
+                n_outer_splits=3,
+                n_inner_splits=2,
+                n_repeats=1,
+                seed=7,
+                inner_fit_configs=[{}],
+            )
+
+        inner_mock.assert_not_called()
+        self.assertEqual(result["selection_mode"], "explicit_no_tuning")
+        self.assertFalse(bool(result["inner_cv_participated"]))
+        self.assertEqual(len(result["fold_selection_summary"]), 3)
+        self.assertTrue(
+            all(
+                fold.get("selection_mode") == "explicit_no_tuning"
+                for fold in result["fold_selection_summary"]
+            ),
+        )
+
+    def test_nested_cv_evaluator_tracks_inner_parameter_selection(self) -> None:
+        rng = np.random.default_rng(313)
+        X = rng.normal(size=(120, 4))
+        linear_signal = (1.8 * X[:, 0]) - (0.7 * X[:, 1]) + rng.normal(scale=0.4, size=120)
+        y = (linear_signal > 0.0).astype(int)
+        evaluator = NestedCVEvaluator(outer_cv=3, inner_cv=3, random_state=13)
+
+        result = evaluator.evaluate(
+            X,
+            y,
+            model_factory=lambda: LogisticRegression(max_iter=200, solver="liblinear"),
+        )
+
+        self.assertEqual(result["selection_mode"], "inner_cv_tuning")
+        self.assertTrue(bool(result["inner_selection_performed"]))
+        trace = result["selection_trace"]
+        self.assertEqual(len(trace), 3)
+        self.assertTrue(
+            all(entry.get("selection_mode") == "inner_cv_tuning" for entry in trace),
+        )
+        self.assertTrue(
+            all(int(entry.get("n_candidates_evaluated", 0)) >= 2 for entry in trace),
+        )
+        self.assertTrue(all("C" in dict(entry.get("selected_params", {})) for entry in trace))
+
+    def test_nested_cv_evaluator_reports_explicit_no_tuning(self) -> None:
+        rng = np.random.default_rng(909)
+        X = rng.normal(size=(90, 3))
+        y = np.array([0, 1] * 45, dtype=int)
+        evaluator = NestedCVEvaluator(outer_cv=3, inner_cv=3, random_state=19)
+
+        result = evaluator.evaluate(
+            X,
+            y,
+            model_factory=lambda: DummyClassifier(strategy="prior"),
+        )
+
+        self.assertEqual(result["selection_mode"], "explicit_no_tuning")
+        self.assertFalse(bool(result["inner_selection_performed"]))
+        trace = result["selection_trace"]
+        self.assertEqual(len(trace), 3)
+        self.assertTrue(
+            all(entry.get("selection_mode") == "explicit_no_tuning" for entry in trace),
+        )
 
     def test_shap_functions_return_skipped_when_unavailable(self) -> None:
         """SHAP functions should return skipped status when shap is not available."""

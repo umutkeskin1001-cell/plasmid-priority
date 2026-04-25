@@ -91,6 +91,9 @@ from plasmid_priority.validation import (
 from plasmid_priority.validation import (
     roc_auc_score as _base_roc_auc_score,
 )
+from plasmid_priority.validation.fast_metrics import (
+    permutation_null_auc_ap_fast,
+)
 
 
 class _BootstrapCandidateStats(TypedDict):
@@ -2510,7 +2513,6 @@ def build_permutation_null_tables(
     seed: int = 42,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Estimate empirical null distributions by permuting labels against fixed model scores."""
-    rng = np.random.default_rng(seed)
     detail_rows: list[dict[str, object]] = []
     summary_rows: list[dict[str, object]] = []
     for model_name in model_names:
@@ -2526,41 +2528,24 @@ def build_permutation_null_tables(
         negatives = int(n - positives)
         if positives == 0 or negatives == 0:
             continue
-        order_desc = np.argsort(-preds, kind="mergesort")
-        order_asc = np.argsort(preds, kind="mergesort")
-        sorted_scores = preds[order_asc]
-        _, first_idx, counts = np.unique(sorted_scores, return_index=True, return_counts=True)
-        average_ranks = first_idx + (counts + 1.0) / 2.0
-        score_ranks = np.empty(n, dtype=float)
-        score_ranks[order_asc] = np.repeat(average_ranks, counts)
-        denominator = np.arange(1, n + 1, dtype=float)
-        null_aucs: list[float] = []
-        null_aps: list[float] = []
-        permutation_index = 1
-        batch_size = min(256, n_permutations)
-        while permutation_index <= n_permutations:
-            current_batch = min(batch_size, n_permutations - permutation_index + 1)
-            permuted_batch = np.vstack([rng.permutation(y) for _ in range(current_batch)]).astype(
-                int, copy=False
+
+        # Use high-performance JIT-optimized permutation test
+        null_aucs_arr, null_aps_arr = permutation_null_auc_ap_fast(
+            y, preds, n_permutations=n_permutations, seed=seed
+        )
+        null_aucs = null_aucs_arr.tolist()
+        null_aps = null_aps_arr.tolist()
+
+        for idx, (null_auc, null_ap) in enumerate(zip(null_aucs, null_aps), start=1):
+            detail_rows.append(
+                {
+                    "model_name": model_name,
+                    "permutation_index": idx,
+                    "null_roc_auc": float(null_auc),
+                    "null_average_precision": float(null_ap),
+                }
             )
-            rank_sums = permuted_batch @ score_ranks
-            auc_values = (rank_sums - positives * (positives + 1) / 2.0) / (positives * negatives)
-            permuted_sorted = permuted_batch[:, order_desc]
-            tp = np.cumsum(permuted_sorted == 1, axis=1, dtype=float)
-            precision = tp / denominator
-            ap_values = (precision * (permuted_sorted == 1)).sum(axis=1) / max(positives, 1)
-            for null_auc, null_ap in zip(auc_values.tolist(), ap_values.tolist(), strict=False):
-                null_aucs.append(float(null_auc))
-                null_aps.append(float(null_ap))
-                detail_rows.append(
-                    {
-                        "model_name": model_name,
-                        "permutation_index": permutation_index,
-                        "null_roc_auc": float(null_auc),
-                        "null_average_precision": float(null_ap),
-                    }
-                )
-                permutation_index += 1
+
         summary_rows.append(
             {
                 "model_name": model_name,

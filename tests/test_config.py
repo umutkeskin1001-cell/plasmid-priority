@@ -8,9 +8,12 @@ from importlib import reload
 from pathlib import Path
 from unittest import mock
 
+from pydantic import ValidationError
+
 import plasmid_priority.config as config_module
 from plasmid_priority.config import (
     DATA_ROOT_ENV_VAR,
+    ProjectConfig,
     build_context,
     find_project_root,
     load_data_contract,
@@ -230,6 +233,28 @@ class ConfigTests(unittest.TestCase):
                 second = context.config
             self.assertEqual(first, second)
             self.assertEqual(safe_load_mock.call_count, 1)
+
+    def test_pipeline_config_rejects_invalid_horizon(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "horizon_years"):
+            ProjectConfig.model_validate({"pipeline": {"horizon_years": -1}})
+
+    def test_pipeline_config_requires_consensus_weights_sum_to_one(self) -> None:
+        payload = {
+            "pipeline": {
+                "consensus_weights": {
+                    "geo": 0.9,
+                    "bio_transfer": 0.9,
+                    "clinical_hazard": 0.9,
+                }
+            }
+        }
+
+        with self.assertRaisesRegex(ValidationError, "consensus_weights"):
+            ProjectConfig.model_validate(payload)
+
+    def test_pipeline_config_rejects_ood_thresholds_outside_unit_interval(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "ood_thresholds"):
+            ProjectConfig.model_validate({"pipeline": {"ood_thresholds": {"support": 1.5}}})
 
 
 if __name__ == "__main__":

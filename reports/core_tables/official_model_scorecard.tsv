@@ -1,0 +1,6 @@
+official_model_order	model_name	role	can_win_official	experimental	allowed_feature_groups	score_column	official_family_status	has_bounded_scores	score_min	score_max	supervised_feature_count
+0	visibility_baseline	visibility_baseline	False	False	visibility	visibility_baseline	available	True	0.0	1.0	0
+1	frozen_biological_prior	biological_prior	False	False	mobility,host_ecology,amr_context,evidence_depth	frozen_biological_prior	available	True	0.39068757786228325	0.7985508894449524	0
+2	sparse_calibrated_logistic	primary	True	False	visibility,mobility,host_ecology,amr_context,backbone_structure,evidence_depth	sparse_calibrated_logistic	not_fit_label_unavailable	False			6
+3	bounded_monotonic_tree	challenger	True	False	visibility,mobility,host_ecology,amr_context,backbone_structure,evidence_depth	bounded_monotonic_tree	not_fit_label_unavailable	False			6
+4	conservative_evidence_consensus	decision_surface	False	False	uncertainty,evidence_depth	conservative_consensus_score	available	True	0.09821381216134205	0.5311662938341252	0

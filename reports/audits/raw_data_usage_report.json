@@ -1,0 +1,180 @@
+{
+  "raw_file_count": 38,
+  "inactive_recent_candidate_count": 21,
+  "likely_unused_candidate_count": 1,
+  "undeclared_raw_file_count": 6,
+  "inactive_recent_candidates": [
+    {
+      "path": "data/raw/refseq_chunks/plasmid.1.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.1.2.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.2.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.2.2.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.3.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.3.2.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.4.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.4.2.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.5.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.5.2.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.6.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.6.2.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.7.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.7.2.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.8.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.8.2.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/refseq_chunks/plasmid.9.1.genomic.fna.gz",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/taxdump/merged.dmp",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/taxdump/names.dmp",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/taxdump/nodes.dmp",
+      "declared_in_contract": true,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/tmp6n8ct32v",
+      "declared_in_contract": false,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    }
+  ],
+  "likely_unused_candidates": [
+    {
+      "path": "data/raw/tmp6n8ct32v",
+      "declared_in_contract": false,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    }
+  ],
+  "undeclared_raw_files": [
+    {
+      "path": "data/raw/amr.tsv",
+      "declared_in_contract": false,
+      "referenced_in_code": true,
+      "used_in_recent_step_inputs": true
+    },
+    {
+      "path": "data/raw/biosample.csv",
+      "declared_in_contract": false,
+      "referenced_in_code": true,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/nucc_identical.csv",
+      "declared_in_contract": false,
+      "referenced_in_code": true,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/plsdb_mashdb_sim.tsv",
+      "declared_in_contract": false,
+      "referenced_in_code": true,
+      "used_in_recent_step_inputs": true
+    },
+    {
+      "path": "data/raw/tmp6n8ct32v",
+      "declared_in_contract": false,
+      "referenced_in_code": false,
+      "used_in_recent_step_inputs": false
+    },
+    {
+      "path": "data/raw/typing.csv",
+      "declared_in_contract": false,
+      "referenced_in_code": true,
+      "used_in_recent_step_inputs": false
+    }
+  ]
+}

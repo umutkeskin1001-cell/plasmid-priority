@@ -149,7 +149,8 @@ Examples:
 
     if backbone_table is None and scored_table is None:
         print(
-            "Error: At least one of backbone or scored tables must be available.", file=sys.stderr
+            "Error: At least one of backbone or scored tables must be available.",
+            file=sys.stderr,
         )
         return 1
 

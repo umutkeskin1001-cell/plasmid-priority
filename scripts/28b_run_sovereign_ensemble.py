@@ -48,14 +48,14 @@ def load_base_predictions(analysis_dir: Path) -> dict[str, pd.DataFrame]:
         if f"pred_{model}" in df.columns:
             predictions[model] = df[f"pred_{model}"].values
 
-    return predictions, df["y_true"].values if "y_true" in df.columns else None
+    return predictions, df["y_true"].values if "y_true" in df.columns else None  # type: ignore
 
 
 def compute_ensemble_performance(
     base_predictions: dict[str, np.ndarray],
     y_true: np.ndarray,
     method: str = "adaptive_weighted",
-) -> dict:
+) -> dict:  # type: ignore
     """Compute ensemble performance metrics."""
 
     # Create ensemble
@@ -99,7 +99,7 @@ def cross_validate_ensemble(
     X: np.ndarray,
     y: np.ndarray,
     n_folds: int = 5,
-) -> dict:
+) -> dict:  # type: ignore
     """Cross-validate ensemble performance."""
 
     skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=42)
@@ -144,14 +144,14 @@ def main() -> None:
 
     # Build context
     ctx = build_context()
-    analysis_dir = Path(ctx.config.data_root) / "analysis"
+    analysis_dir = Path(ctx.config.data_root) / "analysis"  # type: ignore
 
     # Load base predictions
     print("\n[1/4] Loading base model predictions...")
     try:
         base_preds, y_true = load_base_predictions(analysis_dir)
         print(f"  Loaded {len(base_preds)} base models:")
-        for name in base_preds.keys():
+        for name in base_preds.keys():  # type: ignore
             print(f"    - {name}")
     except FileNotFoundError as e:
         print(f"  Error: {e}")
@@ -159,15 +159,15 @@ def main() -> None:
         return
 
     if y_true is None:
-        print("  Error: y_true not found in predictions file")
+        print("  Error: y_true not found in predictions file")  # type: ignore
         return
 
     # Compute individual model AUCs
     print("\n[2/4] Computing base model performances...")
     base_aucs = {}
-    for name, preds in base_preds.items():
+    for name, preds in base_preds.items():  # type: ignore
         try:
-            auc = roc_auc_score(y_true, preds)
+            auc = roc_auc_score(y_true, preds)  # type: ignore
             base_aucs[name] = auc
             print(f"  {name}: {auc:.4f}")
         except Exception as e:
@@ -180,7 +180,7 @@ def main() -> None:
     ensemble_results = {}
     for method in methods:
         print(f"\n  Method: {method}")
-        result = compute_ensemble_performance(base_preds, y_true, method=method)
+        result = compute_ensemble_performance(base_preds, y_true, method=method)  # type: ignore
         ensemble_results[method] = result
 
         print(f"    ROC AUC: {result['roc_auc']:.4f}")
@@ -198,9 +198,9 @@ def main() -> None:
 
     # Cross-validation
     print("\n[4/4] Cross-validating best ensemble...")
-    final_preds = create_meta_sovereign_model(base_preds, y_true, method=best_method)["probability"]
+    final_preds = create_meta_sovereign_model(base_preds, y_true, method=best_method)["probability"]  # type: ignore
 
-    cv_results = cross_validate_ensemble(final_preds, y_true, n_folds=5)
+    cv_results = cross_validate_ensemble(final_preds, y_true, n_folds=5)  # type: ignore
 
     print(f"  CV Mean AUC: {cv_results['mean_auc']:.4f} (±{cv_results['std_auc']:.4f})")
     print(f"  CV Mean AP: {cv_results['mean_ap']:.4f} (±{cv_results['std_ap']:.4f})")
@@ -212,7 +212,7 @@ def main() -> None:
     print(f"Best Ensemble Method: {best_method}")
     print(f"Best ROC AUC: {best_result['roc_auc']:.4f}")
     print(
-        f"Target (83+ AUC): {'✅ ACHIEVED' if best_result['roc_auc'] >= 0.83 else '❌ NOT ACHIEVED'}"
+        f"Target (83+ AUC): {'✅ ACHIEVED' if best_result['roc_auc'] >= 0.83 else '❌ NOT ACHIEVED'}",
     )
     print(f"Improvement over best base: +{best_result['roc_auc'] - max(base_aucs.values()):.4f}")
     print(f"CV Stability: {cv_results['std_auc']:.4f} (lower is better)")

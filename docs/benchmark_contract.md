@@ -6,8 +6,8 @@ This document is generated from canonical scientific metadata.
 
 - protocol_hash: `c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a`
 - benchmarks_hash: `93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201`
-- data_contract_sha: `43968ff4bdfe1e93efa526f5e2e3151de14d0a81ba29fa9afde6b2ff5aa438b2`
-- config_sha: `e2e48334bb0812bc17115002e1aa7fec2af209612db1a6f6c7547a63859c929a`
+- data_contract_sha: `da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b`
+- config_sha: `a2184360153a06a563a59585d60275581b81c68253427064f75aeec460030efc`
 
 ## Canonical Authority
 

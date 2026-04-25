@@ -14,6 +14,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 from plasmid_priority.config import build_context, context_config_paths
+from plasmid_priority.io.table_io import read_table, write_table
 from plasmid_priority.modeling import (
     MODULE_A_FEATURE_SETS,
     build_discovery_input_contract,
@@ -23,7 +24,6 @@ from plasmid_priority.modeling import (
 from plasmid_priority.protocol import ScientificProtocol, build_protocol_hash
 from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.scoring import build_scored_backbone_table
-from plasmid_priority.utils.dataframe import read_tsv
 from plasmid_priority.utils.files import (
     atomic_write_json,
     ensure_directory,
@@ -35,17 +35,9 @@ from plasmid_priority.utils.files import (
 from plasmid_priority.validation.missingness import audit_backbone_tables, format_missingness_report
 
 
-def _maybe_write_parquet(frame: pd.DataFrame, path: Path) -> bool:
-    try:
-        frame.to_parquet(path, index=False)
-        return True
-    except Exception:
-        return False
-
-
 def _stable_hash(payload: object) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
-        "utf-8"
+        "utf-8",
     )
     return hashlib.sha256(encoded).hexdigest()
 
@@ -123,15 +115,15 @@ def main() -> int:
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
             "min_new_countries_for_spread": int(
-                context.pipeline_settings.min_new_countries_for_spread
+                context.pipeline_settings.min_new_countries_for_spread,
             ),
-        }
+        },
     }
     cache_key_payload = _cache_key_payload(
         protocol_hash=protocol_hash,
         input_paths=input_paths,
         source_paths=source_paths,
-        metadata=cache_metadata,
+        metadata=cache_metadata,  # type: ignore
         feature_schema_version="gold-v1",
     )
 
@@ -153,14 +145,15 @@ def main() -> int:
 
             # Still run missingness audit on cached data if requested
             if args.audit_missingness:
-                scored = read_tsv(scored_tsv)
+                cached_path = scored_parquet if scored_parquet.exists() else scored_tsv
+                scored = read_table(cached_path)
                 _run_missingness_audit(context, scored, run)
             return 0
 
-        backbone_table = read_tsv(backbone_path)
-        feature_t = read_tsv(t_path)
-        feature_h = read_tsv(h_path)
-        feature_a = read_tsv(a_path)
+        backbone_table = read_table(backbone_path)
+        feature_t = read_table(t_path)
+        feature_h = read_table(h_path)
+        feature_a = read_table(a_path)
 
         # Memory Optimization: Convert large object columns to categorical
         for df in (backbone_table, feature_t, feature_h, feature_a):
@@ -171,7 +164,7 @@ def main() -> int:
         scored = build_scored_backbone_table(backbone_table, feature_t, feature_h, feature_a)
         validate_discovery_input_contract(
             scored,
-            model_names=get_official_model_names(MODULE_A_FEATURE_SETS.keys()),
+            model_names=get_official_model_names(MODULE_A_FEATURE_SETS.keys()),  # type: ignore
             contract=build_discovery_input_contract(int(context.pipeline_settings.split_year)),
             label="Scored backbone table",
         )
@@ -184,19 +177,15 @@ def main() -> int:
                 if not out_of_bounds.empty:
                     raise ValueError(
                         f"Validation failure: Column {col} contains {len(out_of_bounds)} values outside [0.0, 1.0]. "
-                        "Fix upstream normalization before scoring."
+                        "Fix upstream normalization before scoring.",
                     )
 
-        scored.to_csv(scored_tsv, sep="\t", index=False)
+        write_table(scored, scored_parquet, format="parquet")
+        write_table(scored, scored_tsv, format="tsv")
         gold_table = scored.copy()
         gold_table["schema_version"] = "gold-v1"
         gold_table["protocol_hash"] = protocol_hash
-        gold_table.to_csv(gold_tsv, sep="\t", index=False)
-        parquet_ok = _maybe_write_parquet(scored, scored_parquet)
-        if not parquet_ok:
-            run.warn(
-                "Parquet output could not be written in the current environment; TSV fallback is available."
-            )
+        write_table(gold_table, gold_tsv, format="tsv")
         write_signature_manifest(
             manifest_path,
             input_paths=input_paths,
@@ -216,7 +205,7 @@ def main() -> int:
     return 0
 
 
-def _run_missingness_audit(context, scored: pd.DataFrame, run) -> None:
+def _run_missingness_audit(context, scored: pd.DataFrame, run) -> None:  # type: ignore
     """Run missingness audit on scored table and write artifacts."""
     audit_dir = context.reports_dir / "audits"
     ensure_directory(audit_dir)
