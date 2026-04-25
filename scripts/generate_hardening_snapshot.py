@@ -74,7 +74,7 @@ def check_hardening_scripts() -> dict[str, Any]:
         "missingness_audit": (scripts_path / "run_missingness_audit.py").exists(),
         "schema_validation": (scripts_path / "run_schema_validation.py").exists(),
         "consolidated_hardening_summary": (scripts_path / "run_hardening_summary.py").exists(),
-        "advanced_audits": (scripts_path / "27_run_advanced_audits.py").exists(),
+        "advanced_audits": (scripts_path / "27b_run_advanced_audits.py").exists(),
     }
 
     return {

@@ -15,6 +15,7 @@ from plasmid_priority.modeling.official import (
     build_official_release_artifacts,
     write_official_release_artifacts,
 )
+from plasmid_priority.reporting import ManagedScriptRun
 
 
 def _copy_first_available(
@@ -152,12 +153,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    build_official_artifacts_from_tsv(
-        input_path=args.input,
-        output_dir=args.output_dir,
-        id_column=args.id_column,
-        label_column=args.label_column,
-    )
+    with ManagedScriptRun(context, "52_build_official_release_artifacts") as run:
+        run.record_input(args.input)
+        written = build_official_artifacts_from_tsv(
+            input_path=args.input,
+            output_dir=args.output_dir,
+            id_column=args.id_column,
+            label_column=args.label_column,
+        )
+        for path in written.values():
+            run.record_output(path)
+        run.set_metric("artifact_count", len(written))
     return 0
 
 

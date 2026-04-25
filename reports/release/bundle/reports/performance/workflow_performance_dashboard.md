@@ -1,6 +1,6 @@
 # Workflow Performance Dashboard
 
-Generated at: 2026-04-21T17:57:02+00:00
+Generated at: 2026-04-25T21:25:33+00:00
 
 | Mode | Runs | Latest Duration (s) | Delta vs Previous (s) | Delta vs Previous (%) | Latest Commit |
 |---|---:|---:|---:|---:|---|

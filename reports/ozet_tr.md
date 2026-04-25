@@ -41,12 +41,15 @@ Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal ge
 - Koruyucu model: ROC AUC `0.747` | AP `0.657`.
 - Baseline model: ROC AUC `0.736` | AP `0.648`.
 - Yanlış negatif incelemesi: kısa liste dışında kalan `50` pozitif vardır; baskın nedenler `low_assignment_confidence, low_training_members, low_knownness`.
+- Eşleştirilmiş bilinirlik/kaynak katmanları denetimi: ana model `0.752`, taban model `0.602`.
+- Ağırlıklı yeni ülke yükü ile ilişki: Spearman ρ `0.620`.
+- Ham yeni ülke sayısı ile ilişki: Spearman ρ `0.624` [0.582, 0.663].
 - Mekânsal holdout denetimi: ağırlıklı ROC AUC `0.710`.
 
 ## Sıralama Kararlılığı
 
-- `candidate_rank_stability.tsv` aday siralama kararliligini raporlar; en kararlı örnek `AA316` için ilk `15` içinde kalma sıklığı `1.00`.
-- `candidate_variant_consistency.tsv` aday siralama kararliligini raporlar; en kararlı örnek `AA171` için ilk `15` içinde kalma sıklığı `1.00`.
+- `candidate_rank_stability.tsv` aday siralama kararliligini raporlar; en kararlı örnek `AA316` için ilk `10` içinde kalma sıklığı `1.00`.
+- `candidate_variant_consistency.tsv` aday siralama kararliligini raporlar; en kararlı örnek `AA171` için ilk `10` içinde kalma sıklığı `1.00`.
 
 ## Sınırlılıklar
 
@@ -58,10 +61,10 @@ Bu proje klinik karar desteği vermez; ancak Türkiye'de ulusal veya kurumsal ge
 
 ## Örnek Adaylar
 
-- `AB039`: baskın tür `Citrobacter freundii`, baskın replikon `ColRNAI_rep_cluster_1987`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `belirsiz` ve risk özeti mevcut değil. Öne çıkan AMR sınıfları: belirgin AMR sınıfı sinyali yok.
-- `AA434`: baskın tür `Klebsiella pneumoniae`, baskın replikon `IncFII`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `belirsiz` ve risk özeti mevcut değil. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,CEPHALOSPORIN,MONOBACTAM,PENAM,PENEM.
-- `AA346`: baskın tür `Escherichia coli`, baskın replikon `IncFIB`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `belirsiz` ve risk özeti mevcut değil. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,BETA-LACTAM,SULFONAMIDE,TRIMETHOPRIM.
-- `AF809`: baskın tür `Pseudomonas putida`, baskın replikon `rep_cluster_1115`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `belirsiz` ve risk özeti mevcut değil. Öne çıkan AMR sınıfları: EFFLUX.
+- `AB039`: baskın tür `Citrobacter freundii`, baskın replikon `ColRNAI_rep_cluster_1987`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `eylem` ve genel risk `0.85`, belirsizlik `0.20`. Öne çıkan AMR sınıfları: belirgin AMR sınıfı sinyali yok.
+- `AA434`: baskın tür `Klebsiella pneumoniae`, baskın replikon `IncFII`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `çok kaynaklı destek`, operasyonel karar katmanı `inceleme` ve genel risk `0.70`, belirsizlik `0.43`. Öne çıkan AMR sınıfları: AMINOGLYCOSIDE,CEPHALOSPORIN,MONOBACTAM,PENAM,PENEM.
+- `AA346`: baskın tür `Escherichia coli`, baskın replikon `IncFIB`; bu aday `yerleşik yüksek risk kısa listesi` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.85`, belirsizlik `0.19`. Öne çıkan AMR sınıfları: BETA-LACTAM.
+- `AF809`: baskın tür `Pseudomonas putida`, baskın replikon `rep_cluster_1115`; bu aday `erken-sinyal izleme hattı` içinde değerlendirilir. Kaynak desteği `destek düzeyi belirtilmemiş`, operasyonel karar katmanı `eylem` ve genel risk `0.81`, belirsizlik `0.29`. Öne çıkan AMR sınıfları: EFFLUX.
 
 ## Sürüm Yüzeyi
 

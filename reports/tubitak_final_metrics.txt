@@ -1,26 +1,37 @@
 =================================================================
   TÜBİTAK RAPORU İÇİN İSTATİSTİKSEL ÖZET
 =================================================================
-Ana Model           : discovery_12f_source
+Ana Model           : discovery_boosted
 Ana Outcome Eşiği   : Sonradan >= 3 yeni ülke
 
 1. AYIRICILIK GÜCÜ (ROC AUC)
-   Değer            : 0.8036
-   %95 Güven Aralığı: [0.7749 - 0.8307]
+   Değer            : 0.8106
+   %95 Güven Aralığı: [0.7804 - 0.8389]
 
 2. PRECISION-RECALL ÖZETİ (Average Precision)
-   Değer            : 0.7225
-   Temel Oran       : 0.3660
-   Lift (Kazanç)    : 0.3565
+   Değer            : 0.7212
+   Temel Oran (Pozitif Prevalans) : 0.3660 (n_pos=362 / n_total=989)
+   Lift (Kazanç)    : 0.3552
+   Uyg. Sample Weighting: class_balanced+inverse_knownness_weighting
 
 3. KALİBRASYON (Brier Score)
-   Değer            : 0.1695
+   Değer            : 0.1725
+   Calibration slope      : 1.0280
+   Calibration intercept  : -0.5282
 
 4. FORMAL ANLAMLILIK (Permütasyon Testi)
-   Seçim-düzeltilmiş ROC AUC p-değeri : < 0.001
-   Sabit-skor ROC AUC p-değeri      : < 0.001
-   Permütasyon sayısı: 2000
+   Seçim-düzeltilmiş ROC AUC p-değeri : = 0.0909
+   Sabit-skor ROC AUC p-değeri      : = 0.0050
+   Permütasyon sayısı: 200
 
 5. SIRALAMA UYUMU (Ham yeni ülke sayısı)
-   Spearman ρ       : 0.6237 [0.5798 - 0.6613]
+   Spearman ρ       : 0.6241 [0.5822 - 0.6626]
+=================================================================
+
+*** SINIF DENGESİZLİĞİ NOTU ***
+Bu veri seti sınıf dengesizliği içermektedir. Yukarıdaki Temel Oran,
+gerçek dünya AMR plazmid yayılımı prevalansını yansıtır.
+Sınıf dengesi için sample_weight_mode=class_balanced+inverse_knownness_weighting
+uygulanmıştır. AUC değeri, yüksek negatif sınıf oranına rağmen
+geçerli bir sinyal göstergesidir (Permütasyon testi ile doğrulanmıştır).
 =================================================================

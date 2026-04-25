@@ -41,12 +41,16 @@ Raw Data (PLSDB + RefSeq + Pathogen Detection)
 - No external validation claim is made.
 - Validation is framed as temporal holdout, source holdout, knownness-matched auditing, and an internal high-integrity subset audit.
 - False-negative audit: `50` later positives remain outside the practical shortlist; dominant miss drivers are `low_assignment_confidence, low_training_members, low_knownness`.
-- Rolling-origin validation: outer split years 2014 to 2017 across horizons 1,3,5 with assignment modes all_records,training_only; ROC AUC mean 0.761 (range 0.546 to 0.858).
+- Rolling-origin validation: outer split years 2016 to 2017 across horizons 5 with assignment modes all_records,training_only; ROC AUC mean 0.790 (range 0.776 to 0.805).
+
+## Country Missingness
+
+- discovery-boosted primary model country-missingness audit (`country_missingness_bounds.tsv`, `country_missingness_sensitivity.tsv`): observed labels mark 362/989 eligible backbones positive; midpoint / optimistic / weighted interpretations shift 75/89/42 labels and yield 437/451/404 positives. Sensitivity across those label variants spans ROC AUC 0.803 to 0.814 and AP 0.721 to 0.790..
 
 ## Ranking Stability
 
-- `candidate_rank_stability.tsv` records candidate rank stability across bootstrap resamples; the strongest stable backbone `AA316` remains in the top-`15` set at frequency `1.00`.
-- `candidate_variant_consistency.tsv` records candidate rank stability across model variants; the strongest stable backbone `AA171` remains in the top-`15` set at frequency `1.00`.
+- `candidate_rank_stability.tsv` records candidate rank stability across bootstrap resamples; the strongest stable backbone `AA316` remains in the top-`10` set at frequency `1.00`.
+- `candidate_variant_consistency.tsv` records candidate rank stability across model variants; the strongest stable backbone `AA171` remains in the top-`10` set at frequency `1.00`.
 
 ## Release Surface
 

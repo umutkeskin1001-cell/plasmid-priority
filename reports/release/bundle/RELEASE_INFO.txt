@@ -1,10 +1,13 @@
 Plasmid Priority Release Bundle
 Version: 0.3.0
-Generated on: 2026-04-21
-Primary model: sovereign_precision_priority
-Single-model decision status: fail
-Single-model decision reason: lowest_failure_severity_with_competitive_auc
-ROC AUC: 0.8283 [0.8012–0.8536]
-AP: 0.7657 [0.7249–0.8037]
-Selection-adjusted permutation p = 0.020 (n=NA)
-Fixed-score permutation p NA (n=NA)
+Generated on: 2026-04-26
+Primary model: discovery_boosted
+Single-model decision status: not_scored
+Single-model decision reason: best_available_weighted_tradeoff_pending_full_acceptance
+ROC AUC: 0.8106 [0.7804–0.8389]
+AP: 0.7212 [0.6754–0.7684]
+Selection-adjusted permutation p = 0.091 (n=10)
+Fixed-score permutation p = 0.005 (n=200)
+Official model family status: pass
+Official decision surface: conservative_evidence_consensus
+Official candidate decisions: 16 total; 15 review_not_rank

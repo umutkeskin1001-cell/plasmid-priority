@@ -186,6 +186,14 @@ class WorkflowTests(unittest.TestCase):
         names = [step.name for step in steps]
         self.assertEqual(names, ["24_build_reports", "25_export_tubitak_summary"])
 
+    def test_all_workflow_step_scripts_exist(self) -> None:
+        missing = [
+            step.name
+            for step in run_workflow_script.STEP_LIBRARY.values()
+            if not (PROJECT_ROOT / "scripts" / step.script).exists()
+        ]
+        self.assertEqual(missing, [])
+
     def test_demo_pipeline_does_not_enforce_full_report_boundary(self) -> None:
         report_step = run_workflow_script.STEP_LIBRARY["24_build_reports"]
         check_step = run_workflow_script.STEP_LIBRARY["01_check_inputs"]

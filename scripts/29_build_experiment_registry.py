@@ -30,6 +30,20 @@ LEGACY_EXPERIMENT_FILENAMES = (
     "tmp_model_search.tsv",
 )
 
+REGISTRY_COLUMNS = (
+    "artifact_name",
+    "relative_path",
+    "suffix",
+    "size_bytes",
+    "modified_utc",
+    "sha256",
+    "protocol_hash",
+    "data_hash",
+    "model_surface_hash",
+    "git_commit_short",
+    "experiment_id",
+)
+
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -144,11 +158,11 @@ def main() -> int:
     with ManagedScriptRun(context, "29_build_experiment_registry") as run:
         moved = _move_legacy_experiment_outputs(context.root, experiments_dir)
         rows = _registry_rows(experiments_dir, context.root)
-        registry = (
-            pd.DataFrame(rows)
-            .sort_values(["artifact_name", "relative_path"])
-            .reset_index(drop=True)
-        )
+        registry = pd.DataFrame(rows, columns=REGISTRY_COLUMNS)
+        if not registry.empty:
+            registry = registry.sort_values(["artifact_name", "relative_path"]).reset_index(
+                drop=True
+            )
         registry.to_csv(registry_path, sep="\t", index=False)
         atomic_write_json(
             registry_json_path,

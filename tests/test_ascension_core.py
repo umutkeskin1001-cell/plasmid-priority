@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
+from unittest import mock
 
 import pandas as pd
 import pytest
@@ -577,3 +579,36 @@ def test_official_artifact_script_prepares_existing_candidate_portfolio_columns(
     assert _float_cell(prepared, 0, "A_eff_norm") == 0.88
     assert prepared.loc[0, "evidence_tier"] == "high"
     assert prepared.loc[0, "uncertainty_tier"] == "low"
+
+
+def test_official_artifact_script_writes_workflow_summary(tmp_path: Path) -> None:
+    input_path = tmp_path / "candidate_portfolio.tsv"
+    output_dir = tmp_path / "core_tables"
+    pd.DataFrame(
+        {
+            "backbone_id": ["bb_high"],
+            "log1p_member_count_train": [1.0],
+            "log1p_n_countries_train": [1.0],
+            "T_eff_norm": [0.95],
+            "H_obs_specialization_norm": [0.95],
+            "A_eff_norm": [0.95],
+            "evidence_support_index": [0.95],
+            "evidence_tier": ["high"],
+            "uncertainty_tier": ["low"],
+            "knownness_score": [0.90],
+        },
+    ).to_csv(input_path, sep="\t", index=False)
+    data_root = tmp_path / "runtime-data"
+
+    with mock.patch.dict(
+        os.environ,
+        {"PLASMID_PRIORITY_DATA_ROOT": str(data_root)},
+        clear=False,
+    ):
+        exit_code = _official_artifact_script_main()(
+            ["--input", str(input_path), "--output-dir", str(output_dir)],
+        )
+
+    assert exit_code == 0
+    summary_path = data_root / "tmp" / "logs" / "52_build_official_release_artifacts_summary.json"
+    assert summary_path.exists()

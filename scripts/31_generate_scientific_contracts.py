@@ -14,6 +14,7 @@ from plasmid_priority.config import build_context
 from plasmid_priority.evidence import default_claim_levels, derive_claim_level
 from plasmid_priority.governance import build_canonical_metadata
 from plasmid_priority.io.table_io import read_table
+from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.reporting.literature_validation import (
     generate_literature_validation_artifacts,
 )
@@ -416,88 +417,108 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     context = build_context(args.project_root)
-    metadata = build_canonical_metadata(context)
-    try:
-        literature_artifacts = generate_literature_validation_artifacts(
-            args.project_root, top_k=100
-        )
-    except Exception:
-        core_dir = ensure_directory(args.project_root / "reports" / "core_tables")
-        diag_dir = ensure_directory(args.project_root / "reports" / "diagnostic_tables")
-        matrix_path = core_dir / "literature_validation_matrix.tsv"
-        inventory_path = diag_dir / "literature_evidence_inventory.tsv"
-        matrix_path.write_text(
-            "backbone_id\tpriority_index\tpattern\trisk_category\tliterature_match_count\texample_pmids\tclaim_level\n",
-            encoding="utf-8",
-        )
-        inventory_path.write_text("pub_year\tn_records\n", encoding="utf-8")
-        literature_artifacts = {
-            "matrix_path": str(matrix_path),
-            "inventory_path": str(inventory_path),
-            "status": "fallback_empty",
-        }
+    with ManagedScriptRun(context, "31_generate_scientific_contracts") as run:
+        metadata = build_canonical_metadata(context)
+        try:
+            literature_artifacts = generate_literature_validation_artifacts(
+                args.project_root, top_k=100
+            )
+        except Exception:
+            core_dir = ensure_directory(args.project_root / "reports" / "core_tables")
+            diag_dir = ensure_directory(args.project_root / "reports" / "diagnostic_tables")
+            matrix_path = core_dir / "literature_validation_matrix.tsv"
+            inventory_path = diag_dir / "literature_evidence_inventory.tsv"
+            matrix_path.write_text(
+                "backbone_id\tpriority_index\tpattern\trisk_category\tliterature_match_count\texample_pmids\tclaim_level\n",
+                encoding="utf-8",
+            )
+            inventory_path.write_text("pub_year\tn_records\n", encoding="utf-8")
+            literature_artifacts = {
+                "matrix_path": str(matrix_path),
+                "inventory_path": str(inventory_path),
+                "status": "fallback_empty",
+            }
 
-    _write(
-        args.project_root / "docs" / "benchmark_contract.md",
-        _render_benchmark_contract(metadata),
-    )
-    _write(
-        args.project_root / "docs" / "scientific_protocol.md",
-        _render_scientific_protocol(metadata),
-    )
-    _write(args.project_root / "docs" / "model_card.md", _render_model_card(metadata))
-    _write(args.project_root / "docs" / "data_card.md", _render_data_card(metadata))
-    _write(
-        args.project_root / "docs" / "label_card_bundle.md",
-        _render_label_card_bundle(metadata),
-    )
-    _write(
-        args.project_root / "docs" / "reproducibility_manifest.json",
-        json.dumps(
-            {
-                **_build_reproducibility_manifest(metadata),
-                "validation_matrix": {
-                    "temporal_holdout": "reports/diagnostic_tables/rolling_temporal_validation.tsv",
-                    "source_holdout": "reports/core_tables/blocked_holdout_summary.tsv",
-                    "country_holdout": "reports/core_tables/spatial_holdout_summary.tsv",
-                    "calibration": "data/analysis/calibration_metrics.tsv",
-                    "negative_control": "reports/diagnostic_tables/negative_control_audit.tsv",
-                    "literature_validation": literature_artifacts.get("matrix_path", ""),
+        _write(
+            args.project_root / "docs" / "benchmark_contract.md",
+            _render_benchmark_contract(metadata),
+        )
+        _write(
+            args.project_root / "docs" / "scientific_protocol.md",
+            _render_scientific_protocol(metadata),
+        )
+        _write(args.project_root / "docs" / "model_card.md", _render_model_card(metadata))
+        _write(args.project_root / "docs" / "data_card.md", _render_data_card(metadata))
+        _write(
+            args.project_root / "docs" / "label_card_bundle.md",
+            _render_label_card_bundle(metadata),
+        )
+        _write(
+            args.project_root / "docs" / "reproducibility_manifest.json",
+            json.dumps(
+                {
+                    **_build_reproducibility_manifest(metadata),
+                    "validation_matrix": {
+                        "temporal_holdout": "reports/diagnostic_tables/rolling_temporal_validation.tsv",
+                        "source_holdout": "reports/core_tables/blocked_holdout_summary.tsv",
+                        "country_holdout": "reports/core_tables/spatial_holdout_summary.tsv",
+                        "calibration": "data/analysis/calibration_metrics.tsv",
+                        "negative_control": "reports/diagnostic_tables/negative_control_audit.tsv",
+                        "literature_validation": literature_artifacts.get("matrix_path", ""),
+                    },
                 },
-            },
-            indent=2,
-            sort_keys=True,
-        ),
-    )
-    _write(
-        args.project_root / "reports" / "reviewer_pack" / "README.md",
-        _render_reviewer_pack(metadata),
-    )
-    _write(
-        args.project_root / "reports" / "reviewer_pack" / "canonical_metadata.json",
-        json.dumps(metadata, indent=2, sort_keys=True),
-    )
-    dossiers = _generate_candidate_evidence_dossiers(args.project_root)
-    reproducibility_runner = _write_reproducibility_runner(args.project_root)
-    manifest_path = args.project_root / "docs" / "reproducibility_manifest.json"
-    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if isinstance(manifest_payload, dict):
-        manifest_payload["candidate_evidence_dossiers"] = dossiers
-        manifest_payload["reproducibility_runner"] = reproducibility_runner
-        manifest_payload["artifacts"] = {
-            "model_version": str(metadata.get("protocol_hash", "")),
-            "feature_schema_hash": _optional_sha256(
-                args.project_root / "reports" / "core_tables" / "model_metrics.tsv",
+                indent=2,
+                sort_keys=True,
             ),
-            "protocol_hash": str(metadata.get("protocol_hash", "")),
-            "training_data_hash": _optional_sha256(
-                args.project_root / "data" / "scores" / "backbone_scored.tsv",
-            ),
-            "calibration_artifact_hash": _optional_sha256(
-                args.project_root / "data" / "analysis" / "calibration_metrics.tsv",
-            ),
-        }
-        _write(manifest_path, json.dumps(manifest_payload, indent=2, sort_keys=True))
+        )
+        _write(
+            args.project_root / "reports" / "reviewer_pack" / "README.md",
+            _render_reviewer_pack(metadata),
+        )
+        _write(
+            args.project_root / "reports" / "reviewer_pack" / "canonical_metadata.json",
+            json.dumps(metadata, indent=2, sort_keys=True),
+        )
+        dossiers = _generate_candidate_evidence_dossiers(args.project_root)
+        reproducibility_runner = _write_reproducibility_runner(args.project_root)
+        manifest_path = args.project_root / "docs" / "reproducibility_manifest.json"
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if isinstance(manifest_payload, dict):
+            manifest_payload["candidate_evidence_dossiers"] = dossiers
+            manifest_payload["reproducibility_runner"] = reproducibility_runner
+            manifest_payload["artifacts"] = {
+                "model_version": str(metadata.get("protocol_hash", "")),
+                "feature_schema_hash": _optional_sha256(
+                    args.project_root / "reports" / "core_tables" / "model_metrics.tsv",
+                ),
+                "protocol_hash": str(metadata.get("protocol_hash", "")),
+                "training_data_hash": _optional_sha256(
+                    args.project_root / "data" / "scores" / "backbone_scored.tsv",
+                ),
+                "calibration_artifact_hash": _optional_sha256(
+                    args.project_root / "data" / "analysis" / "calibration_metrics.tsv",
+                ),
+            }
+            _write(manifest_path, json.dumps(manifest_payload, indent=2, sort_keys=True))
+        for relative_path in [
+            "docs/benchmark_contract.md",
+            "docs/scientific_protocol.md",
+            "docs/model_card.md",
+            "docs/data_card.md",
+            "docs/label_card_bundle.md",
+            "docs/reproducibility_manifest.json",
+            "reports/reviewer_pack/README.md",
+            "reports/reviewer_pack/canonical_metadata.json",
+            *dossiers,
+            reproducibility_runner,
+        ]:
+            run.record_output(args.project_root / relative_path)
+        for artifact_key in ("matrix_path", "inventory_path"):
+            artifact_path = literature_artifacts.get(artifact_key)
+            if artifact_path:
+                run.record_output(Path(str(artifact_path)))
+        run.set_metric("candidate_dossier_count", len(dossiers))
+        run.set_metric("literature_validation_status", literature_artifacts.get("status", "ok"))
     return 0
 
 

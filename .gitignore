@@ -22,6 +22,7 @@ htmlcov/
 .ruff_cache/
 .ipynb_checkpoints/
 pip-wheel-metadata/
+.uv_cache/
 docs/
 !docs/
 docs/*
@@ -89,6 +90,7 @@ data/*/
 # Ama bu klasörler içindeki büyük geçici dosyalar (varsa) yine de gitmesin
 reports/**/*.log
 reports/**/*.tmp
+reports/**/*.cache_key
 reports/.cache/
 
 # Jürinin okuyacağı markdown ve küçük tabloları açalım

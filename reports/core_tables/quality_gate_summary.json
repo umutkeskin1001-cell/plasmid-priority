@@ -1,0 +1,115 @@
+{
+  "data_assets": [
+    {
+      "asset_key": "plsdb_sequences_fasta",
+      "message": "verified",
+      "path": "/Users/umut/Projeler/plasmid-priority/data/raw/plsdb_sequences.fasta",
+      "sha256": "e654c106d8a15a2d5d55a8b680087377cb84e654e63d41bca181fc69a23e587a",
+      "size_bytes": 7425668755,
+      "status": "ok"
+    },
+    {
+      "asset_key": "refseq_plasmids_fasta",
+      "message": "verified",
+      "path": "/Users/umut/Projeler/plasmid-priority/data/raw/refseq_plasmids.fasta",
+      "sha256": "f25b59541947568201acaa895256d61bf6f705fb010240e046ae9cb998c87bae",
+      "size_bytes": 10562636529,
+      "status": "ok"
+    },
+    {
+      "asset_key": "assembly_summary_refseq",
+      "message": "verified",
+      "path": "/Users/umut/Projeler/plasmid-priority/data/raw/assembly_summary_refseq.txt",
+      "sha256": "efe199629e10338af02a78c42cb4e83f2fa5c4284108db983c28f1102c9193c0",
+      "size_bytes": 225872454,
+      "status": "ok"
+    },
+    {
+      "asset_key": "biosample_csv",
+      "message": "verified",
+      "path": "/Users/umut/Projeler/plasmid-priority/data/raw/biosample.csv",
+      "sha256": "3ef01dfc2d3d4d00be74982d6ab4d9b3bedf6519199c3c27f2f3fe68c59d890b",
+      "size_bytes": 11700408,
+      "status": "ok"
+    },
+    {
+      "asset_key": "amr_tsv",
+      "message": "verified",
+      "path": "/Users/umut/Projeler/plasmid-priority/data/raw/amr.tsv",
+      "sha256": "dea80560f0b6305b425f870437f2e8cd5adda577952500159196b9593a19a841",
+      "size_bytes": 37967165,
+      "status": "ok"
+    },
+    {
+      "asset_key": "plsdb_metadata_tsv",
+      "message": "verified",
+      "path": "/Users/umut/Projeler/plasmid-priority/data/raw/plsdb_metadata.tsv",
+      "sha256": "1c599c9a900b4b0b2a81ebc748c73729b0ed38fc551a13e3b624cd97038a3764",
+      "size_bytes": 16833553,
+      "status": "ok"
+    },
+    {
+      "asset_key": "who_mia_pdf",
+      "message": "verified",
+      "path": "/Users/umut/Projeler/plasmid-priority/data/raw/who-mia-list-2024.pdf",
+      "sha256": "3b81e2301ba7f0350e423194e3cc8a62504ad6b4c0157426e8af1640a417f6e8",
+      "size_bytes": 497863,
+      "status": "ok"
+    },
+    {
+      "asset_key": "plsdb_mashdb_sim_tsv",
+      "message": "verified",
+      "path": "/Users/umut/Projeler/plasmid-priority/data/raw/plsdb_mashdb_sim.tsv",
+      "sha256": "e5aba1955e25d730bf4957e66dd8f281ef006e5fa9f05c30e7f19c136457d3e0",
+      "size_bytes": 13731287,
+      "status": "ok"
+    }
+  ],
+  "gates": {
+    "calibration_intercept": {
+      "pass": false,
+      "threshold": [
+        -0.1,
+        0.1
+      ],
+      "value": -0.5282352927172506
+    },
+    "calibration_slope": {
+      "pass": true,
+      "threshold": [
+        0.85,
+        1.15
+      ],
+      "value": 1.0279568167444229
+    },
+    "ece": {
+      "pass": false,
+      "threshold": 0.05,
+      "value": 0.091811203710963
+    },
+    "matched_knownness_gap": {
+      "pass": false,
+      "threshold": -0.005,
+      "value": -0.0582875591969959
+    },
+    "selection_adjusted_p": {
+      "pass": false,
+      "threshold": 0.01,
+      "value": 0.0909090909090909
+    },
+    "source_holdout_gap": {
+      "pass": false,
+      "threshold": -0.005,
+      "value": -0.2983130560348336
+    },
+    "spatial_holdout_gap": {
+      "pass": false,
+      "threshold": -0.03,
+      "value": -0.1009685071274325
+    }
+  },
+  "model_name": "discovery_boosted",
+  "overall_pass": false,
+  "protocol_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",
+  "timestamp": "2026-04-25T21:30:41+00:00"
+}

@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from plasmid_priority.config import build_context
+from plasmid_priority.reporting import ManagedScriptRun
 from plasmid_priority.utils.files import atomic_write_json, ensure_directory
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -198,29 +200,44 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    rows = _read_history(args.history)
-    output_dir = ensure_directory(args.output_dir)
-    modes = ["smoke-local", "dev-refresh", "model-refresh", "report-refresh", "release-full"]
-    summaries = [_mode_summary(rows, mode=mode) for mode in modes]
-    dashboard_json = {
-        "history_path": str(args.history.resolve()),
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "summaries": summaries,
-    }
-    atomic_write_json(output_dir / "workflow_performance_dashboard.json", dashboard_json)
-    (output_dir / "workflow_performance_dashboard.md").write_text(
-        _render_markdown(summaries),
-        encoding="utf-8",
-    )
-    (output_dir / "workflow_performance_dashboard.html").write_text(
-        _render_html(summaries),
-        encoding="utf-8",
-    )
-    tex_path = output_dir / "workflow_performance_dashboard.tex"
-    tex_path.write_text(_render_latex(summaries), encoding="utf-8")
-    if args.render_pdf:
-        _compile_pdf(tex_path)
-    print(f"Wrote performance dashboard to: {output_dir}")
+    context = build_context(PROJECT_ROOT)
+    with ManagedScriptRun(context, "41_build_performance_dashboard") as run:
+        if args.history.exists():
+            run.record_input(args.history)
+        rows = _read_history(args.history)
+        output_dir = ensure_directory(args.output_dir)
+        json_path = output_dir / "workflow_performance_dashboard.json"
+        md_path = output_dir / "workflow_performance_dashboard.md"
+        html_path = output_dir / "workflow_performance_dashboard.html"
+        tex_path = output_dir / "workflow_performance_dashboard.tex"
+        for path in (json_path, md_path, html_path, tex_path):
+            run.record_output(path)
+        modes = ["smoke-local", "dev-refresh", "model-refresh", "report-refresh", "release-full"]
+        summaries = [_mode_summary(rows, mode=mode) for mode in modes]
+        dashboard_json = {
+            "history_path": str(args.history.resolve()),
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "summaries": summaries,
+        }
+        atomic_write_json(json_path, dashboard_json)
+        md_path.write_text(
+            _render_markdown(summaries),
+            encoding="utf-8",
+        )
+        html_path.write_text(
+            _render_html(summaries),
+            encoding="utf-8",
+        )
+        tex_path.write_text(_render_latex(summaries), encoding="utf-8")
+        if args.render_pdf:
+            pdf_path = _compile_pdf(tex_path)
+            if pdf_path is not None:
+                run.record_output(pdf_path)
+        run.set_metric("history_rows", len(rows))
+        run.set_metric("mode_count", len(modes))
+        if not rows:
+            run.note("Workflow history is empty; dashboard rendered with zero-run summaries.")
+        print(f"Wrote performance dashboard to: {output_dir}")
     return 0
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -341,6 +342,7 @@ def main() -> int:
             destination = bundle_dir / relpath
             ensure_directory(destination.parent)
             shutil.copy2(source, destination)
+            os.utime(destination, None)
             stat = source.stat()
             manifest_rows.append(
                 {

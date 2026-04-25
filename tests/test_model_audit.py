@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -40,6 +41,7 @@ from plasmid_priority.reporting import (
     build_priority_bootstrap_stability_table,
     build_score_distribution_diagnostics,
     build_selection_adjusted_permutation_null,
+    build_single_model_finalist_audit,
     build_single_model_official_decision,
     build_single_model_pareto_finalists,
     build_sleeper_threat_table,
@@ -55,6 +57,78 @@ from plasmid_priority.validation import decision_utility_summary
 
 
 class ModelAuditTests(unittest.TestCase):
+    def test_build_single_model_finalist_audit_backfills_missing_calibration_columns(
+        self,
+    ) -> None:
+        scored = pd.DataFrame({"backbone_id": ["bb_1"], "spread_label": [1]})
+        finalists = pd.DataFrame(
+            [
+                {
+                    "model_name": "candidate_a",
+                    "parent_model_name": "candidate_a",
+                    "feature_set": ("f1",),
+                    "feature_count": 1,
+                    "candidate_kind": "parent",
+                }
+            ]
+        )
+        heavy = pd.DataFrame(
+            [
+                {
+                    "model_name": "candidate_a",
+                    "knownness_matched_gap": -0.01,
+                    "source_holdout_gap": -0.02,
+                    "spatial_holdout_gap": -0.01,
+                    "ece": 0.03,
+                    "roc_auc": 0.81,
+                    "average_precision": 0.72,
+                }
+            ]
+        )
+        selection_adjusted_summary = pd.DataFrame(
+            [
+                {
+                    "model_name": "candidate_a",
+                    "selection_adjusted_empirical_p_roc_auc": 0.01,
+                    "n_permutations": 10,
+                }
+            ]
+        )
+
+        with (
+            mock.patch(
+                "plasmid_priority.reporting.model_audit.build_single_model_pareto_screen",
+                return_value=heavy,
+            ),
+            mock.patch(
+                "plasmid_priority.reporting.model_audit.build_single_model_selection_adjusted_permutation_null",
+                return_value=(pd.DataFrame(), selection_adjusted_summary),
+            ),
+        ):
+            audit = build_single_model_finalist_audit(
+                scored,
+                finalists,
+                n_splits=2,
+                n_repeats=1,
+                selection_adjusted_n_permutations=10,
+                seed=42,
+            )
+
+        self.assertIn("calibration_slope", audit.columns)
+        self.assertIn("calibration_intercept", audit.columns)
+        row = audit.iloc[0]
+        self.assertTrue(pd.isna(row["calibration_slope"]))
+        self.assertTrue(pd.isna(row["calibration_intercept"]))
+        self.assertEqual(str(row["scientific_acceptance_status"]), "not_scored")
+        self.assertIn(
+            "calibration_intercept",
+            str(row["scientific_acceptance_failed_criteria"]),
+        )
+        self.assertIn(
+            "calibration_slope",
+            str(row["scientific_acceptance_failed_criteria"]),
+        )
+
     def test_build_single_model_pareto_finalists_keeps_pareto_shortlist(self) -> None:
         screen = pd.DataFrame(
             [

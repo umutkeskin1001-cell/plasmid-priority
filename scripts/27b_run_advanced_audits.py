@@ -50,6 +50,37 @@ from plasmid_priority.utils.files import (
 )
 
 
+def _load_metadata_quality_inputs(
+    raw_dir: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Load canonical raw metadata tables for the metadata quality audit."""
+    nuccore = pd.read_csv(
+        raw_dir / "nuccore.csv",
+        usecols=["NUCCORE_UID", "STATUS", "NUCCORE_Completeness"],
+    )
+    assembly = nuccore.rename(columns={"STATUS": "ASSEMBLY_Status"}).copy()
+    assembly["ASSEMBLY_coverage"] = pd.NA
+    assembly["ASSEMBLY_SeqReleaseDate"] = pd.NA
+    assembly = assembly[
+        [
+            "NUCCORE_UID",
+            "ASSEMBLY_Status",
+            "ASSEMBLY_coverage",
+            "ASSEMBLY_SeqReleaseDate",
+            "NUCCORE_Completeness",
+        ]
+    ]
+    biosample = pd.read_csv(
+        raw_dir / "biosample.csv",
+        usecols=["NUCCORE_UID", "BIOSAMPLE_pathogenicity", "DISEASE_tags", "ECOSYSTEM_tags"],
+    )
+    nucc_identical = pd.read_csv(
+        raw_dir / "nucc_identical.csv",
+        usecols=["NUCCORE_ACC", "NUCCORE_Completeness", "NUCCORE_DuplicatedEntry"],
+    )
+    return assembly, biosample, nucc_identical
+
+
 def main() -> int:
     context = build_context(PROJECT_ROOT)
     scored_path = context.data_dir / "scores/backbone_scored.tsv"
@@ -59,12 +90,13 @@ def main() -> int:
     config_paths = context_config_paths(context)
     manifest_path = context.data_dir / "analysis/27_run_advanced_audits.manifest.json"
     raw_dir = context.asset_path("plsdb_meta_tables_dir")
-    assembly_path = raw_dir / "assembly.csv"
+    raw_root = raw_dir.parent
+    nuccore_path = raw_dir / "nuccore.csv"
     biosample_path = raw_dir / "biosample.csv"
     nucc_identical_path = raw_dir / "nucc_identical.csv"
     changes_path = raw_dir / "changes.tsv"
     raw_amr_path = raw_dir / "amr.tsv"
-    mash_pairs_path = raw_dir / "plsdb_mashdb_sim.tsv"
+    mash_pairs_path = raw_root / "plsdb_mashdb_sim.tsv"
 
     knownness_matched_output = context.data_dir / "analysis/knownness_matched_validation.tsv"
     matched_propensity_output = context.data_dir / "analysis/matched_stratum_propensity_audit.tsv"
@@ -95,14 +127,14 @@ def main() -> int:
     ensure_directory(knownness_matched_output.parent)
     source_paths = project_python_source_paths(
         PROJECT_ROOT,
-        script_path=PROJECT_ROOT / "scripts/27_run_advanced_audits.py",
+        script_path=Path(__file__).resolve(),
     )
     input_paths = [
         scored_path,
         backbones_path,
         predictions_path,
         adaptive_predictions_path,
-        assembly_path,
+        nuccore_path,
         biosample_path,
         nucc_identical_path,
         changes_path,
@@ -125,7 +157,7 @@ def main() -> int:
             backbones_path,
             predictions_path,
             adaptive_predictions_path,
-            assembly_path,
+            nuccore_path,
             biosample_path,
             nucc_identical_path,
             changes_path,
@@ -310,23 +342,7 @@ def main() -> int:
         nonlinear = build_nonlinear_deconfounding_audit(scored)
         nonlinear.to_csv(nonlinear_output, sep="\t", index=False)
 
-        assembly = pd.read_csv(
-            assembly_path,
-            usecols=[
-                "NUCCORE_UID",
-                "ASSEMBLY_Status",
-                "ASSEMBLY_coverage",
-                "ASSEMBLY_SeqReleaseDate",
-            ],
-        )
-        biosample = pd.read_csv(
-            biosample_path,
-            usecols=["NUCCORE_UID", "BIOSAMPLE_pathogenicity", "DISEASE_tags", "ECOSYSTEM_tags"],
-        )
-        nucc_identical = pd.read_csv(
-            nucc_identical_path,
-            usecols=["NUCCORE_ACC", "NUCCORE_Completeness", "NUCCORE_DuplicatedEntry"],
-        )
+        assembly, biosample, nucc_identical = _load_metadata_quality_inputs(raw_dir)
         metadata_quality = build_metadata_quality_table(
             backbones,
             scored,
@@ -350,7 +366,11 @@ def main() -> int:
             index=False,
         )
 
-        changes = read_tsv(changes_path, usecols=["NUCCORE_ACC", "Flag", "Comment"])
+        if changes_path.exists():
+            changes = read_tsv(changes_path, usecols=["NUCCORE_ACC", "Flag", "Comment"])
+        else:
+            changes = pd.DataFrame(columns=["NUCCORE_ACC", "Flag", "Comment"])
+            run.note("changes.tsv missing; duplicate change flags default to absent.")
         duplicate_quality = build_duplicate_completeness_change_audit(
             backbones,
             nucc_identical,

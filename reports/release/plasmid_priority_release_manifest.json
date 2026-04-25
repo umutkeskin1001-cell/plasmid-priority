@@ -3,98 +3,118 @@
   "files": [
     {
       "relative_path": "reports/executive_summary.md",
-      "sha256": "1df3d30de806d327bf9beb1ccf381ce344ed642fde2e68d842e1fee401200721",
-      "size_bytes": 4459
+      "sha256": "4f6262db17207b8bd8c82da67a71905224020c435615c4a3998cccab9fa4f21c",
+      "size_bytes": 4564
     },
     {
       "relative_path": "reports/headline_validation_summary.md",
-      "sha256": "5cd8c571232b4dcb3216ee9d49ea2815a2100471d2aab91c8b52ef70a1a19c68",
-      "size_bytes": 4939
+      "sha256": "8cf68a5ea7865af83fb084c6cbd0c6cddfbd5bf4c3b33025a8a6111b31fdc64f",
+      "size_bytes": 5128
     },
     {
       "relative_path": "reports/jury_brief.md",
-      "sha256": "cc09c54f5da260370311fd9bb2d62b5e131ac1eea6d5a1304cf785e5b98cb7a5",
-      "size_bytes": 8292
+      "sha256": "ce2c60535c2a359250539a75e7324e447a7d7617061bfbf4854974cf3dd8bd1e",
+      "size_bytes": 8524
     },
     {
       "relative_path": "reports/ozet_tr.md",
-      "sha256": "3d8c681762f53d655ca206c38eb67ab26a0bfd14a27a8427d2cf917f0a88f751",
-      "size_bytes": 7182
+      "sha256": "47d717e498f18ec8de12217410d0009f2400a30eb152a482bd2079220f54fb5c",
+      "size_bytes": 7288
     },
     {
       "relative_path": "reports/pitch_notes.md",
-      "sha256": "d225ef1c34974ae44922f057faa58b92cbb8ff677e7b6705a34bb1d55a3b0256",
-      "size_bytes": 1570
+      "sha256": "d081f9c51ed420d54c7e6c4976d6d58706aff97271297056a9f1e9976e7e85d1",
+      "size_bytes": 1614
     },
     {
       "relative_path": "reports/tubitak_final_metrics.txt",
-      "sha256": "0d2466346ded6795b61ffbbbf947e3b0d9779f683ea7fbebeb65c464de4fd129",
-      "size_bytes": 911
+      "sha256": "5df1eac08a5f6a0edfa01ae6a942d815b987e08fcc414aabd3d845143fdc4af7",
+      "size_bytes": 1568
     },
     {
       "relative_path": "reports/core_tables/headline_validation_summary.tsv",
-      "sha256": "727881c05a900bcdc7c915b8d46b043f2820552b53834c555e41715abf0060c5",
-      "size_bytes": 1650
+      "sha256": "7bd695127f9e2a6760cbeceb32bbf6debf7e7121b7c28ed84cea48ec85b1a2cf",
+      "size_bytes": 1760
     },
     {
       "relative_path": "reports/core_tables/model_metrics.tsv",
-      "sha256": "1f268fb9face6f64f0c7e1d841edacbc8252c4f6e7987972a23a520ff94d1b7d",
-      "size_bytes": 47252
+      "sha256": "ad8c314e65d23e7076d97a3da1d70260ed979f1ef932b239ed525f40e5eb9681",
+      "size_bytes": 14779
     },
     {
       "relative_path": "reports/core_tables/model_selection_summary.tsv",
-      "sha256": "ca1279408897b786b78ece412c86b37219071b7b15ab0cfcf312dd88934f0bf0",
-      "size_bytes": 8694
+      "sha256": "e10ec98c26ffc969743a853381a4b213a7e6f5ec0fa6fb56faa553e4b78a31a0",
+      "size_bytes": 9356
     },
     {
       "relative_path": "reports/core_tables/model_selection_scorecard.tsv",
-      "sha256": "a8d3e869a813677d800bedcb7007ed96cd0c154b1e241ef2ffd0bedee18b0336",
-      "size_bytes": 32201
+      "sha256": "28ea0d76640d9cb59b78056b572cb173cc7df9698b3b57b906bc52927b34e531",
+      "size_bytes": 9866
     },
     {
       "relative_path": "reports/core_tables/single_model_official_decision.tsv",
-      "sha256": "b8cb0da30f2a6e40414d80b79aabbb7dbdab03f3843a9ea87b82c5fd4b7c09c8",
-      "size_bytes": 450
+      "sha256": "367fbcdbae58f9819f3aaee969c2db923c5d48794b4d9badde327a25e45ccaac",
+      "size_bytes": 501
+    },
+    {
+      "relative_path": "reports/core_tables/official_model_scores.tsv",
+      "sha256": "4854f958b0939dc0f1bf2e3d1160ee5aa8f2b9e53835413fe3aba891fca2d53a",
+      "size_bytes": 2778
+    },
+    {
+      "relative_path": "reports/core_tables/official_model_scorecard.tsv",
+      "sha256": "2222c3fa20d37f5d1441a0a8239ea2ffd35723ed148916078ae21130dcd444c0",
+      "size_bytes": 1034
+    },
+    {
+      "relative_path": "reports/core_tables/official_candidate_decisions.tsv",
+      "sha256": "a0552960626ffac879cc7c64fb83c4069941821076f09d9b98e53048e8c023ea",
+      "size_bytes": 3234
+    },
+    {
+      "relative_path": "reports/core_tables/official_model_summary.json",
+      "sha256": "572faabaad1a8377c8b90f98a1dd671fa352c2af85c6f5b34141a473eafc00a4",
+      "size_bytes": 416
     },
     {
       "relative_path": "reports/diagnostic_tables/single_model_pareto_screen.tsv",
-      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
-      "size_bytes": 1
+      "sha256": "1fad7f32d8fe5ca2dd20bad3ba391b8ff153f56e4642b7187fdeb1e0323ad0d0",
+      "size_bytes": 14071
     },
     {
       "relative_path": "reports/diagnostic_tables/single_model_pareto_finalists.tsv",
-      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
-      "size_bytes": 1
+      "sha256": "8ebae89a1f60458ac62980602f37a8f29945dc44bad8df225411d5adf81f3fd8",
+      "size_bytes": 5507
     },
     {
       "relative_path": "reports/core_tables/candidate_portfolio.tsv",
-      "sha256": "e42b778ed52b278d0691fac8bc93e59a22068c74548aae7cd4cdf93b571708e9",
-      "size_bytes": 31054
+      "sha256": "9ecaf0771d4df85e92df813940906fb987f923e14eda41763d4f303dc3afd629",
+      "size_bytes": 29027
     },
     {
       "relative_path": "reports/core_tables/candidate_evidence_matrix.tsv",
-      "sha256": "c1a5591e9a85969c8b5331c659e6a3c49ae854488784115b9615b1c167802d92",
-      "size_bytes": 15921
+      "sha256": "a25a42b8549f773217642f9ccc5d2d33a4b50329bb201ec4f7ecf840025f8e7f",
+      "size_bytes": 14802
     },
     {
       "relative_path": "reports/core_tables/consensus_shortlist.tsv",
-      "sha256": "e88f01f2b67e45e5e23a3cf62014089ce98553317e31f01aeb5dba51cd25cb7a",
-      "size_bytes": 4626
+      "sha256": "4f6383615fc5bbd4af6781007bae22739e3ae9cc0d373f38bb754c3426ce55a0",
+      "size_bytes": 4334
     },
     {
       "relative_path": "reports/core_figures/roc_curve.png",
-      "sha256": "e71ce3442f82d5564fda2742506691560fae6e48d71b669449281269f93261d5",
-      "size_bytes": 143839
+      "sha256": "668fef9fc5ca340ad1c36a90b6037f406b64cc9545c570230ffc3a9a6150575b",
+      "size_bytes": 126731
     },
     {
       "relative_path": "reports/core_figures/pr_curve.png",
-      "sha256": "8010f6c67f8e4edf681d5b227e4309d2c53072e76c9208902a98078aab459550",
-      "size_bytes": 190507
+      "sha256": "f1fcec53dbf0d703a2dff145e50eaa4956fedf0eec6f8ebbbae77ece43dd551f",
+      "size_bytes": 153418
     },
     {
       "relative_path": "reports/core_figures/score_distribution.png",
-      "sha256": "8d70e06994f737c2961ab1febb3e9e90d0bf92055edbe17bf2b389e1ad8dcecd",
-      "size_bytes": 204375
+      "sha256": "201906c785aae203dde4c7f8a73732412a0c511a6e7204b8c1392c56d817df2e",
+      "size_bytes": 202201
     },
     {
       "relative_path": "reports/core_figures/temporal_design.png",
@@ -103,8 +123,8 @@
     },
     {
       "relative_path": "reports/core_figures/knownness_vs_oof_score_scatter.png",
-      "sha256": "510aab7474383def6e3168482fd9eede93412e8e6cadf20341d1dc76b416a4e2",
-      "size_bytes": 264515
+      "sha256": "1fc847c7d64a98ff0f88336f8436cdc0b072c1bb4e684b21f2abffd4ca95b61a",
+      "size_bytes": 226715
     },
     {
       "relative_path": "docs/model_card.md",
@@ -113,12 +133,12 @@
     },
     {
       "relative_path": "docs/data_card.md",
-      "sha256": "2d35d5f66accfcdef67aa090356921e8bed3cb4fbdff0bde5a8778587019e490",
+      "sha256": "d70f037cadf9e19b93ed77525365077ce790dad5b1743b940ee871fd6ec121e8",
       "size_bytes": 1838
     },
     {
       "relative_path": "docs/benchmark_contract.md",
-      "sha256": "e81db58ba46ace22ae7d6945bee48fbec9999e0ed748874e21929b77f0a2e306",
+      "sha256": "fa5970dc5b51a1ccb60d7146ec8692ebc174f804ec1de4d4b8ebcdc89ca0ca3a",
       "size_bytes": 2211
     },
     {
@@ -133,17 +153,17 @@
     },
     {
       "relative_path": "docs/reproducibility_manifest.json",
-      "sha256": "a4cda8f9b64f266098ff6fdab67733e9fd8cadd12e05d8fd6d4a2de16a184751",
-      "size_bytes": 3548
+      "sha256": "02aa7e7daa70a041903e3ad4861b0ac7e1098e24aaf44e1972b4b1a2c51cbe5d",
+      "size_bytes": 3350
     },
     {
       "relative_path": "reports/reviewer_pack/README.md",
-      "sha256": "fc72074a2d4f76a8fa83590bac5cbcbd38b8fc42148935172c308c3480fb690f",
+      "sha256": "f822f847e9f87bcdec08deb019a5a0ffbafcba19d96123e602f551a73388044c",
       "size_bytes": 662
     },
     {
       "relative_path": "reports/reviewer_pack/canonical_metadata.json",
-      "sha256": "32cf6739ffab3e2bb0466c0799130240584daff9ffc2fc90608003c4290a45ca",
+      "sha256": "e6ab9a0fe0d6c7e7897f683b91c37312627cc1e9546011f86669469fcca335d4",
       "size_bytes": 15891
     },
     {
@@ -153,128 +173,113 @@
     },
     {
       "relative_path": "reports/performance/workflow_performance_dashboard.json",
-      "sha256": "523e4e308330449dd0e78799901ba03baa72574b6d2014776fbbc081ddde01b2",
+      "sha256": "1eb29691d5a7d0665c4cc7b251ad0642284d460f95755dc44ded85e27a3f8274",
       "size_bytes": 481
     },
     {
       "relative_path": "reports/performance/workflow_performance_dashboard.md",
-      "sha256": "c10f0e8a8e2b1a17af620fc43bc1d3dc8ac58e1e979934741e3a576cee3dc05d",
+      "sha256": "7119f1e139e85b9d9547811d42ef171156804a9d0c6ebe8f2632f79613d04131",
       "size_bytes": 403
     },
     {
       "relative_path": "reports/release/release_readiness_report.json",
-      "sha256": "834db3b6db4c594f7f8d3d432a256e0dfc1930bbf504ea307f0e5308b82d791b",
-      "size_bytes": 468
+      "sha256": "ddcef148be3a67ad5c5b5b5d8c996558010ab2e6325287640625a033bcc703ba",
+      "size_bytes": 861
     },
     {
       "relative_path": "reports/release/release_readiness_report.md",
-      "sha256": "3d3da98bdfa49dc8f8b06589e556c009274c696bde0edf81edbed5361a2205a3",
-      "size_bytes": 364
+      "sha256": "e9ca3b3a1ba00e811deaefe665856ae4d303a14d996e68c47678d726f4573fd9",
+      "size_bytes": 717
     },
     {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA086.md",
-      "sha256": "ba4134efd1bde759a256f524b0b73189de6cefeb76bbbcc4b8250b38900f7680",
-      "size_bytes": 7984
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA045.md",
+      "sha256": "5877f717efa6b041077c4c5338a591fb94241906bf8c9fa9d425959968a83754",
+      "size_bytes": 8754
     },
     {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA279.md",
-      "sha256": "6dbaf0caa01829f9cc48a90a6908d2950e1c3b7b6fb2e6bb563e000600b5a629",
-      "size_bytes": 7938
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA171.md",
+      "sha256": "64763b292aca72f624327b7232908f217d96e4d2a1586d0ceb0bb7526b39fda9",
+      "size_bytes": 8762
     },
     {
       "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA282.md",
-      "sha256": "5af1f4345610044403b71fa880bfccd6511d7e6a87c78a5d21156defa0b0483e",
-      "size_bytes": 7952
+      "sha256": "d7255b943fe95249ce942a02a957a7c35e9a8e55c54692768e61b44e5fe4df71",
+      "size_bytes": 8934
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA297.md",
+      "sha256": "e0b046d55aadabbd3e6c445190aefc81a40a98ae8cfcae45b350935ac3d36845",
+      "size_bytes": 8745
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA302.md",
+      "sha256": "8423e266d68756e70fb7013775b5171ab2bd4eacbcbcb734fe0b1046428bb278",
+      "size_bytes": 8772
     },
     {
       "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA316.md",
-      "sha256": "dc094d9f52b5e6cc3aeffc3cc3be0b6204f0e45e8732292c23c86166667a87aa",
-      "size_bytes": 7800
-    },
-    {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA319.md",
-      "sha256": "61711a68e00bb31fc6d10ac033ae66e743e269bbdb69b41845991023de82cfca",
-      "size_bytes": 7936
-    },
-    {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA324.md",
-      "sha256": "d97f8be8d70cbab9a7039138dd31c26f9e9d6c8b83e6b6d09a65c28e7e0c170a",
-      "size_bytes": 7925
+      "sha256": "f88cf0c2987430f5dd5aa2b5c9fd3d2a5b73ce3203757ffe1668ba99b19e29e7",
+      "size_bytes": 8765
     },
     {
       "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA331.md",
-      "sha256": "6eef6279a9950b25d37e8e1586930bbba9e99bc0d2ad3c8e2f6ee2ceea146b0b",
-      "size_bytes": 7734
+      "sha256": "d71cc1c5f8ed4104ef6b3905908c0219024ca3282f14d16b1b9399e3d32af73a",
+      "size_bytes": 8791
     },
     {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA409.md",
-      "sha256": "304d69aac8d2c868b8ed30773454425eb2d38a19e082460d462f02aed447999d",
-      "size_bytes": 7984
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA346.md",
+      "sha256": "9c673d7980bc01028128094595d97cc98f33f1ee6536b09d008591a68ee0cb8a",
+      "size_bytes": 8755
     },
     {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA411.md",
-      "sha256": "23a514ad5b6a2afd46e8d1ab74f5c2faecf5792830628fb95977332c2fd75dcd",
-      "size_bytes": 7830
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA349.md",
+      "sha256": "fe7b555543ba8b4aec915d08f3db2268c976bae5be39526ef2ac3f25b572a51e",
+      "size_bytes": 8667
     },
     {
       "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA434.md",
-      "sha256": "d7de6fa13ca8ff8f8975669f807aea25b6238fc264aa6188e431f77d40e3270a",
-      "size_bytes": 7947
-    },
-    {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA514.md",
-      "sha256": "3c56b820fdb36842b97e5e66b686d28881f8d1455947382f9758da738eacd97b",
-      "size_bytes": 7678
+      "sha256": "f8695d576e72629b1d7c3894a3ac97ca3100f246295714ce953cde0cddddc64b",
+      "size_bytes": 8867
     },
     {
       "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA764.md",
-      "sha256": "b3b4b0541d6b55d3cf0f9b8838749ea22f7bf0ae44ffa1766d32bfa9e952723a",
-      "size_bytes": 8055
+      "sha256": "660b818feb44c12a4361bf6710d01db423f2ac759aa7948f5ed51b6565070622",
+      "size_bytes": 8717
     },
     {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AA859.md",
-      "sha256": "6da25d2aef0d9b47b94f1d05459c8b78df6cb028b9097d8e959bc80ea0cb3116",
-      "size_bytes": 7854
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AB039.md",
+      "sha256": "6f48eefc18089df3e4d1257dfa959c3702be126b5d2d29d16792618e068145bb",
+      "size_bytes": 8523
+    },
+    {
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AB267.md",
+      "sha256": "5fe6d2dfb4a5634ae578f5b487a814f117cdf4587dd2da53e09f033aed5fafed",
+      "size_bytes": 8750
     },
     {
       "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AC030.md",
-      "sha256": "eec99ea7296dad28dd5cfed07ca256fd5a774cd570176826616d6f547fb7c396",
-      "size_bytes": 7735
+      "sha256": "429a4ebb5c864a6261c173ccecf3a969f8831079dcedc012eabb72207eeb973f",
+      "size_bytes": 8708
     },
     {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AC202.md",
-      "sha256": "68efeab7874a1c19f20dd55e7f4456e7dc978023773ead8f34edbc89a8a56b3f",
-      "size_bytes": 7709
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AE249.md",
+      "sha256": "3e41ddf6097676304c088c301ba162aa35c121d7adaacaaf14bbfca597d84e7d",
+      "size_bytes": 8686
     },
     {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AC203.md",
-      "sha256": "76dc5d7899c60498c23985c5747608025426dd17c9adfc7513355078a7d53509",
-      "size_bytes": 7724
-    },
-    {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AC301.md",
-      "sha256": "e3af836537e4de64eb930614ef8bdfd7e908a133a9706589a486a2ff8bba667d",
-      "size_bytes": 7832
-    },
-    {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AD100.md",
-      "sha256": "b27721ad5693bd069614b76fdf22534199bc19a102233e44bdeb2d1387755d32",
-      "size_bytes": 7930
-    },
-    {
-      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AE264.md",
-      "sha256": "cf27b2643897fdcd66e6db2510f71b2d4097b3368de4801edb095eca8eea9ff5",
-      "size_bytes": 7902
+      "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/AF809.md",
+      "sha256": "8924efe6bc3250137136ba68e9cdd7fa16817042135124ad79fa065035e8f69a",
+      "size_bytes": 8542
     },
     {
       "relative_path": "reports/reviewer_pack/candidate_evidence_dossiers/index.md",
-      "sha256": "8cf2ce01dabe3ee721ae0c765155679a64874aeab49c51a99b163a91767a160b",
-      "size_bytes": 494
+      "sha256": "00bbedb2b14ecfb70e145267678ec43d1826889b3e5a081d6bac0a9b07a0a69f",
+      "size_bytes": 428
     }
   ],
-  "generated_at_utc": "2026-04-21T17:57:04+00:00",
+  "generated_at_utc": "2026-04-25T21:30:33+00:00",
   "missing_files": [],
-  "n_files": 54,
+  "n_files": 55,
   "project_root": "/Users/umut/Projeler/plasmid-priority",
   "provenance": {
     "benchmark_contract_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",
@@ -322,18 +327,17 @@
       "required_assignment_mode": "training_only",
       "split_year": 2015
     },
-    "git_commit": "f3d5620d137b08fc99285a8cb3e8931e65ba5268",
-    "lockfile_sha256": "1f6bd98219c1d22cc3131013b15640da6b5f289cb1c2710a73a868b6749ebcf4",
+    "git_commit": "6c81c884c4f8719baa0ba532365ca040a55d8845",
+    "lockfile_sha256": "1c7a32425702dbc23ae8868fda2f20d4ca6012c0f92b8644523b5c88c4ea647e",
     "official_model_names": [
-      "discovery_12f_source",
+      "discovery_boosted",
       "parsimonious_priority",
       "baseline_both",
-      "source_only",
-      "phylo_support_fusion_priority"
+      "governance_linear"
     ],
     "project_version": "0.3.0",
     "python_version": "3.13.12",
     "release_info_path": "reports/release/bundle/RELEASE_INFO.txt",
-    "scientific_acceptance_status": "fail"
+    "scientific_acceptance_status": "not_scored"
   }
 }

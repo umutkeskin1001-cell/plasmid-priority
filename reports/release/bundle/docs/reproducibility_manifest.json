@@ -1,33 +1,30 @@
 {
   "artifacts": {
-    "calibration_artifact_hash": "0c1379f19102b3fa6145fc2a8ffbaa481c57166a6f2c0c8864465143d353d90b",
-    "feature_schema_hash": "1f268fb9face6f64f0c7e1d841edacbc8252c4f6e7987972a23a520ff94d1b7d",
+    "calibration_artifact_hash": "bfdb1f3db410f761465c4d923640e98b4ea06271f0f0d908ca1af97e8bac0d33",
+    "feature_schema_hash": "ad8c314e65d23e7076d97a3da1d70260ed979f1ef932b239ed525f40e5eb9681",
     "model_version": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",
     "protocol_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a",
-    "training_data_hash": "fbdb501433e45ee0c81c151001d4154d8ee5085d6e813ba2a9f494460b0e5e97"
+    "training_data_hash": "23f45355e17564e537bca797ee05c726513d9e5a960f66e8be3af8c77d307c7a"
   },
   "benchmarks_hash": "93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201",
   "candidate_evidence_dossiers": [
     "reports/reviewer_pack/candidate_evidence_dossiers/index.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA324.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA411.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA319.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AC301.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA409.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA282.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AD100.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AE249.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA171.md",
     "reports/reviewer_pack/candidate_evidence_dossiers/AA434.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA279.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA086.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA859.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA316.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA764.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AF809.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA297.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AB039.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA282.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA346.md",
     "reports/reviewer_pack/candidate_evidence_dossiers/AA331.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AE264.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AC203.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA764.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA316.md",
     "reports/reviewer_pack/candidate_evidence_dossiers/AC030.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AC202.md",
-    "reports/reviewer_pack/candidate_evidence_dossiers/AA514.md"
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA302.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AB267.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA349.md",
+    "reports/reviewer_pack/candidate_evidence_dossiers/AA045.md"
   ],
   "claim_levels": [
     "observed",
@@ -35,7 +32,7 @@
     "literature_supported",
     "externally_validated"
   ],
-  "config_sha": "4607bb0d0c4752b169f34cbb264f9832c5069aaabe8a93b28f2efb84a0470eee",
+  "config_sha": "a2184360153a06a563a59585d60275581b81c68253427064f75aeec460030efc",
   "data_contract_sha": "da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b",
   "label_cards": [
     {

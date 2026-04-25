@@ -221,7 +221,7 @@ STEP_LIBRARY: dict[str, WorkflowStep] = {
     ),
     "27_run_advanced_audits": WorkflowStep(
         "27_run_advanced_audits",
-        "27_run_advanced_audits.py",
+        "27b_run_advanced_audits.py",
         deps=("21_run_validation",),
     ),
     "24_build_reports": WorkflowStep(

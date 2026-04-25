@@ -5603,6 +5603,9 @@ def build_single_model_finalist_audit(
         "calibration_intercept",
         "selection_adjusted_empirical_p_roc_auc",
     ]
+    for column in required_columns:
+        if column not in heavy.columns:
+            heavy[column] = np.nan
     heavy["scientific_acceptance_scored"] = heavy[required_columns].notna().all(axis=1)
     heavy["scientific_acceptance_flag"] = (
         heavy["scientific_acceptance_scored"]
