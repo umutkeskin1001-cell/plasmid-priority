@@ -77,6 +77,40 @@ def _sensitivity_reporting_incremental(project_root: Path) -> bool:
     return all(path.exists() for path in required)
 
 
+def _canonical_verify_surface_present(project_root: Path) -> bool:
+    required = [
+        project_root / "Makefile",
+        project_root / "Justfile",
+        project_root / "scripts/46_verify_release.py",
+    ]
+    if not all(path.exists() for path in required):
+        return False
+    makefile = (project_root / "Makefile").read_text(encoding="utf-8")
+    justfile = (project_root / "Justfile").read_text(encoding="utf-8")
+    return "verify-release:" in makefile and "verify-release:" in justfile
+
+
+def _runbook_surface_present(project_root: Path) -> bool:
+    required = [
+        project_root / "docs/runbooks/release_verification.md",
+        project_root / "docs/runbooks/quality_scoreboard.md",
+        project_root / "docs/runbooks/scientific_invariants.md",
+        project_root / "docs/runbooks/security.md",
+        project_root / "docs/runbooks/demo_path.md",
+    ]
+    return all(path.exists() for path in required)
+
+
+def _stakeholder_overviews_present(project_root: Path) -> bool:
+    required = [
+        project_root / "docs/scientific_overview.md",
+        project_root / "docs/cto_overview.md",
+        project_root / "docs/investor_overview.md",
+        project_root / "docs/product_strategy.md",
+    ]
+    return all(path.exists() for path in required)
+
+
 def evaluate_release_readiness(project_root: Path) -> dict[str, Any]:
     root = project_root.resolve()
     docs_manifest = _read_json(root / "docs" / "reproducibility_manifest.json")
@@ -92,6 +126,9 @@ def evaluate_release_readiness(project_root: Path) -> dict[str, Any]:
         "api_artifact_backed_non_placeholder": _api_is_artifact_backed(app_source),
         "reviewer_package_one_command": runner_path.exists(),
         "sensitivity_reporting_incremental": _sensitivity_reporting_incremental(root),
+        "canonical_verify_surface_present": _canonical_verify_surface_present(root),
+        "runbook_surface_present": _runbook_surface_present(root),
+        "stakeholder_overviews_present": _stakeholder_overviews_present(root),
         "artifact_integrity": artifact.get("status") == "pass",
     }
     checks.update(_phase5_productization_checks(root, app_source))

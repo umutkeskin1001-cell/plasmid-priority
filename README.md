@@ -164,6 +164,11 @@ To run the same local quality gate used by CI:
 make quality
 ```
 
+To run the canonical release-grade verification gauntlet:
+```bash
+make verify-release
+```
+
 To remove stale generated clutter before a fresh rebuild:
 ```bash
 make clean-generated

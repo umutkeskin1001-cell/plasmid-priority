@@ -79,6 +79,29 @@ def _fallback_score(backbone_id: str) -> dict[str, Any]:
     return {"backbone_id": str(backbone_id), "priority_index": 0.0}
 
 
+def _normalize_score_row(backbone_id: str, row: dict[str, Any]) -> dict[str, object]:
+    try:
+        priority_index = float(row.get("priority_index", 0.0))
+    except (TypeError, ValueError):
+        priority_index = 0.0
+    normalized: dict[str, object] = {
+        "backbone_id": str(backbone_id),
+        "priority_index": priority_index,
+    }
+    for key in (
+        "operational_priority_index",
+        "bio_priority_index",
+        "evidence_support_index",
+    ):
+        if key not in row:
+            continue
+        try:
+            normalized[key] = float(row.get(key, 0.0))
+        except (TypeError, ValueError):
+            normalized[key] = 0.0
+    return normalized
+
+
 def _build_artifact_registry() -> Any | None:
     try:
         from plasmid_priority.api.artifact_registry import ArtifactRegistry
@@ -97,6 +120,13 @@ def _is_artifact_unavailable_error(exc: Exception) -> bool:
     except ImportError:
         return False
     return isinstance(exc, ArtifactUnavailableError)
+
+
+def _require_artifact_registry() -> Any:
+    registry = _build_artifact_registry()
+    if registry is None:
+        raise HTTPException(status_code=503, detail="Artifact registry unavailable")
+    return registry
 
 
 def _extract_api_key(request: Request) -> str:
@@ -210,25 +240,7 @@ class ModelRegistry:
             if row is None:
                 merged_scores.append(_fallback_score(backbone_id))
                 continue
-            try:
-                priority_index = float(row.get("priority_index", 0.0))
-            except (TypeError, ValueError):
-                priority_index = 0.0
-            normalized: dict[str, object] = {
-                "backbone_id": str(backbone_id),
-                "priority_index": priority_index,
-            }
-            for key in (
-                "operational_priority_index",
-                "bio_priority_index",
-                "evidence_support_index",
-            ):
-                if key in row:
-                    try:
-                        normalized[key] = float(row.get(key, 0.0))
-                    except (TypeError, ValueError):
-                        normalized[key] = 0.0
-            merged_scores.append(normalized)
+            merged_scores.append(_normalize_score_row(backbone_id, row))
         return merged_scores
 
 
@@ -273,6 +285,31 @@ def _batch_job(job_id: str) -> dict[str, Any]:
         "status": "completed",
         "result": {"scores": [{"backbone_id": "bb1", "priority_index": 0.7}]},
     }
+
+
+def _artifact_payload(
+    backbone_id: str,
+    *,
+    operation_name: str,
+    missing_detail: str,
+    unavailable_detail: str,
+    failure_detail: str,
+) -> dict[str, Any]:
+    registry = _require_artifact_registry()
+    operation = getattr(registry, operation_name)
+    try:
+        return cast(dict[str, Any], operation(backbone_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=missing_detail) from exc
+    except Exception as exc:
+        if _is_artifact_unavailable_error(exc):
+            raise HTTPException(status_code=503, detail=unavailable_detail) from exc
+        _log.exception(
+            "Unexpected error while running %s for backbone %s",
+            operation_name,
+            backbone_id,
+        )
+        raise HTTPException(status_code=500, detail=failure_detail) from exc
 
 
 class ScoreRequest(BaseModel):
@@ -360,18 +397,13 @@ def explain_backbone(backbone_id: str) -> dict[str, Any]:
     """Return score component explanation for a backbone."""
     if not FASTAPI_AVAILABLE:
         return {"status": "error", "reason": "fastapi_not_installed"}
-    registry = _build_artifact_registry()
-    if registry is None:
-        raise HTTPException(status_code=503, detail="Artifact registry unavailable")
-    try:
-        return cast(dict[str, Any], registry.explain_backbone(backbone_id))
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=f"Backbone not found: {backbone_id}") from exc
-    except Exception as exc:
-        if _is_artifact_unavailable_error(exc):
-            raise HTTPException(status_code=503, detail="Scoring artifacts unavailable") from exc
-        _log.exception("Unexpected error while explaining backbone %s", backbone_id)
-        raise HTTPException(status_code=500, detail="Failed to explain backbone") from exc
+    return _artifact_payload(
+        backbone_id,
+        operation_name="explain_backbone",
+        missing_detail=f"Backbone not found: {backbone_id}",
+        unavailable_detail="Scoring artifacts unavailable",
+        failure_detail="Failed to explain backbone",
+    )
 
 
 @app.get("/evidence/{backbone_id}", dependencies=[Depends(_protect_api_surface)])
@@ -379,15 +411,10 @@ def get_backbone_evidence(backbone_id: str) -> dict[str, Any]:
     """Return evidence payload for a backbone."""
     if not FASTAPI_AVAILABLE:
         return {"status": "error", "reason": "fastapi_not_installed"}
-    registry = _build_artifact_registry()
-    if registry is None:
-        raise HTTPException(status_code=503, detail="Artifact registry unavailable")
-    try:
-        return cast(dict[str, Any], registry.get_evidence(backbone_id))
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=f"Backbone not found: {backbone_id}") from exc
-    except Exception as exc:
-        if _is_artifact_unavailable_error(exc):
-            raise HTTPException(status_code=503, detail="Scoring artifacts unavailable") from exc
-        _log.exception("Unexpected error while fetching evidence for backbone %s", backbone_id)
-        raise HTTPException(status_code=500, detail="Failed to fetch backbone evidence") from exc
+    return _artifact_payload(
+        backbone_id,
+        operation_name="get_evidence",
+        missing_detail=f"Backbone not found: {backbone_id}",
+        unavailable_detail="Scoring artifacts unavailable",
+        failure_detail="Failed to fetch backbone evidence",
+    )

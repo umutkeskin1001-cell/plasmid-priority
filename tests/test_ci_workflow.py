@@ -61,10 +61,11 @@ class CiWorkflowTests(unittest.TestCase):
         workflow_text = CI_WORKFLOW_PATH.read_text(encoding="utf-8")
 
         self.assertIn("critical-path coverage", workflow_text.lower())
-        self.assertIn("tests/test_probabilistic_labels.py", workflow_text)
-        self.assertIn("tests/test_modeling_temporal_cv.py", workflow_text)
-        self.assertIn("python -m coverage run", workflow_text)
-        self.assertIn("src/plasmid_priority/labels/probabilistic.py", workflow_text)
+        self.assertIn("make critical-coverage", workflow_text)
+
+    def test_ci_runs_docs_build(self) -> None:
+        workflow_text = CI_WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("make docs-check", workflow_text)
 
 
 if __name__ == "__main__":

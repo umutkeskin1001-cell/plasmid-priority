@@ -49,6 +49,16 @@ nav:
   - Home: index.md
   - Runbooks:
     - Deployment and rollback: runbooks/deployment.md
+    - Release verification: runbooks/release_verification.md
+    - Quality scoreboard: runbooks/quality_scoreboard.md
+    - Scientific invariants: runbooks/scientific_invariants.md
+    - Security: runbooks/security.md
+    - Demo path: runbooks/demo_path.md
+  - Stakeholder Overviews:
+    - Scientific overview: scientific_overview.md
+    - CTO overview: cto_overview.md
+    - Investor overview: investor_overview.md
+    - Product strategy: product_strategy.md
   - API Reference:
     - exceptions: api/exceptions.md
     - logging_utils: api/logging_utils.md

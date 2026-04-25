@@ -32,6 +32,10 @@ docs/*
 !docs/model_card.md
 !docs/data_card.md
 !docs/disposition_ledger.md
+!docs/scientific_overview.md
+!docs/cto_overview.md
+!docs/investor_overview.md
+!docs/product_strategy.md
 !docs/runbooks/
 !docs/runbooks/**
 docs/superpowers/
@@ -98,6 +102,8 @@ reports/.cache/
 !reports/freeze/baseline_freeze.json
 !reports/freeze/freeze_invariant_evaluation.json
 !reports/freeze/scientific_equivalence.json
+reports/release/release_verification_summary.json
+reports/release/release_verification_summary.md
 
 # Sadece çok büyük veya projeye özel olmayanları yasaklayalım
 reports/diagnostic_tables/

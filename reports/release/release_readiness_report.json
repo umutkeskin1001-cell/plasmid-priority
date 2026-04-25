@@ -4,6 +4,7 @@
     "api_artifact_backed_non_placeholder": true,
     "artifact_integrity": true,
     "async_batch_surface_present": true,
+    "canonical_verify_surface_present": true,
     "claim_levels_complete": true,
     "compute_targets_configured": true,
     "graphql_surface_present": true,
@@ -12,12 +13,14 @@
     "pre_registration_present": true,
     "rag_corpus_config_present": true,
     "reviewer_package_one_command": true,
+    "runbook_surface_present": true,
     "sdk_present": true,
     "sensitivity_reporting_incremental": true,
+    "stakeholder_overviews_present": true,
     "validation_gauntlet_present": true
   },
   "failed_checks": [],
-  "generated_at": "2026-04-25T16:48:25+00:00",
+  "generated_at": "2026-04-25T18:06:20+00:00",
   "scientific_contract_errors": [],
   "status": "pass"
 }

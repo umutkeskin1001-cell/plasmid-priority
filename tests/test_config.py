@@ -15,6 +15,7 @@ from plasmid_priority.config import (
     DATA_ROOT_ENV_VAR,
     ProjectConfig,
     build_context,
+    context_config_paths,
     find_project_root,
     load_data_contract,
     load_project_config,
@@ -45,7 +46,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_load_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
+            root = Path(tmp_dir).resolve()
             (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
             (root / "data/manifests").mkdir(parents=True)
             (root / "data/manifests/data_contract.json").write_text(
@@ -255,6 +256,96 @@ class ConfigTests(unittest.TestCase):
     def test_pipeline_config_rejects_ood_thresholds_outside_unit_interval(self) -> None:
         with self.assertRaisesRegex(ValidationError, "ood_thresholds"):
             ProjectConfig.model_validate({"pipeline": {"ood_thresholds": {"support": 1.5}}})
+
+    def test_pipeline_config_rejects_invalid_split_year(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "split_year"):
+            ProjectConfig.model_validate({"pipeline": {"split_year": 1800}})
+
+    def test_context_config_paths_handles_lightweight_contexts(self) -> None:
+        self.assertEqual(
+            context_config_paths(
+                type("Context", (), {"config_paths": ("config.yaml", "config/extra.yaml")})()
+            ),
+            (Path("config.yaml"), Path("config/extra.yaml")),
+        )
+        self.assertEqual(
+            context_config_paths(type("Context", (), {"root": Path("/tmp/project")})()),
+            (Path("/tmp/project") / "config.yaml",),
+        )
+        self.assertEqual(context_config_paths(object()), tuple())
+
+    def test_pipeline_settings_normalize_invalid_phylo_weights(self) -> None:
+        settings = config_module._pipeline_settings_from_config(
+            {
+                "pipeline": {
+                    "host_phylo_breadth_weight": 0.0,
+                    "host_phylo_dispersion_weight": 0.0,
+                }
+            }
+        )
+        self.assertAlmostEqual(settings.host_phylo_breadth_weight, 0.65)
+        self.assertAlmostEqual(settings.host_phylo_dispersion_weight, 0.35)
+
+        empty_settings = config_module._pipeline_settings_from_config({"pipeline": []})
+        self.assertEqual(empty_settings.split_year, 2015)
+
+    def test_find_project_root_supports_file_start_and_data_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir).resolve()
+            (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+            (root / "data").mkdir()
+            nested_file = root / "nested" / "module.py"
+            nested_file.parent.mkdir(parents=True)
+            nested_file.write_text("print('x')\n", encoding="utf-8")
+            self.assertEqual(find_project_root(nested_file), root)
+
+    def test_find_project_root_raises_when_markers_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with self.assertRaises(FileNotFoundError):
+                find_project_root(Path(tmp_dir))
+
+    def test_project_context_helpers_cover_path_and_asset_accessors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir).resolve()
+            (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+            (root / "data/manifests").mkdir(parents=True)
+            (root / "data/manifests/data_contract.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "created_on": "2026-03-22",
+                        "download_date": "2026-03-22",
+                        "assets": [
+                            {
+                                "key": "x",
+                                "relative_path": "data/x.txt",
+                                "kind": "file",
+                                "stage": "core",
+                                "required": True,
+                                "description": "x",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            context = build_context(root)
+            absolute = Path(tmp_dir).resolve()
+            self.assertEqual(context.reports_dir, root / "reports")
+            self.assertEqual(context.experiments_dir, root / "data" / "experiments")
+            self.assertEqual(context.logs_dir, root / "data" / "tmp" / "logs")
+            self.assertEqual(context.release_dir, root / "reports" / "release")
+            self.assertEqual(context.resolve_path("reports/foo.txt"), (root / "reports/foo.txt").resolve())
+            self.assertEqual(context.resolve_path("data/x.txt"), (root / "data/x.txt").resolve())
+            self.assertEqual(context.resolve_path(absolute), absolute)
+            with self.assertRaisesRegex(KeyError, "Unknown asset key"):
+                context.asset("missing")
+
+    def test_resolve_data_root_supports_relative_env_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            resolved = resolve_data_root(root, env={DATA_ROOT_ENV_VAR: "external/data"})
+            self.assertEqual(resolved, (root / "external/data").resolve())
 
 
 if __name__ == "__main__":

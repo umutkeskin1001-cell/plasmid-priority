@@ -43,6 +43,15 @@ def test_evaluate_release_readiness_passes_for_minimal_surface() -> None:
             "docs/benchmark_contract.md",
             "docs/scientific_protocol.md",
             "docs/pre_registration.md",
+            "docs/scientific_overview.md",
+            "docs/cto_overview.md",
+            "docs/investor_overview.md",
+            "docs/product_strategy.md",
+            "docs/runbooks/release_verification.md",
+            "docs/runbooks/quality_scoreboard.md",
+            "docs/runbooks/scientific_invariants.md",
+            "docs/runbooks/security.md",
+            "docs/runbooks/demo_path.md",
             "reports/reviewer_pack/canonical_metadata.json",
             "reports/reviewer_pack/run_reproducibility.sh",
             "reports/reviewer_pack/candidate_evidence_dossiers/index.md",
@@ -56,6 +65,7 @@ def test_evaluate_release_readiness_passes_for_minimal_surface() -> None:
             "src/plasmid_priority/sensitivity/variant_cache.py",
             "src/plasmid_priority/reporting/cache.py",
             "src/plasmid_priority/api/sdk.py",
+            "scripts/46_verify_release.py",
             "scripts/45_generate_independent_audit_packet.py",
             "config/rag_corpus.yaml",
         ):
@@ -84,5 +94,7 @@ def test_evaluate_release_readiness_passes_for_minimal_surface() -> None:
                 ],
             ),
         )
+        _write(root / "Makefile", "verify-release:\n\tpython scripts/46_verify_release.py\n")
+        _write(root / "Justfile", 'verify-release:\n    uv run python scripts/46_verify_release.py\n')
         result = evaluate_release_readiness(root)
         assert result["status"] == "pass"

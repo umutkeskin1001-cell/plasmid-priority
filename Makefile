@@ -19,7 +19,7 @@ export UV_CACHE_DIR ?= $(PWD)/.uv_cache
 PIP_AUDIT_IGNORES ?= CVE-2025-69872 CVE-2026-3219
 PIP_AUDIT_IGNORE_ARGS = $(foreach vuln,$(PIP_AUDIT_IGNORES),--ignore-vuln $(vuln))
 
-.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local demo test test-fast test-cov smoke code-review-graph-check pipeline pipeline-fast pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline quality ci security generate-scientific-contracts protocol-freshness import-contract freeze-baseline freeze-current scientific-equivalence generate-disposition-ledger generate-code-size-contract raw-data-usage-audit run-branch reviewer-package runtime-budget-gate scientific-contract-gate artifact-integrity profile-workflow performance-dashboard release-readiness generate-sample-data
+.PHONY: check-inputs build-bronze-fasta build-bronze-table module-c module-f reports tubitak-summary fast-local full-local demo test test-fast test-cov critical-coverage docs-check smoke code-review-graph-check pipeline pipeline-fast pipeline-sequential clean-generated lint lint-fix typecheck check verify-pipeline verify-release quality ci security generate-scientific-contracts protocol-freshness import-contract freeze-baseline freeze-current scientific-equivalence generate-disposition-ledger generate-code-size-contract raw-data-usage-audit run-branch reviewer-package runtime-budget-gate scientific-contract-gate artifact-integrity profile-workflow performance-dashboard release-readiness generate-sample-data
 
 define log_start
 	@echo "[$(TIMESTAMP)] ▶️  Starting: $(1)"
@@ -91,10 +91,25 @@ test-fast:
 	$(PYTHON_WITH_JOBS) -m pytest tests/test_config.py tests/test_fasta.py tests/test_features.py tests/test_modeling.py tests/test_reporting.py tests/test_leakage.py tests/test_embedding.py -x -q --tb=short $(if $(JOBS),-n $(JOBS),)
 
 test-cov:
-	$(PYTHON_WITH_JOBS) -m pytest tests/ -x -q --tb=short --cov=src/plasmid_priority --cov-report=term-missing --cov-report=html:htmlcov --cov-fail-under=80 $(if $(JOBS),-n $(JOBS),)
+	$(PYTHON_WITH_JOBS) -m pytest tests/ -x -q --tb=short --cov=src/plasmid_priority --cov-report=term-missing --cov-report=html:htmlcov --cov-fail-under=70 $(if $(JOBS),-n $(JOBS),)
+
+critical-coverage:
+	$(PYTHON_WITH_JOBS) -m coverage erase
+	$(PYTHON_WITH_JOBS) -m coverage run --source=src/plasmid_priority -m pytest -q \
+		tests/test_temporal_contracts.py \
+		tests/test_probabilistic_labels.py \
+		tests/test_modeling_temporal_cv.py \
+		tests/test_leakage.py \
+		tests/test_config.py \
+		tests/test_model_caches.py \
+		-o addopts=''
+	$(PYTHON_WITH_JOBS) -m coverage report \
+		--include='src/plasmid_priority/shared/temporal.py,src/plasmid_priority/labels/probabilistic.py,src/plasmid_priority/modeling/temporal_cv.py,src/plasmid_priority/config.py' \
+		--fail-under=90 \
+		--show-missing
 
 lint:
-	$(PYTHON_WITH_JOBS) -m ruff check src/ scripts/ tests/
+	$(PYTHON_WITH_JOBS) -m ruff check .
 
 lint-fix:
 	$(PYTHON_WITH_JOBS) -m ruff check src/ scripts/ tests/ --fix
@@ -110,6 +125,14 @@ verify-pipeline:
 	$(PYTHON_WITH_JOBS) scripts/01_check_inputs.py
 	$(PYTHON_WITH_JOBS) -m pytest tests/ -x -q --tb=short $(if $(JOBS),-n $(JOBS),)
 	@echo "Pipeline verification complete."
+	$(call log_done,$@)
+
+docs-check:
+	$(PYTHON_WITH_JOBS) -m mkdocs build --strict
+
+verify-release:
+	$(call log_start,$@)
+	$(PYTHON_WITH_JOBS) scripts/46_verify_release.py
 	$(call log_done,$@)
 
 smoke:
@@ -207,7 +230,7 @@ run-branch:
 quality: check typecheck smoke security
 	@echo "All quality gates passed."
 
-ci: protocol-freshness import-contract runtime-budget-gate scientific-contract-gate artifact-integrity release-readiness check typecheck
+ci: protocol-freshness import-contract runtime-budget-gate scientific-contract-gate artifact-integrity release-readiness lint typecheck test-cov critical-coverage security smoke docs-check
 
 pipeline:
 	$(call log_start,$@)

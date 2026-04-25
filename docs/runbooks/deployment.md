@@ -12,18 +12,19 @@ the fastest rollback path if a release regresses.
 ## Deployment
 
 1. Run the targeted test suite before publishing.
-2. Build the branch outputs with the workflow runner.
-3. Confirm the checkpoint files were written and the script summaries contain
+2. Run the canonical release verification gauntlet and keep the generated summary.
+3. Build the branch outputs with the workflow runner.
+4. Confirm the checkpoint files were written and the script summaries contain
    non-empty `output_manifest` entries.
-4. Verify the generated reports and manifests in `data/*/analysis/`.
-5. Publish only after the smoke test and validation scripts succeed.
+5. Verify the generated reports and manifests in `data/*/analysis/`.
+6. Publish only after the smoke test and validation scripts succeed.
 
 Recommended commands:
 
 ```bash
-./.venv/bin/python -m pytest tests/test_config.py tests/test_properties.py tests/test_workflow.py
-./.venv/bin/python scripts/run_workflow.py --mode full
-./.venv/bin/python scripts/26_run_tests_or_smoke.py --smoke
+uv run pytest -q tests/test_config.py tests/test_properties.py tests/test_workflow.py -o addopts=''
+make verify-release
+uv run python scripts/run_workflow.py release --max-workers 4
 ```
 
 ## Rollback
@@ -37,6 +38,12 @@ or a materially different report.
 4. Re-run the validation and smoke scripts against the restored outputs.
 5. Only re-enable downstream publishing after the restored outputs match the
    prior manifest and the checks pass.
+
+Rollback confirmation command:
+
+```bash
+make verify-release
+```
 
 ## Common Failure Modes
 

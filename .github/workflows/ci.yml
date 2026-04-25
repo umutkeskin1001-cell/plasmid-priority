@@ -61,26 +61,16 @@ jobs:
         run: make test-cov
 
       - name: Critical-path coverage
-        run: |
-          python -m coverage erase
-          python -m coverage run --source=src/plasmid_priority -m pytest -q \
-            tests/test_temporal_contracts.py \
-            tests/test_probabilistic_labels.py \
-            tests/test_modeling_temporal_cv.py \
-            tests/test_leakage.py \
-            tests/test_config.py \
-            tests/test_model_caches.py \
-            -o addopts=''
-          python -m coverage report \
-            --include='src/plasmid_priority/shared/temporal.py,src/plasmid_priority/labels/probabilistic.py,src/plasmid_priority/modeling/temporal_cv.py,src/plasmid_priority/config.py' \
-            --fail-under=90 \
-            --show-missing
+        run: make critical-coverage
 
       - name: Security audit (pip-audit)
         run: make security
 
       - name: Smoke test
         run: make smoke
+
+      - name: Docs build
+        run: make docs-check
 
       - name: Quality gate
         run: make quality
