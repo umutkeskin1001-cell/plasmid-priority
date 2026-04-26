@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import cast
 from unittest import mock
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -362,15 +363,15 @@ def test_conservative_evidence_consensus_penalizes_disagreement_and_weak_evidenc
 def test_score_official_model_family_runs_all_models_when_labels_are_available() -> None:
     frame = pd.DataFrame(
         {
-            "log1p_member_count_train": [0.0, 0.1, 0.2, 1.2, 1.5, 1.7],
-            "log1p_n_countries_train": [0.0, 0.1, 0.1, 1.0, 1.2, 1.4],
-            "T_eff_norm": [0.0, 0.1, 0.2, 0.8, 0.9, 1.0],
-            "H_obs_specialization_norm": [0.0, 0.2, 0.1, 0.7, 0.8, 1.0],
-            "A_eff_norm": [0.0, 0.1, 0.1, 0.8, 0.9, 1.0],
-            "evidence_support_index": [0.2, 0.3, 0.4, 0.8, 0.9, 1.0],
-            "evidence_tier": ["moderate", "moderate", "moderate", "high", "high", "high"],
-            "uncertainty_tier": ["moderate", "moderate", "moderate", "low", "low", "low"],
-            "label": [0, 0, 0, 1, 1, 1],
+            "log1p_member_count_train": np.linspace(0.0, 1.7, 12),
+            "log1p_n_countries_train": np.linspace(0.0, 1.4, 12),
+            "T_eff_norm": np.linspace(0.0, 1.0, 12),
+            "H_obs_specialization_norm": np.linspace(1.0, 0.0, 12),
+            "A_eff_norm": np.linspace(0.0, 1.0, 12),
+            "evidence_support_index": np.linspace(0.2, 1.0, 12),
+            "evidence_tier": ["moderate"] * 6 + ["high"] * 6,
+            "uncertainty_tier": ["moderate"] * 6 + ["low"] * 6,
+            "label": [0, 1] * 6,
         },
     )
 
@@ -378,7 +379,7 @@ def test_score_official_model_family_runs_all_models_when_labels_are_available()
 
     assert scores["official_supervised_model_status"].eq("fit").all()
     assert scores["conservative_consensus_score"].between(0.0, 1.0).all()
-    assert _float_cell(scores, 5, "conservative_consensus_score") > _float_cell(
+    assert _float_cell(scores, 11, "conservative_consensus_score") > _float_cell(
         scores,
         0,
         "conservative_consensus_score",

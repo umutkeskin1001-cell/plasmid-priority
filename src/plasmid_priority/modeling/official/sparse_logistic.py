@@ -9,6 +9,12 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 
+from plasmid_priority.modeling.official.common import (
+    dedupe_feature_columns,
+    numeric_feature_matrix,
+    valid_binary_labels,
+)
+
 
 @dataclass
 class SparseCalibratedLogistic:
@@ -21,7 +27,11 @@ class SparseCalibratedLogistic:
     calibration_method: str = "native_logistic"
 
     def _transform(self, frame: pd.DataFrame) -> np.ndarray:
-        matrix = _feature_matrix(frame, self.feature_columns)
+        matrix = numeric_feature_matrix(
+            frame,
+            self.feature_columns,
+            error_label="official model",
+        )
         imputed = self.imputer.transform(matrix)
         return cast(np.ndarray, (imputed - self.center) / self.scale)
 
@@ -29,28 +39,6 @@ class SparseCalibratedLogistic:
         probabilities = self.estimator.predict_proba(self._transform(frame))[:, 1]
         clipped = np.clip(probabilities.astype(float), 0.0, 1.0)
         return pd.Series(clipped, index=frame.index, dtype="float64")
-
-
-def _feature_matrix(frame: pd.DataFrame, feature_columns: Sequence[str]) -> pd.DataFrame:
-    missing = [column for column in feature_columns if column not in frame.columns]
-    if missing:
-        raise ValueError(f"Missing official model features: {missing}")
-    matrix = frame.loc[:, list(feature_columns)].apply(pd.to_numeric, errors="coerce")
-    return cast(pd.DataFrame, matrix)
-
-
-def _valid_binary_labels(frame: pd.DataFrame, label_column: str) -> pd.Series:
-    if label_column not in frame.columns:
-        raise ValueError(f"Missing label column: {label_column}")
-    labels = pd.to_numeric(frame[label_column], errors="coerce")
-    valid_labels = labels.dropna().astype(int)
-    if not set(valid_labels.unique()).issubset({0, 1}):
-        raise ValueError("Official sparse logistic expects a binary 0/1 label")
-    if int(valid_labels.nunique()) != 2:
-        raise ValueError(
-            "Official sparse logistic requires at least one positive and one negative label",
-        )
-    return valid_labels
 
 
 def _select_sparse_features(
@@ -94,9 +82,17 @@ def fit_sparse_calibrated_logistic(
     max_features: int = 8,
     regularization_c: float = 1.0,
 ) -> SparseCalibratedLogistic:
-    labels = _valid_binary_labels(frame, label_column)
+    labels = valid_binary_labels(
+        frame,
+        label_column,
+        error_label="Official sparse logistic",
+    )
     selected_features = _select_sparse_features(frame, labels, feature_columns, max_features)
-    matrix = _feature_matrix(frame.loc[labels.index], selected_features)
+    matrix = numeric_feature_matrix(
+        frame.loc[labels.index],
+        selected_features,
+        error_label="official model",
+    )
 
     imputer = SimpleImputer(strategy="median")
     imputed = imputer.fit_transform(matrix)
@@ -118,7 +114,7 @@ def fit_sparse_calibrated_logistic(
 
     return SparseCalibratedLogistic(
         model_name="sparse_calibrated_logistic",
-        feature_columns=selected_features,
+        feature_columns=dedupe_feature_columns(selected_features),
         imputer=imputer,
         center=center.astype(float),
         scale=scale.astype(float),

@@ -15,6 +15,12 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.isotonic import IsotonicRegression
 
+from plasmid_priority.modeling.feature_surface import (
+    assert_feature_columns_present as _assert_feature_columns_present_impl,
+)
+from plasmid_priority.modeling.feature_surface import (
+    ensure_feature_columns as _ensure_feature_columns_impl,
+)
 from plasmid_priority.modeling.module_a_support import (
     ABLATION_MODEL_NAMES,
     CONSERVATIVE_MODEL_NAME,
@@ -1779,103 +1785,7 @@ def get_research_models_by_track(track: str) -> tuple[str, ...]:
 
 
 def _ensure_feature_columns(scored: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    working = scored.copy()
-    needs_h_obs_norm = any(
-        column in columns
-        for column in (
-            "H_obs_norm",
-            "H_obs_specialization_norm",
-            "T_H_obs_synergy_norm",
-            "A_H_obs_synergy_norm",
-        )
-    )
-    if needs_h_obs_norm and "H_obs_norm" not in working.columns:
-        if "H_phylogenetic_norm" in working.columns:
-            working["H_obs_norm"] = (
-                pd.to_numeric(working["H_phylogenetic_norm"], errors="coerce").fillna(0.0)
-            ).clip(lower=0.0, upper=1.0)
-        elif "H_breadth_norm" in working.columns:
-            working["H_obs_norm"] = (
-                pd.to_numeric(working["H_breadth_norm"], errors="coerce").fillna(0.0)
-            ).clip(lower=0.0, upper=1.0)
-        else:
-            working["H_obs_norm"] = 0.0
-    if (
-        "H_obs_specialization_norm" in columns
-        and "H_obs_specialization_norm" not in working.columns
-    ):
-        if "H_obs_norm" in working.columns:
-            working["H_obs_specialization_norm"] = (
-                1.0 - pd.to_numeric(working["H_obs_norm"], errors="coerce").fillna(0.0)
-            ).clip(lower=0.0, upper=1.0)
-        elif "H_phylogenetic_norm" in working.columns:
-            working["H_obs_specialization_norm"] = (
-                1.0 - pd.to_numeric(working["H_phylogenetic_norm"], errors="coerce").fillna(0.0)
-            ).clip(lower=0.0, upper=1.0)
-        elif "H_breadth_norm" in working.columns:
-            working["H_obs_specialization_norm"] = (
-                1.0 - pd.to_numeric(working["H_breadth_norm"], errors="coerce").fillna(0.0)
-            ).clip(lower=0.0, upper=1.0)
-        else:
-            working["H_obs_specialization_norm"] = 0.0
-    if "H_specialization_norm" in columns and "H_specialization_norm" not in working.columns:
-        if "H_breadth_norm" in working.columns:
-            working["H_specialization_norm"] = (
-                1.0 - pd.to_numeric(working["H_breadth_norm"], errors="coerce").fillna(0.0)
-            ).clip(lower=0.0, upper=1.0)
-        else:
-            working["H_specialization_norm"] = 0.0
-    if (
-        "H_augmented_specialization_norm" in columns
-        and "H_augmented_specialization_norm" not in working.columns
-    ):
-        if "H_augmented_norm" in working.columns:
-            working["H_augmented_specialization_norm"] = (
-                1.0 - pd.to_numeric(working["H_augmented_norm"], errors="coerce").fillna(0.0)
-            ).clip(lower=0.0, upper=1.0)
-        else:
-            working["H_augmented_specialization_norm"] = 0.0
-    if (
-        "H_phylogenetic_specialization_norm" in columns
-        and "H_phylogenetic_specialization_norm" not in working.columns
-    ):
-        if "H_phylogenetic_norm" in working.columns:
-            working["H_phylogenetic_specialization_norm"] = (
-                1.0 - pd.to_numeric(working["H_phylogenetic_norm"], errors="coerce").fillna(0.0)
-            ).clip(lower=0.0, upper=1.0)
-        else:
-            working["H_phylogenetic_specialization_norm"] = 0.0
-    if "T_H_obs_synergy_norm" in columns and "T_H_obs_synergy_norm" not in working.columns:
-        t_eff_norm = pd.Series(working.get("T_eff_norm", 0.0), index=working.index)
-        h_obs_norm = pd.Series(working.get("H_obs_norm", 0.0), index=working.index)
-        working["T_H_obs_synergy_norm"] = np.clip(
-            pd.to_numeric(t_eff_norm, errors="coerce").fillna(0.0)
-            * pd.to_numeric(h_obs_norm, errors="coerce").fillna(0.0),
-            0.0,
-            1.0,
-        )
-    if "A_H_obs_synergy_norm" in columns and "A_H_obs_synergy_norm" not in working.columns:
-        a_eff_norm = pd.Series(working.get("A_eff_norm", 0.0), index=working.index)
-        h_obs_norm = pd.Series(working.get("H_obs_norm", 0.0), index=working.index)
-        working["A_H_obs_synergy_norm"] = np.clip(
-            pd.to_numeric(a_eff_norm, errors="coerce").fillna(0.0)
-            * pd.to_numeric(h_obs_norm, errors="coerce").fillna(0.0),
-            0.0,
-            1.0,
-        )
-    if "T_coherence_synergy_norm" in columns and "T_coherence_synergy_norm" not in working.columns:
-        t_eff_norm = pd.Series(working.get("T_eff_norm", 0.0), index=working.index)
-        coherence_score = pd.Series(working.get("coherence_score", 0.0), index=working.index)
-        working["T_coherence_synergy_norm"] = np.clip(
-            pd.to_numeric(t_eff_norm, errors="coerce").fillna(0.0)
-            * pd.to_numeric(coherence_score, errors="coerce").fillna(0.0),
-            0.0,
-            1.0,
-        )
-    for column in columns:
-        if column not in working.columns:
-            working[column] = 0.0
-    return working
+    return _ensure_feature_columns_impl(scored, columns)
 
 
 def assert_feature_columns_present(
@@ -1885,45 +1795,7 @@ def assert_feature_columns_present(
     label: str,
 ) -> None:
     """Fail loudly when engineered score columns are stale or missing."""
-    available = set(scored.columns.astype(str))
-    derivable_sources: dict[str, tuple[tuple[str, ...], ...]] = {
-        "H_obs_norm": (("H_phylogenetic_norm",), ("H_breadth_norm",)),
-        "H_obs_specialization_norm": (
-            ("H_obs_norm",),
-            ("H_phylogenetic_norm",),
-            ("H_breadth_norm",),
-        ),
-        "H_specialization_norm": (("H_breadth_norm",),),
-        "H_augmented_specialization_norm": (("H_augmented_norm",),),
-        "H_phylogenetic_specialization_norm": (("H_phylogenetic_norm",),),
-        "T_H_obs_synergy_norm": (
-            ("T_eff_norm", "H_obs_norm"),
-            ("T_eff_norm", "H_phylogenetic_norm"),
-            ("T_eff_norm", "H_breadth_norm"),
-        ),
-        "A_H_obs_synergy_norm": (
-            ("A_eff_norm", "H_obs_norm"),
-            ("A_eff_norm", "H_phylogenetic_norm"),
-            ("A_eff_norm", "H_breadth_norm"),
-        ),
-        "T_coherence_synergy_norm": (("T_eff_norm", "coherence_score"),),
-    }
-    missing: list[str] = []
-    for column in dict.fromkeys(str(column) for column in columns):
-        if column in available:
-            continue
-        source_sets = derivable_sources.get(column)
-        if source_sets is not None and any(
-            all(candidate in available for candidate in source_set) for source_set in source_sets
-        ):
-            continue
-        missing.append(column)
-    if missing:
-        formatted = ", ".join(f"`{column}`" for column in missing)
-        raise ValueError(
-            f"{label} is missing required scored feature columns: {formatted}. "
-            "Rerun `python3 scripts/15_normalize_and_score.py` before downstream modeling."
-        )
+    _assert_feature_columns_present_impl(scored, columns, label=label)
 
 
 def annotate_knownness_metadata(scored: pd.DataFrame) -> pd.DataFrame:

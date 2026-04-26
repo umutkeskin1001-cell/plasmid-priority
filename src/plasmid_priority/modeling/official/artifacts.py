@@ -24,6 +24,22 @@ OFFICIAL_SCORE_COLUMNS: dict[str, str] = {
 }
 
 
+def _scalar_string(frame: pd.DataFrame, column: str, *, default: str = "") -> str:
+    if column not in frame.columns or frame.empty:
+        return default
+    value = frame[column].iloc[0]
+    if pd.isna(value):
+        return default
+    return str(value)
+
+
+def _scalar_int(frame: pd.DataFrame, column: str, *, default: int = 0) -> int:
+    if column not in frame.columns or frame.empty:
+        return default
+    value = pd.to_numeric(pd.Series([frame[column].iloc[0]]), errors="coerce").iloc[0]
+    return default if pd.isna(value) else int(value)
+
+
 def _numeric_series(frame: pd.DataFrame, column: str, *, default: float = 0.0) -> pd.Series:
     if column not in frame.columns:
         return pd.Series(default, index=frame.index, dtype="float64")
@@ -64,14 +80,21 @@ def build_official_model_scorecard(
 ) -> pd.DataFrame:
     """Build a release-facing scorecard for every official model role."""
     rows: list[dict[str, Any]] = []
-    supervised_feature_count = int(
-        pd.to_numeric(
-            scores.get("official_supervised_feature_count", pd.Series([0])),
-            errors="coerce",
-        )
-        .fillna(0)
-        .iloc[0],
+    supervised_feature_count = _scalar_int(scores, "official_supervised_feature_count")
+    supervised_requested_feature_count = _scalar_int(
+        scores,
+        "official_supervised_requested_feature_count",
     )
+    supervised_missing_feature_count = _scalar_int(
+        scores,
+        "official_supervised_missing_feature_count",
+    )
+    supervised_missing_features = _scalar_string(scores, "official_supervised_missing_features")
+    supervised_labeled_count = _scalar_int(scores, "official_supervised_labeled_count")
+    supervised_positive_count = _scalar_int(scores, "official_supervised_positive_count")
+    supervised_negative_count = _scalar_int(scores, "official_supervised_negative_count")
+    supervised_min_labeled_rows = _scalar_int(scores, "official_supervised_min_labeled_rows")
+    supervised_min_class_count = _scalar_int(scores, "official_supervised_min_class_count")
     for order, spec in enumerate(family.models):
         score_column = OFFICIAL_SCORE_COLUMNS.get(spec.name, spec.name)
         score_values = (
@@ -97,6 +120,30 @@ def build_official_model_scorecard(
                 "score_min": float(score_values.min()) if has_scores else pd.NA,
                 "score_max": float(score_values.max()) if has_scores else pd.NA,
                 "supervised_feature_count": supervised_feature_count
+                if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
+                else 0,
+                "supervised_requested_feature_count": supervised_requested_feature_count
+                if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
+                else 0,
+                "supervised_missing_feature_count": supervised_missing_feature_count
+                if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
+                else 0,
+                "supervised_missing_features": supervised_missing_features
+                if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
+                else "",
+                "supervised_labeled_count": supervised_labeled_count
+                if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
+                else 0,
+                "supervised_positive_count": supervised_positive_count
+                if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
+                else 0,
+                "supervised_negative_count": supervised_negative_count
+                if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
+                else 0,
+                "supervised_min_labeled_rows": supervised_min_labeled_rows
+                if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
+                else 0,
+                "supervised_min_class_count": supervised_min_class_count
                 if spec.role in {OfficialModelRole.PRIMARY, OfficialModelRole.CHALLENGER}
                 else 0,
             },
@@ -186,6 +233,47 @@ def build_official_release_artifacts(
             else 0,
             "official_model_family_status": cast(str, summary["status"]),
             "decision_surface": "conservative_evidence_consensus",
+            "official_supervised_model_status": _scalar_string(
+                scores,
+                "official_supervised_model_status",
+                default="missing",
+            ),
+            "official_supervised_feature_count": _scalar_int(
+                scores,
+                "official_supervised_feature_count",
+            ),
+            "official_supervised_requested_feature_count": _scalar_int(
+                scores,
+                "official_supervised_requested_feature_count",
+            ),
+            "official_supervised_missing_feature_count": _scalar_int(
+                scores,
+                "official_supervised_missing_feature_count",
+            ),
+            "official_supervised_missing_features": _scalar_string(
+                scores,
+                "official_supervised_missing_features",
+            ),
+            "official_supervised_labeled_count": _scalar_int(
+                scores,
+                "official_supervised_labeled_count",
+            ),
+            "official_supervised_positive_count": _scalar_int(
+                scores,
+                "official_supervised_positive_count",
+            ),
+            "official_supervised_negative_count": _scalar_int(
+                scores,
+                "official_supervised_negative_count",
+            ),
+            "official_supervised_models_used": _scalar_string(
+                scores,
+                "official_supervised_models_used",
+            ),
+            "official_consensus_score_columns": _scalar_string(
+                scores,
+                "official_consensus_score_columns",
+            ),
         },
     )
     return {
