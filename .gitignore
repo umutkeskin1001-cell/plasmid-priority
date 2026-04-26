@@ -120,3 +120,4 @@ data/*.dvc
 !data/.gitkeep
 .dvc/cache/
 .dvc/tmp/
+proje.tar
