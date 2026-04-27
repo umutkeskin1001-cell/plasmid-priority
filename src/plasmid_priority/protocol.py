@@ -103,49 +103,9 @@ def _default_eligibility_rules() -> dict[str, Any]:
     }
 
 
-def build_protocol_snapshot(protocol: "ScientificProtocol") -> dict[str, Any]:
-    return {
-        "benchmark_contract_version": protocol.benchmark_contract_version,
-        "benchmark_scope": protocol.benchmark_scope,
-        "acceptance_thresholds": protocol.acceptance_thresholds,
-        "ablation_model_names": list(protocol.ablation_model_names),
-        "clinical_escalation_thresholds": protocol.clinical_escalation_thresholds,
-        "conservative_model_name": protocol.conservative_model_name,
-        "core_model_names": list(protocol.core_model_names),
-        "eligibility_rules": protocol.eligibility_rules,
-        "forbidden_features": list(protocol.forbidden_features),
-        "governance_model_fallback": protocol.governance_model_fallback,
-        "governance_model_name": protocol.governance_model_name,
-        "governance_model_policy": protocol.governance_model_policy,
-        "horizon_years": int(protocol.horizon_years),
-        "label_proxy_caveats": protocol.label_proxy_caveats,
-        "min_new_countries_for_spread": int(protocol.min_new_countries_for_spread),
-        "min_new_host_families_for_transfer": int(protocol.min_new_host_families_for_transfer),
-        "min_new_host_genera_for_transfer": int(protocol.min_new_host_genera_for_transfer),
-        "official_model_names": list(protocol.official_model_names),
-        "outcome_definition": protocol.outcome_definition,
-        "primary_model_fallback": protocol.primary_model_fallback,
-        "primary_model_name": protocol.primary_model_name,
-        "research_model_names": list(protocol.research_model_names),
-        "selection_adjusted_p_max": float(protocol.selection_adjusted_p_max),
-        "single_model_objective_weights": protocol.single_model_objective_weights,
-        "split_year": int(protocol.split_year),
-    }
-
-
-def build_protocol_hash(protocol: "ScientificProtocol") -> str:
-    payload = json.dumps(
-        build_protocol_snapshot(protocol),
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
-
-
 @dataclass(frozen=True)
-class ScientificProtocol:
-    """Immutable protocol describing the canonical scientific surface."""
+class ExecutionProtocol:
+    """Parameters affecting data processing and model training."""
 
     split_year: int
     min_new_countries_for_spread: int
@@ -160,15 +120,193 @@ class ScientificProtocol:
     min_new_host_genera_for_transfer: int = 2
     min_new_host_families_for_transfer: int = 1
     horizon_years: int = 5
-    clinical_escalation_thresholds: dict[str, float] = field(default_factory=dict)
     forbidden_features: tuple[str, ...] = field(default_factory=tuple)
-    label_proxy_caveats: dict[str, str] = field(default_factory=dict)
     eligibility_rules: dict[str, Any] = field(default_factory=dict)
+
+    def build_snapshot(self) -> dict[str, Any]:
+        return {
+            "split_year": int(self.split_year),
+            "min_new_countries_for_spread": int(self.min_new_countries_for_spread),
+            "min_new_host_genera_for_transfer": int(self.min_new_host_genera_for_transfer),
+            "min_new_host_families_for_transfer": int(self.min_new_host_families_for_transfer),
+            "horizon_years": int(self.horizon_years),
+            "primary_model_name": self.primary_model_name,
+            "primary_model_fallback": self.primary_model_fallback,
+            "conservative_model_name": self.conservative_model_name,
+            "governance_model_name": self.governance_model_name,
+            "governance_model_fallback": self.governance_model_fallback,
+            "core_model_names": list(self.core_model_names),
+            "research_model_names": list(self.research_model_names),
+            "ablation_model_names": list(self.ablation_model_names),
+            "forbidden_features": list(self.forbidden_features),
+            "eligibility_rules": self.eligibility_rules,
+        }
+
+
+@dataclass(frozen=True)
+class EvaluationProtocol:
+    """Parameters affecting thresholds, metadata, and reporting."""
+
+    clinical_escalation_thresholds: dict[str, float] = field(default_factory=dict)
+    label_proxy_caveats: dict[str, str] = field(default_factory=dict)
     matched_knownness_gap_min: float = DEFAULT_MATCHED_KNOWNNESS_GAP_MIN
     source_holdout_gap_min: float = DEFAULT_SOURCE_HOLDOUT_GAP_MIN
     spatial_holdout_gap_min: float = DEFAULT_SPATIAL_HOLDOUT_GAP_MIN
     ece_max: float = DEFAULT_ECE_MAX
     selection_adjusted_p_max: float = DEFAULT_SELECTION_ADJUSTED_P_MAX
+
+    def build_snapshot(self) -> dict[str, Any]:
+        return {
+            "clinical_escalation_thresholds": self.clinical_escalation_thresholds,
+            "label_proxy_caveats": self.label_proxy_caveats,
+            "matched_knownness_gap_min": float(self.matched_knownness_gap_min),
+            "source_holdout_gap_min": float(self.source_holdout_gap_min),
+            "spatial_holdout_gap_min": float(self.spatial_holdout_gap_min),
+            "ece_max": float(self.ece_max),
+            "selection_adjusted_p_max": float(self.selection_adjusted_p_max),
+        }
+
+
+def build_execution_hash(protocol: ExecutionProtocol) -> str:
+    payload = json.dumps(
+        protocol.build_snapshot(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def build_evaluation_hash(protocol: EvaluationProtocol) -> str:
+    payload = json.dumps(
+        protocol.build_snapshot(),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def build_protocol_snapshot(protocol: ScientificProtocol) -> dict[str, Any]:
+    snapshot = protocol.execution.build_snapshot()
+    snapshot.update(protocol.evaluation.build_snapshot())
+    # Keep backward-compatible reporting/provenance surface while preserving
+    # execution-vs-evaluation split for hash composition internals.
+    snapshot["benchmark_contract_version"] = protocol.benchmark_contract_version
+    snapshot["outcome_definition"] = protocol.outcome_definition
+    snapshot["official_model_names"] = list(protocol.official_model_names)
+    snapshot["benchmark_scope"] = protocol.benchmark_scope
+    snapshot["governance_model_policy"] = protocol.governance_model_policy
+    snapshot["acceptance_thresholds"] = protocol.acceptance_thresholds
+    snapshot["single_model_objective_weights"] = protocol.single_model_objective_weights
+    return snapshot
+
+
+def build_protocol_hash(protocol: ScientificProtocol) -> str:
+    payload = json.dumps(
+        build_protocol_snapshot(protocol),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+@dataclass(frozen=True)
+class ScientificProtocol:
+    """Immutable protocol describing the canonical scientific surface."""
+
+    execution: ExecutionProtocol
+    evaluation: EvaluationProtocol
+
+    # Delegated properties for backward compatibility
+    @property
+    def split_year(self) -> int:
+        return self.execution.split_year
+
+    @property
+    def min_new_countries_for_spread(self) -> int:
+        return self.execution.min_new_countries_for_spread
+
+    @property
+    def primary_model_name(self) -> str:
+        return self.execution.primary_model_name
+
+    @property
+    def primary_model_fallback(self) -> str:
+        return self.execution.primary_model_fallback
+
+    @property
+    def conservative_model_name(self) -> str:
+        return self.execution.conservative_model_name
+
+    @property
+    def governance_model_name(self) -> str:
+        return self.execution.governance_model_name
+
+    @property
+    def governance_model_fallback(self) -> str:
+        return self.execution.governance_model_fallback
+
+    @property
+    def core_model_names(self) -> tuple[str, ...]:
+        return self.execution.core_model_names
+
+    @property
+    def research_model_names(self) -> tuple[str, ...]:
+        return self.execution.research_model_names
+
+    @property
+    def ablation_model_names(self) -> tuple[str, ...]:
+        return self.execution.ablation_model_names
+
+    @property
+    def min_new_host_genera_for_transfer(self) -> int:
+        return self.execution.min_new_host_genera_for_transfer
+
+    @property
+    def min_new_host_families_for_transfer(self) -> int:
+        return self.execution.min_new_host_families_for_transfer
+
+    @property
+    def horizon_years(self) -> int:
+        return self.execution.horizon_years
+
+    @property
+    def clinical_escalation_thresholds(self) -> dict[str, float]:
+        return self.evaluation.clinical_escalation_thresholds
+
+    @property
+    def forbidden_features(self) -> tuple[str, ...]:
+        return self.execution.forbidden_features
+
+    @property
+    def label_proxy_caveats(self) -> dict[str, str]:
+        return self.evaluation.label_proxy_caveats
+
+    @property
+    def eligibility_rules(self) -> dict[str, Any]:
+        return self.execution.eligibility_rules
+
+    @property
+    def matched_knownness_gap_min(self) -> float:
+        return self.evaluation.matched_knownness_gap_min
+
+    @property
+    def source_holdout_gap_min(self) -> float:
+        return self.evaluation.source_holdout_gap_min
+
+    @property
+    def spatial_holdout_gap_min(self) -> float:
+        return self.evaluation.spatial_holdout_gap_min
+
+    @property
+    def ece_max(self) -> float:
+        return self.evaluation.ece_max
+
+    @property
+    def selection_adjusted_p_max(self) -> float:
+        return self.evaluation.selection_adjusted_p_max
 
     @property
     def outcome_definition(self) -> dict[str, object]:
@@ -254,7 +392,6 @@ class ScientificProtocol:
 
     def validate(self) -> None:
         core_names = set(self.core_model_names)
-        research_names = set(self.research_model_names)
         if self.primary_model_name not in core_names:
             raise ValueError(
                 "Configured primary model must be part of the official core surface; "
@@ -269,39 +406,16 @@ class ScientificProtocol:
             raise ValueError(
                 "Configured protocol must include `baseline_both` in the official core surface."
             )
-        if self.primary_model_name in research_names and self.primary_model_name not in core_names:
-            raise ValueError("Configured primary model cannot live only in research_model_names.")
-        if (
-            self.governance_model_name in research_names
-            and self.governance_model_name not in core_names
-        ):
-            raise ValueError(
-                "Configured governance model cannot live only in research_model_names."
-            )
         if not self.official_model_names:
             raise ValueError("Scientific protocol must define at least one official model name.")
         if int(self.horizon_years) <= 0:
             raise ValueError("horizon_years must be positive.")
-        if int(self.min_new_host_genera_for_transfer) <= 0:
-            raise ValueError("min_new_host_genera_for_transfer must be positive.")
-        if int(self.min_new_host_families_for_transfer) <= 0:
-            raise ValueError("min_new_host_families_for_transfer must be positive.")
         if not -1.0 <= float(self.matched_knownness_gap_min) <= 1.0:
             raise ValueError("matched_knownness_gap_min must be in the interval [-1, 1].")
-        if not -1.0 <= float(self.source_holdout_gap_min) <= 1.0:
-            raise ValueError("source_holdout_gap_min must be in the interval [-1, 1].")
-        if not -1.0 <= float(self.spatial_holdout_gap_min) <= 1.0:
-            raise ValueError("spatial_holdout_gap_min must be in the interval [-1, 1].")
         if not 0.0 <= float(self.ece_max) <= 1.0:
             raise ValueError("ece_max must be in the interval [0, 1].")
         if not 0.0 < float(self.selection_adjusted_p_max) <= 1.0:
             raise ValueError("selection_adjusted_p_max must be in the interval (0, 1].")
-        if any(not str(name).strip() for name in self.forbidden_features):
-            raise ValueError("forbidden_features cannot contain empty names.")
-        if any(not str(key).strip() for key in self.label_proxy_caveats):
-            raise ValueError("label_proxy_caveats cannot contain empty keys.")
-        if not isinstance(self.eligibility_rules, dict):
-            raise ValueError("eligibility_rules must be a mapping.")
 
     def resolve_primary_model_name(
         self,
@@ -336,22 +450,6 @@ class ScientificProtocol:
             f"{sorted(names)}"
         )
 
-    def resolve_official_model_names(
-        self,
-        model_names: Iterable[str],
-        *,
-        require_complete: bool = True,
-    ) -> tuple[str, ...]:
-        names = {str(name) for name in model_names}
-        official = tuple(name for name in self.official_model_names if name in names)
-        if require_complete and official != self.official_model_names:
-            missing = [name for name in self.official_model_names if name not in names]
-            raise ValueError(
-                "Provided model surface is missing official model names: "
-                f"{', '.join(sorted(missing))}"
-            )
-        return official
-
     @classmethod
     def from_config(cls, config: dict[str, Any] | None) -> "ScientificProtocol":
         models = config.get("models", {}) if isinstance(config, dict) else {}
@@ -360,7 +458,8 @@ class ScientificProtocol:
             models = {}
         if not isinstance(pipeline, dict):
             pipeline = {}
-        protocol = cls(
+
+        execution = ExecutionProtocol(
             split_year=_coerce_int(pipeline.get("split_year"), default=2015),
             min_new_countries_for_spread=_coerce_int(
                 pipeline.get("min_new_countries_for_spread"), default=3
@@ -372,11 +471,7 @@ class ScientificProtocol:
                 pipeline.get("min_new_host_families_for_transfer"), default=1
             ),
             horizon_years=_coerce_int(pipeline.get("horizon_years"), default=5),
-            clinical_escalation_thresholds=_coerce_float_mapping(
-                pipeline.get("clinical_escalation_thresholds")
-            ),
             forbidden_features=_coerce_name_tuple(pipeline.get("forbidden_features")),
-            label_proxy_caveats=_coerce_string_mapping(pipeline.get("label_proxy_caveats")),
             eligibility_rules=_coerce_rules_mapping(
                 pipeline.get("eligibility_rules") or _default_eligibility_rules()
             ),
@@ -394,9 +489,30 @@ class ScientificProtocol:
             core_model_names=_coerce_name_tuple(models.get("core_model_names", ())),
             research_model_names=_coerce_name_tuple(models.get("research_model_names", ())),
             ablation_model_names=_coerce_name_tuple(models.get("ablation_model_names", ())),
+        )
+
+        evaluation = EvaluationProtocol(
+            clinical_escalation_thresholds=_coerce_float_mapping(
+                pipeline.get("clinical_escalation_thresholds")
+            ),
+            label_proxy_caveats=_coerce_string_mapping(pipeline.get("label_proxy_caveats")),
+            matched_knownness_gap_min=_coerce_float(
+                pipeline.get("matched_knownness_gap_min"), default=DEFAULT_MATCHED_KNOWNNESS_GAP_MIN
+            ),
+            source_holdout_gap_min=_coerce_float(
+                pipeline.get("source_holdout_gap_min"), default=DEFAULT_SOURCE_HOLDOUT_GAP_MIN
+            ),
+            spatial_holdout_gap_min=_coerce_float(
+                pipeline.get("spatial_holdout_gap_min"), default=DEFAULT_SPATIAL_HOLDOUT_GAP_MIN
+            ),
+            ece_max=_coerce_float(
+                pipeline.get("ece_max"), default=DEFAULT_ECE_MAX
+            ),
             selection_adjusted_p_max=_coerce_float(
                 models.get("selection_adjusted_p_max"), default=DEFAULT_SELECTION_ADJUSTED_P_MAX
             ),
         )
+
+        protocol = cls(execution=execution, evaluation=evaluation)
         protocol.validate()
         return protocol

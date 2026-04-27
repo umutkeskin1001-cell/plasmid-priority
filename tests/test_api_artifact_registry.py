@@ -112,7 +112,7 @@ def test_score_endpoint_prefers_artifact_registry(monkeypatch: pytest.MonkeyPatc
             "_build_artifact_registry",
             lambda: ArtifactRegistry(project_root=root),
         )
-        monkeypatch.delenv("PLASMID_PRIORITY_API_KEY", raising=False)
+        monkeypatch.setenv("PLASMID_PRIORITY_API_KEY", "secret-token")
         monkeypatch.delenv("PLASMID_PRIORITY_RATE_LIMIT_PER_MINUTE", raising=False)
         monkeypatch.delenv("PLASMID_PRIORITY_MAX_REQUEST_BYTES", raising=False)
 
@@ -120,6 +120,7 @@ def test_score_endpoint_prefers_artifact_registry(monkeypatch: pytest.MonkeyPatc
         response = client.post(
             "/score",
             json={"backbone_ids": ["bb1", "bb-missing"], "config_key": "geo_spread"},
+            headers={"x-api-key": "secret-token"},
         )
         assert response.status_code == 200
         payload = response.json()

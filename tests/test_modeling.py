@@ -43,7 +43,7 @@ from plasmid_priority.modeling import (
     run_module_a,
     select_cmim_features,
 )
-from plasmid_priority.modeling import module_a as module_a_impl
+from plasmid_priority.modeling import module_a as module_a
 from plasmid_priority.modeling import module_a_support as module_a_support_impl
 from plasmid_priority.modeling import tree_models as tree_models_impl
 from plasmid_priority.modeling.nested_cv import nested_cross_validate
@@ -98,7 +98,7 @@ class ModelingTests(unittest.TestCase):
             }
         )
 
-        train_matrix, score_matrix = module_a_impl._prepare_feature_matrices(
+        train_matrix, score_matrix = module_a._prepare_feature_matrices(
             train, score, ["f1", "f2"]
         )
 
@@ -135,7 +135,7 @@ class ModelingTests(unittest.TestCase):
                 "f2": np.linspace(1.0, 0.0, n),
             }
         )
-        alpha = module_a_impl._select_knownness_residualizer_alpha(
+        alpha = module_a._select_knownness_residualizer_alpha(
             train,
             ["f1", "f2"],
             fit_kwargs={
@@ -150,7 +150,7 @@ class ModelingTests(unittest.TestCase):
         self.assertIn(alpha, {0.1, 1.0, 10.0})
 
     def test_grouped_knownness_alpha_assigns_feature_family_specific_penalties(self) -> None:
-        alphas = module_a_impl._resolve_knownness_grouped_alpha(
+        alphas = module_a._resolve_knownness_grouped_alpha(
             ["T_eff_norm", "H_obs_specialization_norm", "A_eff_norm", "coherence_score"],
             base_alpha=1.5,
             fit_kwargs={
@@ -716,12 +716,12 @@ class ModelingTests(unittest.TestCase):
             warnings.simplefilter("ignore")
             with (
                 mock.patch.object(
-                    module_a_impl,
+                    module_a,
                     "_resolve_nonlinear_backend_name",
                     return_value="ebm",
                 ),
                 mock.patch.object(
-                    module_a_impl,
+                    module_a,
                     "_fit_ebm_classifier",
                     side_effect=PermissionError("blocked by environment"),
                 ),
@@ -752,8 +752,8 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("review_fraction", result.metrics)
 
     def test_hybrid_backend_prefers_ebm_when_interpret_is_available(self) -> None:
-        backend = module_a_impl._resolve_nonlinear_backend_name({"nonlinear_backend": "ebm"})
-        if module_a_impl.ExplainableBoostingClassifier is None:
+        backend = module_a._resolve_nonlinear_backend_name({"nonlinear_backend": "ebm"})
+        if module_a.ExplainableBoostingClassifier is None:
             self.assertEqual(backend, "hist_gbm")
         else:
             self.assertEqual(backend, "ebm")
@@ -858,7 +858,7 @@ class ModelingTests(unittest.TestCase):
                 "refseq_share_train": rng.uniform(0, 1, size=n),
             }
         )
-        original_evaluate_model_name = module_a_impl.evaluate_model_name
+        original_evaluate_model_name = module_a.evaluate_model_name
 
         def _evaluate_model_name_side_effect(*args: object, **kwargs: object) -> object:
             model_name = str(kwargs.get("model_name", ""))
@@ -870,12 +870,12 @@ class ModelingTests(unittest.TestCase):
             warnings.simplefilter("ignore")
             with (
                 mock.patch.object(
-                    module_a_impl,
+                    module_a,
                     "ProcessPoolExecutor",
                     side_effect=OSError("process pool unavailable"),
                 ),
                 mock.patch.object(
-                    module_a_impl,
+                    module_a,
                     "evaluate_model_name",
                     side_effect=_evaluate_model_name_side_effect,
                 ),
@@ -1083,12 +1083,12 @@ class ModelingTests(unittest.TestCase):
             }
         )
         weight_a = pd.Series(
-            module_a_impl._compute_sample_weight(eligible, mode="knownness_balanced"),
+            module_a._compute_sample_weight(eligible, mode="knownness_balanced"),
             index=eligible["backbone_id"],
         ).sort_index()
         shuffled = eligible.sample(frac=1.0, random_state=42).reset_index(drop=True)
         weight_b = pd.Series(
-            module_a_impl._compute_sample_weight(shuffled, mode="knownness_balanced"),
+            module_a._compute_sample_weight(shuffled, mode="knownness_balanced"),
             index=shuffled["backbone_id"],
         ).sort_index()
         pd.testing.assert_series_equal(weight_a, weight_b)
@@ -1105,7 +1105,7 @@ class ModelingTests(unittest.TestCase):
         )
         bootstrap_train = eligible.iloc[[0, 1, 1, 3]].copy()
         bootstrap_train.index = [0, 1, 1, 3]
-        weights = module_a_impl._compute_sample_weight(bootstrap_train, mode="knownness_balanced")
+        weights = module_a._compute_sample_weight(bootstrap_train, mode="knownness_balanced")
         self.assertEqual(len(weights), len(bootstrap_train))
         self.assertTrue(np.isfinite(weights).all())
 
@@ -1246,10 +1246,10 @@ class ModelingTests(unittest.TestCase):
         self.assertIn("used_pinv", audit.columns)
 
     def test_convergence_audit_includes_pairwise_model_rows(self) -> None:
-        import plasmid_priority.modeling.module_a_impl as module_a_impl_runtime
+        import plasmid_priority.modeling.module_a as module_a_runtime
 
         scored = self._hybrid_ready_scored(n=40)
-        audit = module_a_impl_runtime.build_logistic_convergence_audit(
+        audit = module_a_runtime.build_logistic_convergence_audit(
             scored,
             model_names=["pairwise_rank_priority"],
             n_splits=4,
@@ -1290,7 +1290,7 @@ class ModelingTests(unittest.TestCase):
             }
         )
 
-        weights = module_a_impl._compute_sample_weight(
+        weights = module_a._compute_sample_weight(
             eligible,
             mode="pu_negative_downweight",
             fit_kwargs={"pu_negative_min_weight": 0.2, "pu_negative_power": 1.0},
@@ -1310,7 +1310,7 @@ class ModelingTests(unittest.TestCase):
                 "refseq_share_train": [0.05, 0.95, 0.1, 0.9],
             }
         )
-        weights = module_a_impl._compute_sample_weight(eligible, mode="inverse_knownness_weighting")
+        weights = module_a._compute_sample_weight(eligible, mode="inverse_knownness_weighting")
         assert weights is not None
         self.assertEqual(len(weights), 4)
         self.assertTrue(np.isfinite(weights).all())
@@ -1367,11 +1367,11 @@ class ModelingTests(unittest.TestCase):
                 ],
             }
         )
-        weights_combined = module_a_impl._compute_sample_weight(
+        weights_combined = module_a._compute_sample_weight(
             eligible, mode="class_balanced+inverse_knownness_weighting"
         )
-        weights_class_only = module_a_impl._compute_sample_weight(eligible, mode="class_balanced")
-        weights_ipw_only = module_a_impl._compute_sample_weight(
+        weights_class_only = module_a._compute_sample_weight(eligible, mode="class_balanced")
+        weights_ipw_only = module_a._compute_sample_weight(
             eligible, mode="inverse_knownness_weighting"
         )
         assert weights_combined is not None
@@ -1451,7 +1451,7 @@ class ModelingTests(unittest.TestCase):
         n = 60
         X = rng.uniform(0, 1, size=(n, 4))
         y = (X[:, 0] > 0.5).astype(int)
-        model = module_a_impl._fit_lightgbm_classifier(
+        model = module_a._fit_lightgbm_classifier(
             X, y, fit_kwargs={"n_estimators": 20, "max_depth": 3, "verbose": -1}
         )
         self.assertTrue(hasattr(model, "predict_proba"))
@@ -1484,7 +1484,7 @@ class ModelingTests(unittest.TestCase):
             "coherence_score",
             "orit_support",
         ]
-        preds, y = module_a_impl._oof_lightgbm_predictions_from_eligible(
+        preds, y = module_a._oof_lightgbm_predictions_from_eligible(
             eligible,
             columns=columns,
             n_splits=3,
@@ -1522,7 +1522,7 @@ class ModelingTests(unittest.TestCase):
             "coherence_score",
             "orit_support",
         ]
-        preds, y = module_a_impl._oof_predictions_from_eligible(
+        preds, y = module_a._oof_predictions_from_eligible(
             eligible,
             columns=columns,
             n_splits=3,
@@ -1547,7 +1547,7 @@ class ModelingTests(unittest.TestCase):
             }
         )
         y = (X_df["T_eff_norm"] > 0.5).astype(int).to_numpy()
-        model = module_a_impl._fit_lightgbm_classifier(
+        model = module_a._fit_lightgbm_classifier(
             X_df.to_numpy(), y, fit_kwargs={"n_estimators": 20, "max_depth": 3}
         )
         from plasmid_priority.modeling.shap_explainer import compute_shap_tree_values
@@ -1571,7 +1571,7 @@ class ModelingTests(unittest.TestCase):
             }
         )
         y = (X_df["T_eff_norm"] > 0.5).astype(int).to_numpy()
-        model = module_a_impl._fit_lightgbm_classifier(
+        model = module_a._fit_lightgbm_classifier(
             X_df.to_numpy(), y, fit_kwargs={"n_estimators": 20, "max_depth": 3}
         )
         from plasmid_priority.modeling.shap_explainer import (
@@ -1625,7 +1625,7 @@ class ModelingTests(unittest.TestCase):
             }
         )
         y = (X_df["T_eff_norm"] > 0.5).astype(int).to_numpy()
-        model = module_a_impl._fit_lightgbm_classifier(
+        model = module_a._fit_lightgbm_classifier(
             X_df.to_numpy(), y, fit_kwargs={"n_estimators": 20, "max_depth": 3}
         )
         from plasmid_priority.modeling.shap_explainer import (

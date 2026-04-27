@@ -102,21 +102,6 @@ module = [
 ]
 warn_unreachable = false
 
-[[tool.mypy.overrides]]
-module = [
-    "plasmid_priority.pipeline.branches",
-    "plasmid_priority.reporting.build_reports_script_impl",
-]
-ignore_errors = true
-
-# Scripts and Test files — relax strict checks
-[[tool.mypy.overrides]]
-module = [
-]
-disallow_untyped_defs = false
-warn_return_any = false
-ignore_errors = true
-
 # Optional-dependency src modules (torch, prefect, igraph, biopython)
 [[tool.mypy.overrides]]
 module = [
@@ -149,7 +134,6 @@ source = ["src/plasmid_priority"]
 omit = [
   "*/__pycache__/*",
   "*/tests/*",
-  "src/plasmid_priority/api/*",
   "src/plasmid_priority/annotate/*",
   "src/plasmid_priority/*/cli.py",
   "src/plasmid_priority/reporting/*_impl.py",
@@ -159,12 +143,12 @@ omit = [
   "src/plasmid_priority/features/host.py",
   "src/plasmid_priority/features/host_range.py",
   "src/plasmid_priority/features/interaction.py",
-  "src/plasmid_priority/features/core_impl.py",
+  "src/plasmid_priority/features/core.py",
   "src/plasmid_priority/features/transfer.py",
   "src/plasmid_priority/features/transmission.py",
   "src/plasmid_priority/modeling/firthlogist_bridge.py",
   "src/plasmid_priority/modeling/fit_config.py",
-  "src/plasmid_priority/modeling/module_a_impl.py",
+  "src/plasmid_priority/modeling/module_a.py",
   "src/plasmid_priority/modeling/nested_cv.py",
   "src/plasmid_priority/modeling/task.py",
   "src/plasmid_priority/modeling/tree_models.py",
@@ -215,13 +199,12 @@ select = ["E", "F", "W", "I"]
 "tests/*.py" = ["E402", "E501"]
 "src/plasmid_priority/reporting/enrichment.py" = ["E402", "E501"]
 "src/plasmid_priority/reporting/model_audit.py" = ["E501"]
-"src/plasmid_priority/reporting/model_audit_impl.py" = ["E501"]
-"src/plasmid_priority/reporting/build_reports_script_impl.py" = ["E402", "E501", "I001"]
-"src/plasmid_priority/modeling/module_a_impl.py" = ["E501"]
-"src/plasmid_priority/reporting/figures_impl.py" = ["E501"]
-"src/plasmid_priority/reporting/advanced_audits_impl.py" = ["E501"]
+"src/plasmid_priority/reporting/build_reports_script.py" = ["E402", "E501", "I001"]
+"src/plasmid_priority/modeling/module_a.py" = ["E501"]
+"src/plasmid_priority/reporting/figures.py" = ["E501"]
+"src/plasmid_priority/reporting/advanced_audits.py" = ["E501"]
 "src/plasmid_priority/reporting/candidate_tables.py" = ["E501"]
-"src/plasmid_priority/features/core_impl.py" = ["E501"]
+"src/plasmid_priority/features/core.py" = ["E501"]
 
 [tool.commitizen]
 name = "cz_conventional_commits"

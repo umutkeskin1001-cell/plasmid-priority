@@ -38,10 +38,18 @@ def _api_is_artifact_backed(app_source: str) -> bool:
 
 
 def _phase5_productization_checks(project_root: Path, app_source: str) -> dict[str, bool]:
+    sdk_path = project_root / "src/plasmid_priority/api/sdk.py"
+    sdk_source = sdk_path.read_text(encoding="utf-8") if sdk_path.exists() else ""
     return {
-        "graphql_surface_present": '"/graphql"' in app_source,
-        "async_batch_surface_present": '"/score/backbones/batch"' in app_source,
-        "sdk_present": (project_root / "src/plasmid_priority/api/sdk.py").exists(),
+        "score_surface_present": '"/score"' in app_source,
+        "score_backbones_surface_present": '"/score/backbones"' in app_source,
+        "models_surface_present": '"/models"' in app_source,
+        "explain_surface_present": '"/explain/{backbone_id}"' in app_source,
+        "evidence_surface_present": '"/evidence/{backbone_id}"' in app_source,
+        "sdk_present": sdk_path.exists(),
+        "sdk_deprecated_surfaces_removed": (
+            '"/graphql"' not in sdk_source and '"/score/backbones/batch"' not in sdk_source
+        ),
         "jury_dashboard_html_present": (
             project_root / "reports/release/jury_dashboard.html"
         ).exists(),

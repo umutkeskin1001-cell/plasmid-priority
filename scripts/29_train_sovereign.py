@@ -61,7 +61,9 @@ def _best_existing_model_auc(
     try:
         with metrics_path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-    except Exception:
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Caught suppressed exception: %s", exc, exc_info=True)
         return None, float("nan")
 
     best_model_name: str | None = None

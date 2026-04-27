@@ -315,7 +315,7 @@
   "benchmarks_hash": "93256ff0207e262313a2852d29ddddf9296ac1d152584dffa6e9fb0da01e3201",
   "config_sha": "a2184360153a06a563a59585d60275581b81c68253427064f75aeec460030efc",
   "data_contract_sha": "da7b9523c273aa42b72b1e3e057d5755763a424f5e9b3982ff3736de301a9c5b",
-  "metadata_hash": "61a570d9636ad2ed77baea188e0ab55869d51b2e6474a7f36b1e92aa4aa5789b",
+  "metadata_hash": "2632a86ebd8e3f6fba1d814c0334588ac20a0d3de254c970d5e73fffcd25cd5b",
   "protocol": {
     "ablation_model_names": [
       "T_only",
@@ -393,6 +393,7 @@
       "parsimonious_priority",
       "support_synergy_priority"
     ],
+    "ece_max": 0.05,
     "eligibility_rules": {
       "require_temporal_metadata": true,
       "require_training_only_assignment": true,
@@ -410,6 +411,7 @@
     },
     "horizon_years": 5,
     "label_proxy_caveats": {},
+    "matched_knownness_gap_min": -0.005,
     "min_new_countries_for_spread": 3,
     "min_new_host_families_for_transfer": 1,
     "min_new_host_genera_for_transfer": 2,
@@ -480,7 +482,9 @@
       "predictive_power": 0.4,
       "reliability": 0.4
     },
+    "source_holdout_gap_min": -0.005,
+    "spatial_holdout_gap_min": -0.03,
     "split_year": 2015
   },
-  "protocol_hash": "c6ede6432592ee3725d17a697567d39a381f7156d817702f6fe53b757144410a"
+  "protocol_hash": "cafc645688be35a8e82439e281737a2e3b76deeb902ba14a8a2e3281c65eef83"
 }

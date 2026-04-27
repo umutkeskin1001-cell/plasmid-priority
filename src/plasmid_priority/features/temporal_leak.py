@@ -6,10 +6,13 @@ which occurs when future information is inadvertently used in training.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+LOGGER = logging.getLogger(__name__)
 
 
 def detect_temporal_leak(
@@ -84,7 +87,12 @@ def detect_temporal_leak(
                         "severity": "high" if abs(correlation) > 0.99 else "medium",
                     }
                 )
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning(
+                "Caught suppressed exception: %s",
+                exc,
+                exc_info=True,
+            )
             continue
 
     has_leak = len(leak_features) > 0

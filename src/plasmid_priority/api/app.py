@@ -3,10 +3,9 @@
 Provides read-only endpoints for:
 - ``GET /health`` – liveness check
 - ``GET /config`` – project configuration summary
+- ``GET /models`` – artifact-backed model metadata
 - ``POST /score`` – compute priority scores for a backbone table
 - ``POST /score/backbones`` – artifact-backed backbone scoring
-- ``POST /score/backbones/batch`` – asynchronous batch scoring surface
-- ``POST /graphql`` – compact GraphQL-compatible query surface
 - ``GET /explain/{backbone_id}`` – fetch score component explanation
 - ``GET /evidence/{backbone_id}`` – fetch evidence metadata for a backbone
 
@@ -19,6 +18,7 @@ Requires the ``api`` extra dependency group.
 
 from __future__ import annotations
 
+import hmac
 import logging
 import time
 from collections import deque
@@ -109,7 +109,9 @@ def _build_artifact_registry() -> Any | None:
         return None
     try:
         return ArtifactRegistry()
-    except Exception:  # pragma: no cover - defensive fallback
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        import logging
+        logging.getLogger(__name__).warning("Caught suppressed exception: %s", exc, exc_info=True)
         _log.exception("Failed to initialize ArtifactRegistry")
         return None
 
@@ -188,7 +190,12 @@ async def _enforce_request_size(request: Request, max_bytes: int) -> None:
 
 async def _protect_api_surface(request: Request) -> None:
     settings = load_api_settings()
-    if settings.api_key and _extract_api_key(request) != settings.api_key:
+    if not settings.api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="API key not configured on server",
+        )
+    if not hmac.compare_digest(_extract_api_key(request), settings.api_key):
         raise HTTPException(
             status_code=401,
             detail="Missing or invalid API key",
@@ -220,15 +227,17 @@ class ModelRegistry:
         """Score backbones and return priorities."""
         if not backbone_ids:
             return []
-        registry = _build_artifact_registry()
-        if registry is None:
-            return [_fallback_score(bid) for bid in backbone_ids]
+        registry = _require_artifact_registry()
         try:
             artifact_scores = registry.score_backbones(backbone_ids)
         except Exception as exc:
-            if not _is_artifact_unavailable_error(exc):
-                _log.exception("Unexpected error while scoring artifact-backed backbones")
-            return [_fallback_score(bid) for bid in backbone_ids]
+            if _is_artifact_unavailable_error(exc):
+                raise HTTPException(
+                    status_code=503,
+                    detail="Scoring artifacts unavailable",
+                ) from exc
+            _log.exception("Unexpected error while scoring artifact-backed backbones")
+            raise HTTPException(status_code=500, detail="Failed to score backbones") from exc
         score_map: dict[str, dict[str, Any]] = {}
         for row in artifact_scores:
             if not isinstance(row, dict):
@@ -245,46 +254,6 @@ class ModelRegistry:
 
 
 REGISTRY = ModelRegistry()
-
-
-class GraphQLRequest(BaseModel):
-    """GraphQL request body."""
-
-    query: str
-    variables: dict[str, Any] | None = None
-
-
-class BatchScoreJobResponse(BaseModel):
-    """Response for batch scoring job."""
-
-    job_id: str
-    status: str
-    result: dict[str, Any] | None = None
-
-
-def _execute_graphql_query(query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Execute a GraphQL query against the API."""
-    result: dict[str, Any] = {"data": {}}
-    # Basic GraphQL query handling
-    if "models" in query:
-        result["data"]["models"] = REGISTRY.list_models()
-    elif "scoreBackbones" in query and variables and "backboneIds" in variables:
-        scores = REGISTRY.score_backbones(variables["backboneIds"])
-        result["data"]["scoreBackbones"] = scores
-    return result
-
-
-def _start_batch_score_job(backbone_ids: list[str]) -> str:
-    """Start a batch scoring job and return job ID."""
-    return f"batch_job_{hash(tuple(backbone_ids)) % 100000}"
-
-
-def _batch_job(job_id: str) -> dict[str, Any]:
-    """Get batch job status and result."""
-    return {
-        "status": "completed",
-        "result": {"scores": [{"backbone_id": "bb1", "priority_index": 0.7}]},
-    }
 
 
 def _artifact_payload(
@@ -343,11 +312,20 @@ def get_config_summary() -> dict[str, Any]:
     return {"config_keys": list(ctx.config.keys()) if isinstance(ctx.config, dict) else []}
 
 
+@app.get("/models", dependencies=[Depends(_protect_api_surface)])
+def list_models() -> dict[str, Any]:
+    """Return artifact-backed model metadata."""
+    if not FASTAPI_AVAILABLE:
+        return {"status": "error", "reason": "fastapi_not_installed"}
+    return {"status": "ok", "models": REGISTRY.list_models()}
+
+
 @app.post("/score", response_model=ScoreResponse, dependencies=[Depends(_protect_api_surface)])
 def compute_scores(request: ScoreRequest) -> ScoreResponse:
     """Compute priority scores for the given backbone IDs.
 
-    Prefer artifact-backed scores and zero-fill unresolved backbones.
+    Fail closed when scoring artifacts are unavailable.
+    Zero-fill unresolved backbone IDs when artifact scoring succeeds.
     """
     if not FASTAPI_AVAILABLE:
         return ScoreResponse(scores=[], status="error: fastapi not installed")
@@ -367,29 +345,6 @@ def compute_scores(request: ScoreRequest) -> ScoreResponse:
 def score_backbones(request: ScoreRequest) -> ScoreResponse:
     """Artifact-backed scoring endpoint for product API clients."""
     return compute_scores(request)
-
-
-@app.post(
-    "/score/backbones/batch",
-    response_model=BatchScoreJobResponse,
-    dependencies=[Depends(_protect_api_surface)],
-)
-def start_score_backbones_batch(request: ScoreRequest) -> BatchScoreJobResponse:
-    """Start an asynchronous backbone scoring batch job."""
-    job_id = _start_batch_score_job(request.backbone_ids)
-    return BatchScoreJobResponse(job_id=job_id, status="queued")
-
-
-@app.get("/score/backbones/batch/{job_id}", dependencies=[Depends(_protect_api_surface)])
-def get_score_backbones_batch(job_id: str) -> dict[str, Any]:
-    """Return the current status and result for a batch scoring job."""
-    return _batch_job(job_id)
-
-
-@app.post("/graphql", dependencies=[Depends(_protect_api_surface)])
-def graphql(request: GraphQLRequest) -> dict[str, Any]:
-    """Execute the compact GraphQL-compatible API surface."""
-    return _execute_graphql_query(request.query, request.variables)
 
 
 @app.get("/explain/{backbone_id}", dependencies=[Depends(_protect_api_surface)])

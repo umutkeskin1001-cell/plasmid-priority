@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import tempfile
-import time
 from pathlib import Path
 from unittest import mock
 
@@ -29,47 +28,40 @@ independent_audit_script = importlib.util.module_from_spec(AUDIT_SPEC)
 AUDIT_SPEC.loader.exec_module(independent_audit_script)
 
 
-def test_graphql_dispatch_supports_models_and_score_backbones() -> None:
-    class _FakeRegistry:
-        @staticmethod
-        def list_models() -> list[dict[str, str]]:
-            return [{"model_version": "v1"}]
-
-        @staticmethod
-        def score_backbones(backbone_ids: list[str]) -> list[dict[str, object]]:
-            return [{"backbone_id": item, "priority_index": 0.5} for item in backbone_ids]
-
-    with mock.patch.object(api_app, "REGISTRY", _FakeRegistry()):
-        models_payload = api_app._execute_graphql_query("query { models }")
-        assert models_payload["data"]["models"][0]["model_version"] == "v1"
-        scores_payload = api_app._execute_graphql_query(
-            "query($backboneIds: [String!]!) { scoreBackbones(backboneIds: $backboneIds) { backbone_id } }",
-            {"backboneIds": ["bb1", "bb2"]},
-        )
-        assert len(scores_payload["data"]["scoreBackbones"]) == 2
-
-
-def test_async_batch_job_reaches_completed_state() -> None:
+def test_model_registry_scores_backbones_and_zero_fills_missing() -> None:
     class _FakeRegistry:
         @staticmethod
         def score_backbones(backbone_ids: list[str]) -> list[dict[str, object]]:
-            return [{"backbone_id": item, "priority_index": 0.7} for item in backbone_ids]
+            assert backbone_ids == ["bb1", "bb2"]
+            return [
+                {
+                    "backbone_id": "bb1",
+                    "priority_index": "0.50",
+                    "operational_priority_index": "0.40",
+                    "bio_priority_index": "0.60",
+                    "evidence_support_index": "0.70",
+                },
+            ]
 
-    with mock.patch.object(api_app, "REGISTRY", _FakeRegistry()):
-        job_id = api_app._start_batch_score_job(["bb1"])
-        deadline = time.time() + 2.0
-        payload: dict[str, object] = {}
-        while time.time() < deadline:
-            payload = api_app._batch_job(job_id)
-            if payload.get("status") == "completed":
-                break
-            time.sleep(0.02)
-        assert payload.get("status") == "completed"
-        result = payload.get("result", {})
-        assert isinstance(result, dict)
-        scores = result.get("scores", [])
-        assert isinstance(scores, list)
-        assert scores and scores[0]["backbone_id"] == "bb1"
+    with mock.patch.object(api_app, "_build_artifact_registry", return_value=_FakeRegistry()):
+        scores = api_app.ModelRegistry.score_backbones(["bb1", "bb2"])
+    assert len(scores) == 2
+    assert scores[0]["backbone_id"] == "bb1"
+    assert scores[0]["priority_index"] == 0.5
+    assert scores[1] == {"backbone_id": "bb2", "priority_index": 0.0}
+
+
+def test_model_registry_fails_closed_when_artifact_registry_unavailable() -> None:
+    if not api_app.FASTAPI_AVAILABLE:
+        return
+    with mock.patch.object(api_app, "_build_artifact_registry", return_value=None):
+        try:
+            api_app.ModelRegistry.score_backbones(["bb1"])
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 503
+            assert "artifact registry unavailable" in str(getattr(exc, "detail", "")).lower()
+        else:  # pragma: no cover - safety
+            raise AssertionError("expected HTTPException when artifact registry is unavailable")
 
 
 def test_sdk_routes_requests_to_expected_paths() -> None:
@@ -84,13 +76,21 @@ def test_sdk_routes_requests_to_expected_paths() -> None:
 
     sdk = _FakeSDK(base_url="http://localhost:1234")
     sdk.health()
+    sdk.config()
+    sdk.models()
     sdk.score_backbones(["bb1"])
-    sdk.start_score_batch(["bb2"])
-    sdk.graphql("query { health }")
+    sdk.explain_backbone("bb1")
+    sdk.get_evidence("bb1")
     assert ("GET", "/health", None) in captured
-    assert ("POST", "/score/backbones", {"backbone_ids": ["bb1"]}) in captured
-    assert ("POST", "/score/backbones/batch", {"backbone_ids": ["bb2"]}) in captured
-    assert any(path == "/graphql" for _, path, _ in captured)
+    assert ("GET", "/config", None) in captured
+    assert ("GET", "/models", None) in captured
+    assert (
+        "POST",
+        "/score/backbones",
+        {"backbone_ids": ["bb1"], "config_key": "geo_spread"},
+    ) in captured
+    assert ("GET", "/explain/bb1", None) in captured
+    assert ("GET", "/evidence/bb1", None) in captured
 
 
 def test_local_rag_retrieval_returns_ranked_hits() -> None:

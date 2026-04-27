@@ -53,7 +53,12 @@ class OOFCache:
             return None
         try:
             predictions = pd.read_parquet(predictions_path)
-        except Exception:
+        except Exception as exc:
+
+            import logging
+            logging.getLogger(__name__).warning(
+                "Caught suppressed exception: %s", exc, exc_info=True
+            )
             return None
         return {"metadata": metadata, "predictions": predictions}
 

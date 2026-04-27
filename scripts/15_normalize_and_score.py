@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -32,39 +30,11 @@ from plasmid_priority.utils.files import (
     project_python_source_paths,
     write_signature_manifest,
 )
+from plasmid_priority.utils.hashes import (
+    cache_key_path,
+    stable_hash,
+)
 from plasmid_priority.validation.missingness import audit_backbone_tables, format_missingness_report
-
-
-def _stable_hash(payload: object) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode(
-        "utf-8",
-    )
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _cache_key_path(path: Path) -> Path:
-    return path.with_name(path.name + ".cache_key")
-
-
-def _cache_key_payload(
-    *,
-    protocol_hash: str,
-    input_paths: list[Path],
-    source_paths: list[Path],
-    metadata: dict[str, object],
-    feature_schema_version: str,
-) -> dict[str, object]:
-    input_signature_payload = {
-        "input_signatures": [path_signature(path) for path in input_paths],
-        "source_signatures": [path_signature(path) for path in source_paths],
-        "metadata": metadata,
-    }
-    return {
-        "protocol_hash": protocol_hash,
-        "input_hash": _stable_hash(input_signature_payload),
-        "feature_schema_version": feature_schema_version,
-        "produced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }
 
 
 def _cache_key_matches(cache_key_path: Path, expected: dict[str, object]) -> bool:
@@ -103,14 +73,14 @@ def main() -> int:
     scored_tsv = context.data_dir / "scores/backbone_scored.tsv"
     scored_parquet = context.data_dir / "scores/backbone_scored.parquet"
     gold_tsv = context.data_dir / "gold/official_modeling_table.tsv"
-    cache_key_path = _cache_key_path(scored_tsv)
+    cache_key_file = cache_key_path(scored_tsv)
     ensure_directory(scored_tsv.parent)
     ensure_directory(gold_tsv.parent)
-    source_paths = project_python_source_paths(
-        PROJECT_ROOT,
-        script_path=PROJECT_ROOT / "scripts/15_normalize_and_score.py",
-    )
+
     input_paths = [backbone_path, t_path, h_path, a_path, *config_paths]
+    source_paths = project_python_source_paths(PROJECT_ROOT, script_path=Path(__file__))
+
+    feature_schema_version = "gold-v1"
     cache_metadata = {
         "pipeline_settings": {
             "split_year": int(context.pipeline_settings.split_year),
@@ -119,13 +89,17 @@ def main() -> int:
             ),
         },
     }
-    cache_key_payload = _cache_key_payload(
-        protocol_hash=protocol_hash,
-        input_paths=input_paths,
-        source_paths=source_paths,
-        metadata=cache_metadata,  # type: ignore
-        feature_schema_version="gold-v1",
-    )
+    cache_key_payload = {
+        "protocol_hash": protocol_hash,
+        "input_hash": stable_hash(
+            {
+                "input_signatures": [path_signature(path) for path in input_paths if path.exists()],
+                "source_signatures": [path_signature(path) for path in source_paths if path.exists()],
+                "metadata": cache_metadata,
+            },
+        ),
+        "feature_schema_version": feature_schema_version,
+    }
 
     with ManagedScriptRun(context, "15_normalize_and_score") as run:
         for path in (backbone_path, t_path, h_path, a_path, *config_paths):
@@ -133,13 +107,13 @@ def main() -> int:
         run.record_output(scored_tsv)
         run.record_output(scored_parquet)
         run.record_output(gold_tsv)
-        run.record_output(cache_key_path)
+        run.record_output(cache_key_file)
         if load_signature_manifest(
             manifest_path,
             input_paths=input_paths,
             source_paths=source_paths,
             metadata=cache_metadata,
-        ) and _cache_key_matches(cache_key_path, cache_key_payload):
+        ) and _cache_key_matches(cache_key_file, cache_key_payload):
             run.note("Inputs, code, and config unchanged; reusing cached scored backbone tables.")
             run.set_metric("cache_hit", True)
 
@@ -193,7 +167,7 @@ def main() -> int:
             source_paths=source_paths,
             metadata=cache_metadata,
         )
-        atomic_write_json(cache_key_path, cache_key_payload)
+        atomic_write_json(cache_key_file, cache_key_payload)
 
         run.set_rows_out("backbone_scored_rows", int(len(scored)))
         run.set_metric("cache_hit", False)

@@ -1,6 +1,5 @@
 """Model audit tables for jury-facing validation and explainability."""
 
-from __future__ import annotations
 
 import ast
 import hashlib
@@ -67,6 +66,7 @@ from plasmid_priority.reporting.candidate_tables import (
 )
 from plasmid_priority.scoring import DEFAULT_NORMALIZATION_METHOD, recompute_priority_from_reference
 from plasmid_priority.utils.dataframe import coalescing_left_merge
+from plasmid_priority.utils.numeric_ops import copy_frame, fill0, int0, to_numeric_series
 from plasmid_priority.utils.parallel import limit_native_threads
 from plasmid_priority.validation import (
     average_precision as _base_average_precision,
@@ -92,7 +92,8 @@ from plasmid_priority.validation import (
     roc_auc_score as _base_roc_auc_score,
 )
 from plasmid_priority.validation.fast_metrics import (
-    permutation_null_auc_ap_fast,
+    fast_average_precision,
+    permutation_null_fast,
 )
 
 
@@ -146,20 +147,20 @@ def sanitize_adaptive_gated_predictions(adaptive_predictions: pd.DataFrame) -> p
     if adaptive_predictions.empty:
         return pd.DataFrame(columns=list(ADAPTIVE_GATED_PUBLIC_COLUMNS))
 
-    working = adaptive_predictions.copy()
+    working = adaptive_predictions.pipe(copy_frame)
     for column in ADAPTIVE_GATED_PUBLIC_COLUMNS:
         if column not in working.columns:
             working[column] = np.nan
-    return working.loc[:, list(ADAPTIVE_GATED_PUBLIC_COLUMNS)].copy()
+    return working.loc[:, list(ADAPTIVE_GATED_PUBLIC_COLUMNS)].pipe(copy_frame)
 
 
-def _coerce_float(value: object) -> float:
-    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+def coerce_float(value: object) -> float:
+    coerced = to_numeric_series(pd.Series([value])).iloc[0]
     return float(coerced) if pd.notna(coerced) else float("nan")
 
 
-def _coerce_int(value: object, *, default: int = 0) -> int:
-    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+def coerce_int(value: object, *, default: int = 0) -> int:
+    coerced = to_numeric_series(pd.Series([value])).iloc[0]
     return int(coerced) if pd.notna(coerced) else int(default)
 
 
@@ -174,8 +175,8 @@ def _is_present(value: object) -> bool:
 def _numeric_series_from_frame(frame: pd.DataFrame, column: str) -> pd.Series:
     values: Any = frame.get(column, pd.Series(np.nan, index=frame.index))
     if isinstance(values, pd.DataFrame):
-        return pd.to_numeric(values.iloc[:, 0], errors="coerce")
-    return cast(pd.Series, pd.to_numeric(values, errors="coerce"))
+        return to_numeric_series(values.iloc[:, 0])
+    return to_numeric_series(values)
 
 
 def _metric_label_array(values: object) -> np.ndarray:
@@ -185,7 +186,7 @@ def _metric_label_array(values: object) -> np.ndarray:
         series = pd.Series(values)
     else:
         series = pd.Series(values)
-    return pd.to_numeric(series, errors="coerce").fillna(0).astype(int).to_numpy(dtype=int)
+    return to_numeric_series(series).pipe(int0).to_numpy(dtype=int)
 
 
 def _metric_score_array(values: object) -> np.ndarray:
@@ -195,7 +196,7 @@ def _metric_score_array(values: object) -> np.ndarray:
         series = pd.Series(values)
     else:
         series = pd.Series(values)
-    return pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
+    return to_numeric_series(series).to_numpy(dtype=float)
 
 
 def _roc_auc_score_any(y_true: object, y_score: object) -> float:
@@ -222,7 +223,7 @@ def _positive_prevalence_any(y_true: object) -> float:
 
 
 def _stable_unit_interval(text: str, *, salt: str) -> float:
-    digest = hashlib.sha256(f"{salt}:{text}".encode("utf-8")).digest()
+    digest = hashlib.sha256(f"{salt}:{text}".encode()).digest()
     return float(int.from_bytes(digest[:8], "big") / 2**64)
 
 
@@ -244,9 +245,11 @@ def _resolve_parallel_jobs(requested_jobs: int | None, *, max_tasks: int, cap: i
 
 def _active_model_metrics(model_metrics: pd.DataFrame) -> pd.DataFrame:
     if model_metrics.empty or "status" not in model_metrics.columns:
-        return model_metrics.copy()
-    active = model_metrics.loc[model_metrics["status"].fillna("ok").astype(str).eq("ok")].copy()
-    return active if not active.empty else model_metrics.copy()
+        return model_metrics.pipe(copy_frame)
+    active = model_metrics.loc[model_metrics["status"].fillna("ok").astype(str).eq("ok")].pipe(
+        copy_frame
+    )
+    return active if not active.empty else model_metrics.pipe(copy_frame)
 
 
 def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
@@ -397,12 +400,12 @@ def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
     elif not available.empty:
         reference_model = str(available["roc_auc"].astype(float).idxmax())
     reference_auc = (
-        _coerce_float(available.loc[reference_model, "roc_auc"])
+        coerce_float(available.loc[reference_model, "roc_auc"])
         if reference_model is not None and reference_model in available.index
         else np.nan
     )
     enhanced_auc = (
-        _coerce_float(available.loc["enhanced_priority", "roc_auc"])
+        coerce_float(available.loc["enhanced_priority", "roc_auc"])
         if "enhanced_priority" in available.index
         else np.nan
     )
@@ -415,7 +418,7 @@ def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
         row["evidence_role"] = evidence_role
         row["evidence_summary"] = evidence_summary
         row["primary_reference_model"] = reference_model
-        row_auc = _coerce_float(row.get("roc_auc"))
+        row_auc = coerce_float(row.get("roc_auc"))
         row["delta_auc_vs_primary_reference"] = (
             row_auc - reference_auc if np.isfinite(reference_auc) else np.nan
         )
@@ -423,7 +426,7 @@ def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
             row_auc - enhanced_auc if np.isfinite(enhanced_auc) else np.nan
         )
         row["leakage_review_required"] = bool(
-            np.isfinite(row_auc) and row_auc >= 0.90
+            np.isfinite(row_auc) and row_auc >= 0.90,
         )
         row["leakage_review_reason"] = (
             "roc_auc_ge_0p90_on_current_feature_universe" if row["leakage_review_required"] else ""
@@ -433,11 +436,11 @@ def build_model_family_summary(model_metrics: pd.DataFrame) -> pd.DataFrame:
 
 
 def _guardrail_loss_from_scorecard_row(scorecard_row: pd.Series) -> float:
-    knownness_gap = pd.to_numeric(
-        pd.Series([scorecard_row.get("knownness_matched_gap", np.nan)]), errors="coerce"
+    knownness_gap = to_numeric_series(
+        pd.Series([scorecard_row.get("knownness_matched_gap", np.nan)]),
     ).iloc[0]
-    source_gap = pd.to_numeric(
-        pd.Series([scorecard_row.get("source_holdout_gap", np.nan)]), errors="coerce"
+    source_gap = to_numeric_series(
+        pd.Series([scorecard_row.get("source_holdout_gap", np.nan)]),
     ).iloc[0]
     gaps: list[float] = []
     if pd.notna(knownness_gap):
@@ -453,23 +456,23 @@ def _guardrail_loss_from_scorecard_row(scorecard_row: pd.Series) -> float:
 
 
 def _guardrail_loss_series(scorecard: pd.DataFrame) -> pd.Series:
-    knownness_gap = pd.to_numeric(
+    knownness_gap = to_numeric_series(
         scorecard.get("knownness_matched_gap", pd.Series(np.nan, index=scorecard.index)),
         errors="coerce",
     ).abs()
-    source_gap = pd.to_numeric(
+    source_gap = to_numeric_series(
         scorecard.get("source_holdout_gap", pd.Series(np.nan, index=scorecard.index)),
         errors="coerce",
     ).abs()
-    loss = knownness_gap.fillna(0.0) + source_gap.fillna(0.0)
+    loss = knownness_gap.pipe(fill0) + source_gap.pipe(fill0)
     has_any_gap = knownness_gap.notna() | source_gap.notna()
     loss = loss.where(has_any_gap, np.nan)
     leakage_penalty = (
-        pd.to_numeric(
+        to_numeric_series(
             scorecard.get("leakage_review_required", pd.Series(False, index=scorecard.index)),
             errors="coerce",
         )
-        .fillna(0.0)
+        .pipe(fill0)
         .astype(float)
     )
     return loss + 0.25 * leakage_penalty
@@ -495,28 +498,28 @@ def _model_track_summary(track: str) -> str:
 def _select_governance_scorecard_row(scorecard: pd.DataFrame) -> pd.Series:
     if scorecard.empty or "model_name" not in scorecard.columns:
         return pd.Series(dtype=object)
-    working = scorecard.copy()
+    working = scorecard.pipe(copy_frame)
     if "model_track" not in working.columns:
         working["model_track"] = working["model_name"].map(_safe_model_track)
     governance_mask = working["model_track"].astype(str).eq("governance")
     if governance_mask.any():
-        working = working.loc[governance_mask].copy()
+        working = working.loc[governance_mask].pipe(copy_frame)
     if "roc_auc" not in working.columns:
         working["roc_auc"] = np.nan
     if "average_precision" not in working.columns:
         working["average_precision"] = np.nan
     working["guardrail_loss"] = _guardrail_loss_series(working)
     working["governance_priority_score"] = (
-        pd.to_numeric(
-            working.get("roc_auc", pd.Series(np.nan, index=working.index)), errors="coerce"
-        ).fillna(0.0)
+        to_numeric_series(
+            working.get("roc_auc", pd.Series(np.nan, index=working.index)),
+        ).pipe(fill0)
         - working["guardrail_loss"].fillna(1.0)
         - 0.25
-        * pd.to_numeric(
+        * to_numeric_series(
             working.get("leakage_review_required", pd.Series(False, index=working.index)),
             errors="coerce",
         )
-        .fillna(0.0)
+        .pipe(fill0)
         .astype(float)
     )
     strict_mask = (
@@ -525,7 +528,7 @@ def _select_governance_scorecard_row(scorecard: pd.DataFrame) -> pd.Series:
         .astype(bool)
     )
     if strict_mask.any():
-        working = working.loc[strict_mask].copy()
+        working = working.loc[strict_mask].pipe(copy_frame)
     working = working.sort_values(
         ["governance_priority_score", "guardrail_loss", "roc_auc", "average_precision"],
         ascending=[False, True, False, False],
@@ -562,7 +565,7 @@ def build_h_feature_diagnostics(
     score_column: str = "priority_index",
 ) -> pd.DataFrame:
     """Summarize whether H behaves like a plausible host-range signal."""
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
 
@@ -577,16 +580,17 @@ def build_h_feature_diagnostics(
     row: dict[str, object] = {
         "n_scored_backbones": int(len(scored)),
         "n_eligible_backbones": int(len(eligible)),
-        "nonzero_h_fraction_all": float(scored["H_eff_norm"].fillna(0.0).gt(0.0).mean()),
-        "nonzero_h_fraction_eligible": float(eligible["H_eff_norm"].fillna(0.0).gt(0.0).mean()),
+        "nonzero_h_fraction_all": float(scored["H_eff_norm"].pipe(fill0).gt(0.0).mean()),
+        "nonzero_h_fraction_eligible": float(eligible["H_eff_norm"].pipe(fill0).gt(0.0).mean()),
         "h_eff_norm_mean_positive": float(
-            eligible.loc[eligible["spread_label"] == 1, "H_eff_norm"].fillna(0.0).mean()
+            eligible.loc[eligible["spread_label"] == 1, "H_eff_norm"].pipe(fill0).mean(),
         ),
         "h_eff_norm_mean_negative": float(
-            eligible.loc[eligible["spread_label"] == 0, "H_eff_norm"].fillna(0.0).mean()
+            eligible.loc[eligible["spread_label"] == 0, "H_eff_norm"].pipe(fill0).mean(),
         ),
         "h_eff_norm_vs_spread_label_spearman": _safe_spearman(
-            eligible["H_eff_norm"], eligible["spread_label"]
+            eligible["H_eff_norm"],
+            eligible["spread_label"],
         ),
         "h_eff_norm_vs_member_count_train_spearman": _safe_spearman(
             eligible["H_eff_norm"],
@@ -599,14 +603,14 @@ def build_h_feature_diagnostics(
         "h_eff_norm_top100_mean": float(
             scored.sort_values(ranking_column, ascending=False)
             .head(100)["H_eff_norm"]
-            .fillna(0.0)
-            .mean()
+            .pipe(fill0)
+            .mean(),
         ),
         "h_eff_norm_bottom100_mean": float(
             scored.sort_values(ranking_column, ascending=True)
             .head(100)["H_eff_norm"]
-            .fillna(0.0)
-            .mean()
+            .pipe(fill0)
+            .mean(),
         ),
     }
     if "H_breadth_norm" in eligible.columns:
@@ -621,14 +625,14 @@ def build_h_feature_diagnostics(
         row["h_breadth_norm_top100_mean"] = float(
             scored.sort_values(ranking_column, ascending=False)
             .head(100)["H_breadth_norm"]
-            .fillna(0.0)
-            .mean()
+            .pipe(fill0)
+            .mean(),
         )
         row["h_breadth_norm_bottom100_mean"] = float(
             scored.sort_values(ranking_column, ascending=True)
             .head(100)["H_breadth_norm"]
-            .fillna(0.0)
-            .mean()
+            .pipe(fill0)
+            .mean(),
         )
     if "H_specialization_norm" in eligible.columns:
         row["h_specialization_norm_vs_spread_label_spearman"] = _safe_spearman(
@@ -642,14 +646,14 @@ def build_h_feature_diagnostics(
         row["h_specialization_norm_top100_mean"] = float(
             scored.sort_values(ranking_column, ascending=False)
             .head(100)["H_specialization_norm"]
-            .fillna(0.0)
-            .mean()
+            .pipe(fill0)
+            .mean(),
         )
         row["h_specialization_norm_bottom100_mean"] = float(
             scored.sort_values(ranking_column, ascending=True)
             .head(100)["H_specialization_norm"]
-            .fillna(0.0)
-            .mean()
+            .pipe(fill0)
+            .mean(),
         )
     if "H_genus_richness_norm" in eligible.columns:
         row["h_genus_richness_norm_vs_spread_label_spearman"] = _safe_spearman(
@@ -680,7 +684,8 @@ def build_h_feature_diagnostics(
         )
     if "H_raw" in eligible.columns:
         row["h_raw_vs_spread_label_spearman"] = _safe_spearman(
-            eligible["H_raw"], eligible["spread_label"]
+            eligible["H_raw"],
+            eligible["spread_label"],
         )
         row["h_raw_vs_member_count_train_spearman"] = _safe_spearman(
             eligible["H_raw"],
@@ -698,14 +703,14 @@ def build_h_feature_diagnostics(
         row["h_phylogenetic_norm_top100_mean"] = float(
             scored.sort_values(ranking_column, ascending=False)
             .head(100)["H_phylogenetic_norm"]
-            .fillna(0.0)
-            .mean()
+            .pipe(fill0)
+            .mean(),
         )
         row["h_phylogenetic_norm_bottom100_mean"] = float(
             scored.sort_values(ranking_column, ascending=True)
             .head(100)["H_phylogenetic_norm"]
-            .fillna(0.0)
-            .mean()
+            .pipe(fill0)
+            .mean(),
         )
     if "host_phylogenetic_dispersion_norm" in eligible.columns:
         row["host_phylogenetic_dispersion_norm_vs_spread_label_spearman"] = _safe_spearman(
@@ -752,7 +757,7 @@ def build_h_feature_diagnostics(
     if coefficient_table is not None and not coefficient_table.empty:
         matches = coefficient_table.loc[
             coefficient_table["feature_name"].isin(h_feature_names)
-        ].copy()
+        ].pipe(copy_frame)
         if "abs_coefficient" not in matches.columns and "coefficient" in matches.columns:
             matches["abs_coefficient"] = matches["coefficient"].astype(float).abs()
         row["primary_model_uses_h"] = bool(len(matches))
@@ -770,10 +775,11 @@ def build_h_feature_diagnostics(
         row["primary_model_uses_h"] = False
     if dropout_table is not None and not dropout_table.empty:
         dropout_matches = dropout_table.loc[
-            dropout_table["feature_name"].isin(h_feature_names), "roc_auc_drop_vs_full"
+            dropout_table["feature_name"].isin(h_feature_names),
+            "roc_auc_drop_vs_full",
         ]
         row["h_feature_dropout_auc_drop"] = (
-            _coerce_float(dropout_matches.sum()) if not dropout_matches.empty else np.nan
+            coerce_float(dropout_matches.sum()) if not dropout_matches.empty else np.nan
         )
     if model_metrics is not None and not model_metrics.empty:
         available = model_metrics.set_index("model_name", drop=False)
@@ -785,7 +791,7 @@ def build_h_feature_diagnostics(
             ("enhanced_priority", "enhanced_priority_roc_auc"),
         ):
             if model_name in available.index:
-                row[output_name] = _coerce_float(available.loc[model_name, "roc_auc"])
+                row[output_name] = coerce_float(available.loc[model_name, "roc_auc"])
     if mobsuite_detail is not None and not mobsuite_detail.empty:
         supported = mobsuite_detail.loc[
             mobsuite_detail["mobsuite_any_literature_support"].fillna(False).astype(bool)
@@ -793,33 +799,35 @@ def build_h_feature_diagnostics(
             .fillna(0)
             .astype(float)
             .gt(0.0)
-        ].copy()
+        ].pipe(copy_frame)
         row["mobsuite_supported_backbones"] = int(len(supported))
         if not supported.empty and "priority_group" in supported.columns:
             group_summary = supported.groupby("priority_group", as_index=True)[
                 "mobsuite_reported_host_range_taxid_count"
             ].agg(["count", "mean"])
             row["mobsuite_high_literature_supported_n"] = (
-                _coerce_int(group_summary.loc["high", "count"]) if "high" in group_summary.index else 0
+                coerce_int(group_summary.loc["high", "count"])
+                if "high" in group_summary.index
+                else 0
             )
             row["mobsuite_low_literature_supported_n"] = (
-                _coerce_int(group_summary.loc["low", "count"]) if "low" in group_summary.index else 0
+                coerce_int(group_summary.loc["low", "count"]) if "low" in group_summary.index else 0
             )
             row["mobsuite_high_mean_reported_host_range_taxid_count"] = (
-                _coerce_float(group_summary.loc["high", "mean"])
+                coerce_float(group_summary.loc["high", "mean"])
                 if "high" in group_summary.index
                 else np.nan
             )
             row["mobsuite_low_mean_reported_host_range_taxid_count"] = (
-                _coerce_float(group_summary.loc["low", "mean"])
+                coerce_float(group_summary.loc["low", "mean"])
                 if "low" in group_summary.index
                 else np.nan
             )
             if "high" in group_summary.index and "low" in group_summary.index:
-                high_mean = _coerce_float(group_summary.loc["high", "mean"])
-                low_mean = _coerce_float(group_summary.loc["low", "mean"])
+                high_mean = coerce_float(group_summary.loc["high", "mean"])
+                low_mean = coerce_float(group_summary.loc["low", "mean"])
                 row["mobsuite_high_minus_low_mean_reported_host_range_taxid_count"] = float(
-                    high_mean - low_mean
+                    high_mean - low_mean,
                 )
     return pd.DataFrame([row])
 
@@ -854,7 +862,10 @@ def build_knownness_audit_tables(
     merged = primary.merge(baseline, on="backbone_id", how="inner", validate="1:1")
     available_meta_columns = [column for column in meta_columns if column in scored.columns]
     merged = merged.merge(
-        scored[available_meta_columns], on="backbone_id", how="left", validate="1:1"
+        scored[available_meta_columns],
+        on="backbone_id",
+        how="left",
+        validate="1:1",
     )
     if merged.empty:
         return pd.DataFrame(), pd.DataFrame()
@@ -868,7 +879,7 @@ def build_knownness_audit_tables(
             merged[column] = np.nan
 
     merged["operational_priority_index"] = merged["operational_priority_index"].fillna(
-        merged["priority_index"]
+        merged["priority_index"],
     )
     merged = annotate_knownness_metadata(merged)
 
@@ -878,12 +889,16 @@ def build_knownness_audit_tables(
         "n_backbones": int(len(merged)),
         "n_positive": int(merged["spread_label"].sum()),
         "overall_primary_roc_auc": _roc_auc_score_any(
-            merged["spread_label"], merged["primary_prediction"]
+            merged["spread_label"],
+            merged["primary_prediction"],
         ),
         "overall_baseline_roc_auc": _roc_auc_score_any(
-            merged["spread_label"], merged["baseline_prediction"]
+            merged["spread_label"],
+            merged["baseline_prediction"],
         ),
-        "overall_delta_roc_auc": _roc_auc_score_any(merged["spread_label"], merged["primary_prediction"])
+        "overall_delta_roc_auc": _roc_auc_score_any(
+            merged["spread_label"], merged["primary_prediction"]
+        )
         - _roc_auc_score_any(merged["spread_label"], merged["baseline_prediction"]),
         "primary_prediction_vs_knownness_spearman": _safe_spearman(
             merged["primary_prediction"],
@@ -916,7 +931,7 @@ def build_knownness_audit_tables(
         "lower_half_knownness_baseline_roc_auc": np.nan,
         "lower_half_knownness_delta_roc_auc": np.nan,
         "lowest_knownness_quartile_supported": bool(
-            (merged["knownness_quartile"] == "q1_lowest").any()
+            (merged["knownness_quartile"] == "q1_lowest").any(),
         ),
         "lowest_knownness_quartile_n_backbones": 0,
         "lowest_knownness_quartile_n_positive": 0,
@@ -933,7 +948,7 @@ def build_knownness_audit_tables(
         ("lowest_knownness_quartile", merged["knownness_quartile"] == "q1_lowest"),
     ]
     for label, mask in cohort_specs:
-        cohort = merged.loc[mask].copy()
+        cohort = merged.loc[mask].pipe(copy_frame)
         if cohort.empty or cohort["spread_label"].nunique() < 2:
             continue
         summary_row[f"{label}_n_backbones"] = int(len(cohort))
@@ -948,24 +963,26 @@ def build_knownness_audit_tables(
         )
         summary_row[f"{label}_delta_roc_auc"] = float(
             cast(float, summary_row[f"{label}_primary_roc_auc"])
-            - cast(float, summary_row[f"{label}_baseline_roc_auc"])
+            - cast(float, summary_row[f"{label}_baseline_roc_auc"]),
         )
 
-    top_candidates = merged.sort_values("primary_prediction", ascending=False).head(top_k).copy()
+    top_candidates = (
+        merged.sort_values("primary_prediction", ascending=False).head(top_k).pipe(copy_frame)
+    )
     summary_row["top_k"] = int(top_k)
     summary_row["top_k_mean_knownness_score"] = float(top_candidates["knownness_score"].mean())
     summary_row["eligible_mean_knownness_score"] = float(merged["knownness_score"].mean())
     summary_row["top_k_lower_half_knownness_count"] = int(
-        (top_candidates["knownness_half"] == "lower_half").sum()
+        (top_candidates["knownness_half"] == "lower_half").sum(),
     )
     summary_row["top_k_lower_half_knownness_fraction"] = float(
-        (top_candidates["knownness_half"] == "lower_half").mean()
+        (top_candidates["knownness_half"] == "lower_half").mean(),
     )
     summary_row["top_k_lowest_quartile_knownness_count"] = int(
-        (top_candidates["knownness_quartile"] == "q1_lowest").sum()
+        (top_candidates["knownness_quartile"] == "q1_lowest").sum(),
     )
     summary_row["top_k_lowest_quartile_knownness_fraction"] = float(
-        (top_candidates["knownness_quartile"] == "q1_lowest").mean()
+        (top_candidates["knownness_quartile"] == "q1_lowest").mean(),
     )
 
     stratum_rows: list[dict[str, object]] = []
@@ -989,15 +1006,15 @@ def build_knownness_audit_tables(
                 "primary_roc_auc": primary_auc,
                 "baseline_roc_auc": baseline_auc,
                 "delta_roc_auc": primary_auc - baseline_auc,
-            }
+            },
         )
     strata = pd.DataFrame(stratum_rows)
     if not strata.empty:
         weighted_primary = float(
-            np.average(strata["primary_roc_auc"], weights=strata["n_backbones"])
+            np.average(strata["primary_roc_auc"], weights=strata["n_backbones"]),
         )
         weighted_baseline = float(
-            np.average(strata["baseline_roc_auc"], weights=strata["n_backbones"])
+            np.average(strata["baseline_roc_auc"], weights=strata["n_backbones"]),
         )
         summary_row["matched_strata_count"] = int(len(strata))
         summary_row["matched_strata_n_backbones"] = int(strata["n_backbones"].sum())
@@ -1052,7 +1069,8 @@ def build_novelty_margin_summary(
         "n_backbones": int(len(merged)),
         "n_positive": int(merged["spread_label"].sum()),
         "novelty_margin_overall_roc_auc": _roc_auc_score_any(
-            merged["spread_label"], merged["novelty_margin"]
+            merged["spread_label"],
+            merged["novelty_margin"],
         ),
         "novelty_margin_overall_average_precision": _average_precision_any(
             merged["spread_label"],
@@ -1072,7 +1090,7 @@ def build_novelty_margin_summary(
         ("lower_half_knownness", merged["knownness_half"] == "lower_half"),
         ("lowest_knownness_quartile", merged["knownness_quartile"] == "q1_lowest"),
     ):
-        cohort = merged.loc[mask].copy()
+        cohort = merged.loc[mask].pipe(copy_frame)
         row[f"{label}_n_backbones"] = int(len(cohort))
         row[f"{label}_n_positive"] = int(cohort["spread_label"].sum()) if not cohort.empty else 0
         if not cohort.empty and cohort["spread_label"].nunique() >= 2:
@@ -1085,7 +1103,7 @@ def build_novelty_margin_summary(
                 cohort["novelty_margin"],
             )
 
-    watchlist = merged.loc[merged["knownness_half"] == "lower_half"].copy()
+    watchlist = merged.loc[merged["knownness_half"] == "lower_half"].pipe(copy_frame)
     watchlist = watchlist.sort_values(
         ["novelty_margin", "primary_prediction", "priority_index"],
         ascending=[False, False, False],
@@ -1129,10 +1147,10 @@ def _build_gate_consistency_row(
     working = frame.loc[
         lower_mask | upper_mask,
         ["backbone_id", "knownness_score", lower_route_column, upper_route_column],
-    ].copy()
-    working["knownness_score"] = pd.to_numeric(working["knownness_score"], errors="coerce")
-    working[lower_route_column] = pd.to_numeric(working[lower_route_column], errors="coerce")
-    working[upper_route_column] = pd.to_numeric(working[upper_route_column], errors="coerce")
+    ].pipe(copy_frame)
+    working["knownness_score"] = to_numeric_series(working["knownness_score"])
+    working[lower_route_column] = to_numeric_series(working[lower_route_column])
+    working[upper_route_column] = to_numeric_series(working[upper_route_column])
     working = working.dropna(subset=["knownness_score", lower_route_column, upper_route_column])
     if working.empty:
         return None
@@ -1141,8 +1159,8 @@ def _build_gate_consistency_row(
     upper_scores = frame.loc[upper_mask, "knownness_score"]
     if lower_scores.empty or upper_scores.empty:
         return None
-    lower_boundary = float(pd.to_numeric(lower_scores, errors="coerce").dropna().max())
-    upper_boundary = float(pd.to_numeric(upper_scores, errors="coerce").dropna().min())
+    lower_boundary = float(to_numeric_series(lower_scores).dropna().max())
+    upper_boundary = float(to_numeric_series(upper_scores).dropna().min())
     if not np.isfinite(lower_boundary) or not np.isfinite(upper_boundary):
         return None
 
@@ -1153,10 +1171,12 @@ def _build_gate_consistency_row(
     near_n = min(len(working), max(int(min_n), int(np.ceil(len(working) * near_fraction))))
     near = (
         working.sort_values(
-            ["distance_to_gate", "knownness_score"], ascending=[True, True], kind="mergesort"
+            ["distance_to_gate", "knownness_score"],
+            ascending=[True, True],
+            kind="mergesort",
         )
         .head(near_n)
-        .copy()
+        .pipe(copy_frame)
     )
     if near.empty:
         return None
@@ -1302,44 +1322,44 @@ def build_score_distribution_diagnostics(
     if scored.empty:
         return pd.DataFrame()
 
-    working = scored.copy()
+    working = scored.pipe(copy_frame)
     component_columns = {
         "T": "T_eff_norm",
         "H": "H_eff_norm",
         "A": "A_eff_norm",
     }
-    component_frame = working[list(component_columns.values())].fillna(0.0)
+    component_frame = working[list(component_columns.values())].pipe(fill0)
     dominant_floor = component_frame.idxmin(axis=1).map(
-        {value: key for key, value in component_columns.items()}
+        {value: key for key, value in component_columns.items()},
     )
     working["dominant_floor_component"] = dominant_floor.fillna("unknown")
 
     segments = {
         "all_backbones": pd.Series(True, index=working.index),
-        "training_supported": working["member_count_train"].fillna(0).astype(int) > 0,
+        "training_supported": working["member_count_train"].pipe(int0) > 0,
         "eligible_candidate_cohort": working["spread_label"].notna()
         if "spread_label" in working.columns
         else pd.Series(False, index=working.index),
-        "no_training_support": working["member_count_train"].fillna(0).astype(int) == 0,
-        "low_score_cluster": working["priority_index"].fillna(0.0) < low_score_threshold,
-        "low_score_supported": (working["priority_index"].fillna(0.0) < low_score_threshold)
-        & working["member_count_train"].fillna(0).astype(int).gt(0),
+        "no_training_support": working["member_count_train"].pipe(int0) == 0,
+        "low_score_cluster": working["priority_index"].pipe(fill0) < low_score_threshold,
+        "low_score_supported": (working["priority_index"].pipe(fill0) < low_score_threshold)
+        & working["member_count_train"].pipe(int0).gt(0),
         "low_score_supported_eligible": (
-            (working["priority_index"].fillna(0.0) < low_score_threshold)
-            & working["member_count_train"].fillna(0).astype(int).gt(0)
+            (working["priority_index"].pipe(fill0) < low_score_threshold)
+            & working["member_count_train"].pipe(int0).gt(0)
             & (working["spread_label"].notna() if "spread_label" in working.columns else False)
         ),
         "low_score_no_training_support": (
-            working["priority_index"].fillna(0.0) < low_score_threshold
+            working["priority_index"].pipe(fill0) < low_score_threshold
         )
-        & working["member_count_train"].fillna(0).astype(int).eq(0),
-        "high_score_cluster": working["priority_index"].fillna(0.0) >= high_score_threshold,
+        & working["member_count_train"].pipe(int0).eq(0),
+        "high_score_cluster": working["priority_index"].pipe(fill0) >= high_score_threshold,
     }
 
     rows: list[dict[str, object]] = []
     total = max(len(working), 1)
     for segment_name, mask in segments.items():
-        frame = working.loc[mask].copy()
+        frame = working.loc[mask].pipe(copy_frame)
         if frame.empty:
             continue
         floor_share = frame["dominant_floor_component"].value_counts(normalize=True)
@@ -1350,37 +1370,37 @@ def build_score_distribution_diagnostics(
                 "high_score_threshold": float(high_score_threshold),
                 "n_backbones": int(len(frame)),
                 "share_of_all_backbones": float(len(frame) / total),
-                "mean_priority_index": float(frame["priority_index"].fillna(0.0).mean()),
+                "mean_priority_index": float(frame["priority_index"].pipe(fill0).mean()),
                 "mean_operational_priority_index": float(
                     frame.get("operational_priority_index", frame["priority_index"])
-                    .fillna(0.0)
-                    .mean()
+                    .pipe(fill0)
+                    .mean(),
                 ),
                 "mean_bio_priority_index": float(
                     frame.get("bio_priority_index", pd.Series(0.0, index=frame.index))
-                    .fillna(0.0)
-                    .mean()
+                    .pipe(fill0)
+                    .mean(),
                 ),
                 "mean_evidence_support_index": float(
                     frame.get("evidence_support_index", pd.Series(0.0, index=frame.index))
-                    .fillna(0.0)
-                    .mean()
+                    .pipe(fill0)
+                    .mean(),
                 ),
-                "median_priority_index": float(frame["priority_index"].fillna(0.0).median()),
-                "mean_member_count_train": float(frame["member_count_train"].fillna(0.0).mean()),
+                "median_priority_index": float(frame["priority_index"].pipe(fill0).median()),
+                "mean_member_count_train": float(frame["member_count_train"].pipe(fill0).mean()),
                 "median_member_count_train": float(
-                    frame["member_count_train"].fillna(0.0).median()
+                    frame["member_count_train"].pipe(fill0).median(),
                 ),
                 "zero_training_support_fraction": float(
-                    frame["member_count_train"].fillna(0).astype(int).eq(0).mean()
+                    frame["member_count_train"].pipe(int0).eq(0).mean(),
                 ),
-                "mean_T_eff_norm": float(frame["T_eff_norm"].fillna(0.0).mean()),
-                "mean_H_eff_norm": float(frame["H_eff_norm"].fillna(0.0).mean()),
-                "mean_A_eff_norm": float(frame["A_eff_norm"].fillna(0.0).mean()),
+                "mean_T_eff_norm": float(frame["T_eff_norm"].pipe(fill0).mean()),
+                "mean_H_eff_norm": float(frame["H_eff_norm"].pipe(fill0).mean()),
+                "mean_A_eff_norm": float(frame["A_eff_norm"].pipe(fill0).mean()),
                 "dominant_floor_T_fraction": float(floor_share.get("T", 0.0)),
                 "dominant_floor_H_fraction": float(floor_share.get("H", 0.0)),
                 "dominant_floor_A_fraction": float(floor_share.get("A", 0.0)),
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -1393,13 +1413,13 @@ def build_score_axis_summary(
     baseline_model_name: str = "baseline_both",
 ) -> pd.DataFrame:
     """Summarize biological, evidence, and operational axes on a common knownness scale."""
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
     operational_priority_index = eligible.get("operational_priority_index")
     if isinstance(operational_priority_index, pd.Series):
         eligible["operational_priority_index"] = operational_priority_index.fillna(
-            eligible.get("priority_index", 0.0)
+            eligible.get("priority_index", 0.0),
         )
     else:
         eligible["operational_priority_index"] = eligible.get("priority_index", 0.0)
@@ -1408,14 +1428,15 @@ def build_score_axis_summary(
     if "evidence_support_index" not in eligible.columns:
         eligible["evidence_support_index"] = np.nan
     if "H_specialization_norm" not in eligible.columns and "H_breadth_norm" in eligible.columns:
-        eligible["H_specialization_norm"] = (1.0 - eligible["H_breadth_norm"].fillna(0.0)).clip(
-            lower=0.0, upper=1.0
+        eligible["H_specialization_norm"] = (1.0 - eligible["H_breadth_norm"].pipe(fill0)).clip(
+            lower=0.0,
+            upper=1.0,
         )
 
     for column in ("log1p_member_count_train", "log1p_n_countries_train", "refseq_share_train"):
         if column not in eligible.columns:
             eligible[column] = 0.0
-        eligible[f"{column}_rank"] = _rank_percentile_series(eligible[column].fillna(0.0))
+        eligible[f"{column}_rank"] = _rank_percentile_series(eligible[column].pipe(fill0))
     eligible["knownness_score"] = (
         eligible["log1p_member_count_train_rank"]
         + eligible["log1p_n_countries_train_rank"]
@@ -1459,19 +1480,21 @@ def build_score_axis_summary(
                 "average_precision": _average_precision_any(frame["spread_label"], frame[column]),
                 "positive_prevalence": _positive_prevalence_any(frame["spread_label"]),
                 "average_precision_lift": _average_precision_lift_any(
-                    frame["spread_label"], frame[column]
+                    frame["spread_label"],
+                    frame[column],
                 ),
                 "average_precision_enrichment": _average_precision_enrichment_any(
-                    frame["spread_label"], frame[column]
+                    frame["spread_label"],
+                    frame[column],
                 ),
                 "knownness_spearman": _safe_spearman(frame[column], frame["knownness_score"]),
                 "mean_value": float(frame[column].mean()),
                 "median_value": float(frame[column].median()),
                 "zero_fraction": float(frame[column].eq(0.0).mean()),
                 "lower_quartile_fraction": float(
-                    frame[column].le(frame[column].quantile(0.25)).mean()
+                    frame[column].le(frame[column].quantile(0.25)).mean(),
                 ),
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -1481,7 +1504,7 @@ def build_component_floor_diagnostics(scored: pd.DataFrame) -> pd.DataFrame:
     if scored.empty:
         return pd.DataFrame()
 
-    training_supported = scored["member_count_train"].fillna(0).astype(int) > 0
+    training_supported = scored["member_count_train"].pipe(int0) > 0
     eligible = scored["spread_label"].notna()
     rows: list[dict[str, object]] = []
     component_specs = [
@@ -1490,8 +1513,8 @@ def build_component_floor_diagnostics(scored: pd.DataFrame) -> pd.DataFrame:
         ("A", "A_eff", "A_eff_norm"),
     ]
     for component_name, raw_column, norm_column in component_specs:
-        raw = scored[raw_column].fillna(0.0).astype(float)
-        norm = scored[norm_column].fillna(0.0).astype(float)
+        raw = scored[raw_column].pipe(fill0).astype(float)
+        norm = scored[norm_column].pipe(fill0).astype(float)
         zero_mask = raw <= 0.0
         training_zero = zero_mask & training_supported
         eligible_zero = zero_mask & eligible
@@ -1503,7 +1526,7 @@ def build_component_floor_diagnostics(scored: pd.DataFrame) -> pd.DataFrame:
                 "n_eligible": int(eligible.sum()),
                 "zero_fraction_all": float(zero_mask.mean()),
                 "zero_fraction_training_reference": float(
-                    training_zero.sum() / training_supported.sum()
+                    training_zero.sum() / training_supported.sum(),
                 )
                 if training_supported.any()
                 else np.nan,
@@ -1525,7 +1548,7 @@ def build_component_floor_diagnostics(scored: pd.DataFrame) -> pd.DataFrame:
                 "normalized_value_when_raw_positive_median": float(norm.loc[raw > 0.0].median())
                 if (raw > 0.0).any()
                 else np.nan,
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -1534,7 +1557,7 @@ def build_amrfinder_coverage_table(summary: pd.DataFrame) -> pd.DataFrame:
     """Make AMRFinder support coverage explicit before interpreting concordance values."""
     if summary.empty:
         return pd.DataFrame()
-    working = summary.loc[summary["priority_group"] != "overall"].copy()
+    working = summary.loc[summary["priority_group"] != "overall"].pipe(copy_frame)
     if working.empty:
         return pd.DataFrame()
     working["amrfinder_hit_fraction"] = working["n_with_amrfinder_hits"] / working[
@@ -1561,9 +1584,9 @@ def build_model_subgroup_performance(
             "member_count_train",
             "n_countries_train",
         ]
-    ].copy()
+    ].pipe(copy_frame)
     backbone_meta["dominant_source"] = np.where(
-        backbone_meta["refseq_share_train"].fillna(0.0) >= 0.5,
+        backbone_meta["refseq_share_train"].pipe(fill0) >= 0.5,
         "refseq_leaning",
         "insd_leaning",
     )
@@ -1572,12 +1595,10 @@ def build_model_subgroup_performance(
         bins=[-np.inf, 1, 2, np.inf],
         labels=["1", "2", "3_plus"],
     ).astype(str)
-    backbone_meta["country_count_band"] = (
-        backbone_meta["n_countries_train"].fillna(0).astype(int).astype(str)
-    )
+    backbone_meta["country_count_band"] = backbone_meta["n_countries_train"].pipe(int0).astype(str)
 
     merged = predictions.merge(backbone_meta, on="backbone_id", how="left", validate="m:1")
-    merged = merged.loc[merged["model_name"].isin(model_names)].copy()
+    merged = merged.loc[merged["model_name"].isin(model_names)].pipe(copy_frame)
 
     subgroup_specs = [
         ("overall", None),
@@ -1587,7 +1608,7 @@ def build_model_subgroup_performance(
     ]
     rows: list[dict[str, object]] = []
     for model_name in model_names:
-        frame = merged.loc[merged["model_name"] == model_name].copy()
+        frame = merged.loc[merged["model_name"] == model_name].pipe(copy_frame)
         if frame.empty:
             continue
         for subgroup_name, column in subgroup_specs:
@@ -1610,7 +1631,7 @@ def build_model_subgroup_performance(
                             "average_precision": np.nan,
                             "brier_score": np.nan,
                             "status": "skipped_insufficient_label_variation",
-                        }
+                        },
                     )
                     continue
                 rows.append(
@@ -1624,7 +1645,7 @@ def build_model_subgroup_performance(
                         "average_precision": _average_precision_any(y, preds),
                         "brier_score": brier_score(y, preds),
                         "status": "ok",
-                    }
+                    },
                 )
     return pd.DataFrame(rows)
 
@@ -1645,13 +1666,17 @@ def build_model_comparison_table(
             ["backbone_id", "model_name", "oof_prediction", "spread_label"],
         ]
         .pivot_table(
-            index="backbone_id", columns="model_name", values="oof_prediction", aggfunc="first"
+            index="backbone_id",
+            columns="model_name",
+            values="oof_prediction",
+            aggfunc="first",
         )
         .reset_index()
     )
     primary_labels = (
         predictions.loc[
-            predictions["model_name"] == primary_model_name, ["backbone_id", "spread_label"]
+            predictions["model_name"] == primary_model_name,
+            ["backbone_id", "spread_label"],
         ]
         .drop_duplicates("backbone_id")
         .rename(columns={"spread_label": "primary_spread_label"})
@@ -1661,7 +1686,7 @@ def build_model_comparison_table(
         return pd.DataFrame()
     rows = []
     valid_primary = wide[primary_model_name].notna() & wide["primary_spread_label"].notna()
-    base = wide.loc[valid_primary].copy()
+    base = wide.loc[valid_primary].pipe(copy_frame)
     if base.empty:
         return pd.DataFrame()
     for comparator in comparison_model_names:
@@ -1669,7 +1694,7 @@ def build_model_comparison_table(
             continue
         if comparator not in base.columns:
             continue
-        merged = base.loc[base[comparator].notna()].copy()
+        merged = base.loc[base[comparator].notna()].pipe(copy_frame)
         if merged.empty:
             continue
         y = merged["primary_spread_label"].to_numpy(dtype=int)
@@ -1724,7 +1749,7 @@ def build_model_comparison_table(
                 "delta_brier_improvement": brier_delta["delta"],
                 "delta_brier_ci_lower": brier_delta["lower"],
                 "delta_brier_ci_upper": brier_delta["upper"],
-            }
+            },
         )
     return pd.DataFrame(rows).sort_values("delta_roc_auc", ascending=False).reset_index(drop=True)
 
@@ -1872,13 +1897,15 @@ def build_calibration_metric_table(
     """Compute nested calibration-quality summaries for selected models."""
     rows: list[dict[str, object]] = []
     for model_name in model_names:
-        frame = predictions.loc[predictions["model_name"] == model_name].copy()
+        frame = predictions.loc[predictions["model_name"] == model_name].pipe(copy_frame)
         if frame.empty:
             continue
         y = frame["spread_label"].to_numpy(dtype=int)
         raw_preds = frame["oof_prediction"].to_numpy(dtype=float)
         raw_metrics: dict[str, object] = _calibration_metrics_from_arrays(
-            y, raw_preds, method="raw"
+            y,
+            raw_preds,
+            method="raw",
         )
         raw_metrics.update(
             {
@@ -1887,7 +1914,7 @@ def build_calibration_metric_table(
                 "calibration_strategy": "identity",
                 "calibration_gain_vs_raw_brier": 0.0,
                 "calibration_gain_vs_raw_ece": 0.0,
-            }
+            },
         )
         rows.append(raw_metrics)
         for method in calibration_methods:
@@ -1902,7 +1929,9 @@ def build_calibration_metric_table(
                 seed=seed,
             )
             calibrated_metrics: dict[str, object] = _calibration_metrics_from_arrays(
-                y, calibrated, method=method
+                y,
+                calibrated,
+                method=method,
             )
             raw_brier_score = cast(float, raw_metrics["brier_score"])
             raw_ece = cast(float, raw_metrics["ece"])
@@ -1915,7 +1944,7 @@ def build_calibration_metric_table(
                     "calibration_strategy": "nested_oof",
                     "calibration_gain_vs_raw_brier": raw_brier_score - calibrated_brier_score,
                     "calibration_gain_vs_raw_ece": raw_ece - calibrated_ece,
-                }
+                },
             )
             rows.append(calibrated_metrics)
     result = pd.DataFrame(rows)
@@ -1947,7 +1976,7 @@ def build_blocked_holdout_calibration_table(
     n_jobs: int | None = 1,
 ) -> pd.DataFrame:
     """Evaluate nested calibration transfer on strict blocked holdout splits."""
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
@@ -1957,7 +1986,7 @@ def build_blocked_holdout_calibration_table(
     for group_column in group_columns:
         if group_column not in eligible.columns:
             continue
-        working = eligible.copy()
+        working = eligible.pipe(copy_frame)
         working[group_column] = working[group_column].fillna("unknown").astype(str)
         counts = working[group_column].value_counts()
         if group_column == "dominant_source":
@@ -1965,8 +1994,8 @@ def build_blocked_holdout_calibration_table(
         else:
             selected_groups = counts.loc[counts >= 25].head(8).index.tolist()
         for group_value in selected_groups:
-            test = working.loc[working[group_column] == group_value].copy()
-            train = working.loc[working[group_column] != group_value].copy()
+            test = working.loc[working[group_column] == group_value].pipe(copy_frame)
+            train = working.loc[working[group_column] != group_value].pipe(copy_frame)
             base_row = {
                 "group_column": group_column,
                 "group_value": str(group_value),
@@ -1996,7 +2025,7 @@ def build_blocked_holdout_calibration_table(
                             "calibration_gain_vs_raw_brier": np.nan,
                             "calibration_gain_vs_raw_ece": np.nan,
                             "status": "skipped_insufficient_label_variation",
-                        }
+                        },
                     )
                     continue
                 tasks.append((base_row, train, test, model_name))
@@ -2013,7 +2042,7 @@ def build_blocked_holdout_calibration_table(
             seed=seed,
             include_ci=False,
         )
-        train_frame = train_result.predictions.copy()
+        train_frame = train_result.predictions.pipe(copy_frame)
         if "oof_prediction" not in train_frame.columns or train_frame.empty:
             return [
                 {
@@ -2078,7 +2107,7 @@ def build_blocked_holdout_calibration_table(
                         "calibration_gain_vs_raw_brier": 0.0,
                         "calibration_gain_vs_raw_ece": 0.0,
                         "status": "ok",
-                    }
+                    },
                 )
                 holdout_rows.append(metrics)
                 continue
@@ -2100,7 +2129,7 @@ def build_blocked_holdout_calibration_table(
                     "calibration_gain_vs_raw_brier": raw_brier_score - calibrated_brier_score,
                     "calibration_gain_vs_raw_ece": raw_ece - calibrated_ece,
                     "status": "ok",
-                }
+                },
             )
             holdout_rows.append(metrics)
         return holdout_rows
@@ -2131,16 +2160,17 @@ def build_blocked_holdout_calibration_summary(
         return pd.DataFrame()
     working = blocked_holdout_calibration.loc[
         blocked_holdout_calibration.get("status", pd.Series(dtype=str)).astype(str).eq("ok")
-    ].copy()
+    ].pipe(copy_frame)
     if working.empty:
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
     for (model_name, calibration_method), frame in working.groupby(
-        ["model_name", "calibration_method"], sort=False
+        ["model_name", "calibration_method"],
+        sort=False,
     ):
-        weights = pd.to_numeric(
-            frame.get("n_test_backbones", pd.Series(np.nan, index=frame.index)), errors="coerce"
-        ).fillna(0.0)
+        weights = to_numeric_series(
+            frame.get("n_test_backbones", pd.Series(np.nan, index=frame.index)),
+        ).pipe(fill0)
         valid = frame["brier_score"].notna() & frame["ece"].notna()
         if not valid.any():
             continue
@@ -2148,49 +2178,49 @@ def build_blocked_holdout_calibration_summary(
         if valid_weights.size and np.isfinite(valid_weights).any():
             mean_prediction = float(
                 np.average(
-                    pd.to_numeric(frame.loc[valid, "mean_prediction"], errors="coerce").to_numpy(
-                        dtype=float
+                    to_numeric_series(frame.loc[valid, "mean_prediction"]).to_numpy(
+                        dtype=float,
                     ),
                     weights=valid_weights,
-                )
+                ),
             )
             observed_rate = float(
                 np.average(
-                    pd.to_numeric(frame.loc[valid, "observed_rate"], errors="coerce").to_numpy(
-                        dtype=float
+                    to_numeric_series(frame.loc[valid, "observed_rate"]).to_numpy(
+                        dtype=float,
                     ),
                     weights=valid_weights,
-                )
+                ),
             )
             brier_score_value = float(
                 np.average(
-                    pd.to_numeric(frame.loc[valid, "brier_score"], errors="coerce").to_numpy(
-                        dtype=float
+                    to_numeric_series(frame.loc[valid, "brier_score"]).to_numpy(
+                        dtype=float,
                     ),
                     weights=valid_weights,
-                )
+                ),
             )
             ece_value = float(
                 np.average(
-                    pd.to_numeric(frame.loc[valid, "ece"], errors="coerce").to_numpy(dtype=float),
+                    to_numeric_series(frame.loc[valid, "ece"]).to_numpy(dtype=float),
                     weights=valid_weights,
-                )
+                ),
             )
             max_calibration_error_value = float(
                 np.average(
-                    pd.to_numeric(
-                        frame.loc[valid, "max_calibration_error"], errors="coerce"
+                    to_numeric_series(
+                        frame.loc[valid, "max_calibration_error"],
                     ).to_numpy(dtype=float),
                     weights=valid_weights,
-                )
+                ),
             )
         else:
-            mean_prediction = float(pd.to_numeric(frame["mean_prediction"], errors="coerce").mean())
-            observed_rate = float(pd.to_numeric(frame["observed_rate"], errors="coerce").mean())
-            brier_score_value = float(pd.to_numeric(frame["brier_score"], errors="coerce").mean())
-            ece_value = float(pd.to_numeric(frame["ece"], errors="coerce").mean())
+            mean_prediction = float(to_numeric_series(frame["mean_prediction"]).mean())
+            observed_rate = float(to_numeric_series(frame["observed_rate"]).mean())
+            brier_score_value = float(to_numeric_series(frame["brier_score"]).mean())
+            ece_value = float(to_numeric_series(frame["ece"]).mean())
             max_calibration_error_value = float(
-                pd.to_numeric(frame["max_calibration_error"], errors="coerce").mean()
+                to_numeric_series(frame["max_calibration_error"]).mean(),
             )
         rows.append(
             {
@@ -2209,13 +2239,13 @@ def build_blocked_holdout_calibration_summary(
                 "expected_calibration_error": ece_value,
                 "max_calibration_error": max_calibration_error_value,
                 "calibration_gain_vs_raw_brier": float(
-                    pd.to_numeric(frame["calibration_gain_vs_raw_brier"], errors="coerce").mean()
+                    to_numeric_series(frame["calibration_gain_vs_raw_brier"]).mean(),
                 ),
                 "calibration_gain_vs_raw_ece": float(
-                    pd.to_numeric(frame["calibration_gain_vs_raw_ece"], errors="coerce").mean()
+                    to_numeric_series(frame["calibration_gain_vs_raw_ece"]).mean(),
                 ),
                 "status": "ok",
-            }
+            },
         )
     result = pd.DataFrame(rows)
     if result.empty:
@@ -2240,9 +2270,9 @@ def build_source_balance_resampling_table(
     n_jobs: int | None = 1,
 ) -> pd.DataFrame:
     """Repeatedly resample a source-balanced cohort and measure model stability."""
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     eligible["dominant_source"] = np.where(
-        eligible["refseq_share_train"].fillna(0.0) >= 0.5,
+        eligible["refseq_share_train"].pipe(fill0) >= 0.5,
         "refseq_leaning",
         "insd_leaning",
     )
@@ -2251,7 +2281,9 @@ def build_source_balance_resampling_table(
         return pd.DataFrame()
     n_per_group = int(counts.min())
     rng = np.random.default_rng(seed)
-    grouped_frames = [frame.copy() for _, frame in eligible.groupby("dominant_source", sort=False)]
+    grouped_frames = [
+        frame.pipe(copy_frame) for _, frame in eligible.groupby("dominant_source", sort=False)
+    ]
     sample_plan = [
         (resample_index, int(rng.integers(0, 1_000_000_000)))
         for resample_index in range(1, n_resamples + 1)
@@ -2264,7 +2296,11 @@ def build_source_balance_resampling_table(
         ]
         sampled = pd.concat(sampled_frames, ignore_index=True).drop(columns=["dominant_source"])
         result = evaluate_model_name(
-            sampled, model_name=model_name, n_repeats=2, seed=sample_seed, include_ci=False
+            sampled,
+            model_name=model_name,
+            n_repeats=2,
+            seed=sample_seed,
+            include_ci=False,
         )
         return {
             "model_name": model_name,
@@ -2304,13 +2340,13 @@ def build_negative_control_audit(
     if primary_model_name not in MODULE_A_FEATURE_SETS:
         return pd.DataFrame()
 
-    working = scored.copy()
+    working = scored.pipe(copy_frame)
     backbone_ids = working["backbone_id"].fillna("").astype(str)
     working["negative_control_noise_a"] = backbone_ids.map(
-        lambda value: _stable_unit_interval(value, salt="noise_a")
+        lambda value: _stable_unit_interval(value, salt="noise_a"),
     )
     working["negative_control_noise_b"] = backbone_ids.map(
-        lambda value: _stable_unit_interval(value, salt="noise_b")
+        lambda value: _stable_unit_interval(value, salt="noise_b"),
     )
     working["negative_control_length"] = backbone_ids.str.len().astype(float)
 
@@ -2368,17 +2404,17 @@ def build_negative_control_audit(
                 "roc_auc": float(metrics["roc_auc"]),
                 "average_precision": float(metrics["average_precision"]),
                 "brier_score": float(metrics["brier_score"]),
-            }
+            },
         )
 
     audit = pd.DataFrame(rows)
     if primary_metrics is not None:
         audit["delta_roc_auc_vs_primary"] = audit["roc_auc"] - float(primary_metrics["roc_auc"])
         audit["delta_average_precision_vs_primary"] = audit["average_precision"] - float(
-            primary_metrics["average_precision"]
+            primary_metrics["average_precision"],
         )
         audit["delta_brier_vs_primary"] = audit["brier_score"] - float(
-            primary_metrics["brier_score"]
+            primary_metrics["brier_score"],
         )
     return audit
 
@@ -2392,7 +2428,9 @@ def build_future_sentinel_audit(
     sentinel_feature_name: str = "future_label_sentinel",
 ) -> pd.DataFrame:
     """Document that an obviously leaky future-only sentinel is excluded from discovery models."""
-    eligible = scored.loc[scored.get("spread_label", pd.Series(dtype=float)).notna()].copy()
+    eligible = scored.loc[scored.get("spread_label", pd.Series(dtype=float)).notna()].pipe(
+        copy_frame
+    )
     if eligible.empty or eligible["spread_label"].astype(int).nunique() < 2:
         return pd.DataFrame(
             [
@@ -2401,8 +2439,8 @@ def build_future_sentinel_audit(
                     "audit_status": "skipped_insufficient_label_variation",
                     "sentinel_feature_name": sentinel_feature_name,
                     "sentinel_source": "future_outcome_label",
-                }
-            ]
+                },
+            ],
         )
     eligible["backbone_id"] = eligible["backbone_id"].astype(str)
     y = eligible["spread_label"].astype(int).to_numpy()
@@ -2435,7 +2473,7 @@ def build_future_sentinel_audit(
             predictions.get("model_name", pd.Series(dtype=str))
             .astype(str)
             .eq(str(primary_model_name))
-        ].copy()
+        ].pipe(copy_frame)
         if not primary_frame.empty:
             primary_frame["backbone_id"] = primary_frame["backbone_id"].astype(str)
             primary_frame = primary_frame.merge(
@@ -2480,7 +2518,7 @@ def build_future_sentinel_audit(
                 "official_discovery_models_checked": ",".join(discovery_models),
                 "n_discovery_models_checked": int(len(discovery_models)),
                 "official_discovery_models_use_sentinel": bool(
-                    official_discovery_models_use_sentinel
+                    official_discovery_models_use_sentinel,
                 ),
                 "n_backbones": int(len(eligible)),
                 "n_positive": int((y == 1).sum()),
@@ -2496,12 +2534,12 @@ def build_future_sentinel_audit(
                 if pd.notna(primary_roc_auc)
                 else np.nan,
                 "delta_average_precision_vs_primary": float(
-                    sentinel_average_precision - primary_average_precision
+                    sentinel_average_precision - primary_average_precision,
                 )
                 if pd.notna(primary_average_precision)
                 else np.nan,
-            }
-        ]
+            },
+        ],
     )
 
 
@@ -2516,7 +2554,7 @@ def build_permutation_null_tables(
     detail_rows: list[dict[str, object]] = []
     summary_rows: list[dict[str, object]] = []
     for model_name in model_names:
-        frame = predictions.loc[predictions["model_name"] == model_name].copy()
+        frame = predictions.loc[predictions["model_name"] == model_name].pipe(copy_frame)
         if frame.empty:
             continue
         y = frame["spread_label"].to_numpy(dtype=int)
@@ -2528,24 +2566,28 @@ def build_permutation_null_tables(
         negatives = int(n - positives)
         if positives == 0 or negatives == 0:
             continue
-
-        # Use high-performance JIT-optimized permutation test
-        null_aucs_arr, null_aps_arr = permutation_null_auc_ap_fast(
-            y, preds, n_permutations=n_permutations, seed=seed
+        # Phase 1 optimization: Numba JIT parallel null distribution
+        null_aucs = permutation_null_fast(
+            y.astype(np.int32),
+            preds.astype(np.float64),
+            n_permutations=n_permutations,
+            seed=seed,
         )
-        null_aucs = null_aucs_arr.tolist()
-        null_aps = null_aps_arr.tolist()
-
-        for idx, (null_auc, null_ap) in enumerate(zip(null_aucs, null_aps), start=1):
+        # AP null: reuse same permutations via Numba fast_average_precision
+        null_aps: list[float] = []
+        for i in range(n_permutations):
+            np.random.seed(seed + i)
+            permuted = np.random.permutation(y)
+            null_aps.append(float(fast_average_precision(permuted.astype(np.int32), preds.astype(np.float64))))
+        for permutation_index, (null_auc, null_ap) in enumerate(zip(null_aucs, null_aps, strict=False), start=1):
             detail_rows.append(
                 {
                     "model_name": model_name,
-                    "permutation_index": idx,
+                    "permutation_index": permutation_index,
                     "null_roc_auc": float(null_auc),
                     "null_average_precision": float(null_ap),
-                }
+                },
             )
-
         summary_rows.append(
             {
                 "model_name": model_name,
@@ -2557,18 +2599,20 @@ def build_permutation_null_tables(
                 "null_roc_auc_std": float(np.std(null_aucs)),
                 "null_roc_auc_q975": float(np.quantile(null_aucs, 0.975)),
                 "empirical_p_roc_auc": float(
-                    (1 + sum(value >= observed_auc for value in null_aucs)) / (n_permutations + 1)
+                    (1 + sum(value >= observed_auc for value in null_aucs)) / (n_permutations + 1),
                 ),
                 "observed_average_precision": observed_ap,
                 "observed_average_precision_lift": _average_precision_lift_any(y, preds),
-                "observed_average_precision_enrichment": _average_precision_enrichment_any(y, preds),
+                "observed_average_precision_enrichment": _average_precision_enrichment_any(
+                    y, preds
+                ),
                 "null_average_precision_mean": float(np.mean(null_aps)),
                 "null_average_precision_std": float(np.std(null_aps)),
                 "null_average_precision_q975": float(np.quantile(null_aps, 0.975)),
                 "empirical_p_average_precision": float(
-                    (1 + sum(value >= observed_ap for value in null_aps)) / (n_permutations + 1)
+                    (1 + sum(value >= observed_ap for value in null_aps)) / (n_permutations + 1),
                 ),
-            }
+            },
         )
     return pd.DataFrame(detail_rows), pd.DataFrame(summary_rows)
 
@@ -2608,7 +2652,7 @@ def build_selection_adjusted_permutation_null(
     prepared_inputs: dict[str, tuple[pd.DataFrame, list[str], dict[str, object]]] = {}
     for model_name in selection_scope:
         columns = MODULE_A_FEATURE_SETS[model_name]
-        eligible = _ensure_feature_columns(scored, columns).loc[eligible_mask].copy()
+        eligible = _ensure_feature_columns(scored, columns).loc[eligible_mask].pipe(copy_frame)
         eligible["spread_label"] = eligible["spread_label"].astype(int)
         prepared_inputs[model_name] = (eligible, columns, _model_fit_kwargs(model_name))
 
@@ -2660,7 +2704,7 @@ def build_selection_adjusted_permutation_null(
                     "model_name": model_name,
                     "null_roc_auc": float(_roc_auc_score_any(permuted_y, preds)),
                     "null_average_precision": float(_average_precision_any(permuted_y, preds)),
-                }
+                },
             )
 
         permutation_frame = pd.DataFrame(permutation_rows).sort_values(
@@ -2683,7 +2727,7 @@ def build_selection_adjusted_permutation_null(
                 "selected_model_name": selected_model_name,
                 "selected_null_roc_auc": selected_null_auc,
                 "selected_null_average_precision": selected_null_ap,
-            }
+            },
         )
 
     if not selected_null_aucs:
@@ -2715,18 +2759,18 @@ def build_selection_adjusted_permutation_null(
                 "null_roc_auc_q975": float(np.quantile(selected_null_aucs, 0.975)),
                 "selection_adjusted_empirical_p_roc_auc": float(
                     (1 + sum(value >= observed_auc for value in selected_null_aucs))
-                    / (len(selected_null_aucs) + 1)
+                    / (len(selected_null_aucs) + 1),
                 ),
                 "null_average_precision_mean": float(np.mean(selected_null_aps)),
                 "null_average_precision_std": float(np.std(selected_null_aps)),
                 "null_average_precision_q975": float(np.quantile(selected_null_aps, 0.975)),
                 "selection_adjusted_empirical_p_average_precision": float(
                     (1 + sum(value >= observed_ap for value in selected_null_aps))
-                    / (len(selected_null_aps) + 1)
+                    / (len(selected_null_aps) + 1),
                 ),
                 "modal_selected_model_name": modal_selected_model,
                 "modal_selected_model_share": modal_selected_share,
-            }
+            },
         )
     return pd.DataFrame(detail_rows), pd.DataFrame(summary_rows)
 
@@ -2742,10 +2786,10 @@ def build_consensus_candidate_ranking(
     if candidate_context.empty:
         return pd.DataFrame()
 
-    working = candidate_context.copy()
-    working = working.loc[working["member_count_train"].fillna(0).astype(int) > 0].copy()
+    working = candidate_context.pipe(copy_frame)
+    working = working.loc[working["member_count_train"].pipe(int0) > 0].pipe(copy_frame)
     if "spread_label" in working.columns:
-        working = working.loc[working["spread_label"].notna()].copy()
+        working = working.loc[working["spread_label"].notna()].pipe(copy_frame)
     if working.empty:
         return pd.DataFrame()
 
@@ -2762,19 +2806,21 @@ def build_consensus_candidate_ranking(
 
     working = working.loc[
         working[primary_score_column].notna() & working[conservative_score_column].notna()
-    ].copy()
+    ].pipe(copy_frame)
     if working.empty:
         return pd.DataFrame()
     working["primary_candidate_score"] = working[primary_score_column].astype(float)
     working["conservative_candidate_score"] = working[conservative_score_column].astype(float)
     working["primary_rank"] = working["primary_candidate_score"].rank(
-        method="average", ascending=False
+        method="average",
+        ascending=False,
     )
     working["conservative_rank"] = working["conservative_candidate_score"].rank(
-        method="average", ascending=False
+        method="average",
+        ascending=False,
     )
     working["bio_rank"] = (
-        working["bio_priority_index"].fillna(0.0).rank(method="average", ascending=False)
+        working["bio_priority_index"].pipe(fill0).rank(method="average", ascending=False)
     )
     working["consensus_rank_mean"] = (working["primary_rank"] + working["conservative_rank"]) / 2.0
     working["rank_disagreement_primary_vs_conservative"] = (
@@ -2804,7 +2850,7 @@ def build_consensus_candidate_ranking(
     ).reset_index(drop=True)
     working["consensus_rank"] = np.arange(1, len(working) + 1)
     working["consensus_top25_all_core_axes"] = working["consensus_support_count"] == 3
-    return working.head(top_k).copy()
+    return working.head(top_k).pipe(copy_frame)
 
 
 def build_priority_bootstrap_stability_table(
@@ -2821,23 +2867,23 @@ def build_priority_bootstrap_stability_table(
 ) -> pd.DataFrame:
     """Measure how often the highest-ranked candidates stay near the top under reference resampling."""
     n_bootstrap = max(int(n_bootstrap), 1)
-    training = scored.loc[scored["member_count_train"].fillna(0).astype(int) > 0].copy()
+    training = scored.loc[scored["member_count_train"].pipe(int0) > 0].pipe(copy_frame)
     if model_name:
-        training = training.loc[training["spread_label"].notna()].copy()
+        training = training.loc[training["spread_label"].notna()].pipe(copy_frame)
     if training.empty:
         return pd.DataFrame()
 
     score_key = "stability_score"
     if model_name:
         base_scores = fit_full_model_predictions(training, model_name=model_name).rename(
-            columns={"prediction": score_key}
+            columns={"prediction": score_key},
         )
         base = training.merge(base_scores, on="backbone_id", how="left", validate="1:1")
     else:
-        base = training.copy()
-        base[score_key] = base[score_column].fillna(0.0)
+        base = training.pipe(copy_frame)
+        base[score_key] = base[score_column].pipe(fill0)
     base = base.sort_values(score_key, ascending=False).reset_index(drop=True)
-    candidates = base.head(candidate_n)[["backbone_id", score_key]].copy()
+    candidates = base.head(candidate_n)[["backbone_id", score_key]].pipe(copy_frame)
     candidates["base_rank"] = np.arange(1, len(candidates) + 1)
     candidate_ids = candidates["backbone_id"].astype(str).tolist()
     stats: dict[str, _BootstrapCandidateStats] = {
@@ -2875,7 +2921,7 @@ def build_priority_bootstrap_stability_table(
                 reference,
                 normalization_method=normalization_method,
             )
-            rescored[score_key] = rescored[score_column].fillna(0.0)
+            rescored[score_key] = rescored[score_column].pipe(fill0)
             rescored = rescored.sort_values(score_key, ascending=False)
         return (
             {
@@ -2914,18 +2960,18 @@ def build_priority_bootstrap_stability_table(
                 "top_k": int(top_k),
                 "n_bootstrap": int(n_bootstrap),
                 "bootstrap_top_k_frequency": float(
-                    stats[str(row["backbone_id"])]["top_hits"] / n_bootstrap
+                    stats[str(row["backbone_id"])]["top_hits"] / n_bootstrap,
                 ),
                 "bootstrap_top_10_frequency": float(
-                    stats[str(row["backbone_id"])]["top_hits_top10"] / n_bootstrap
+                    stats[str(row["backbone_id"])]["top_hits_top10"] / n_bootstrap,
                 ),
                 "bootstrap_top_25_frequency": float(
-                    stats[str(row["backbone_id"])]["top_hits_top25"] / n_bootstrap
+                    stats[str(row["backbone_id"])]["top_hits_top25"] / n_bootstrap,
                 ),
                 "bootstrap_mean_rank": float(ranks.mean()),
                 "bootstrap_median_rank": float(np.median(ranks)),
                 "bootstrap_rank_std": float(ranks.std()),
-            }
+            },
         )
     return pd.DataFrame(rows).sort_values("base_rank").reset_index(drop=True)
 
@@ -2941,21 +2987,21 @@ def build_variant_rank_consistency_table(
     n_jobs: int | None = None,
 ) -> pd.DataFrame:
     """Summarize how often top candidates remain in the top set across robustness variants."""
-    base = base_scored.loc[base_scored["member_count_train"].fillna(0).astype(int) > 0].copy()
+    base = base_scored.loc[base_scored["member_count_train"].pipe(int0) > 0].pipe(copy_frame)
     if model_name:
-        base = base.loc[base["spread_label"].notna()].copy()
+        base = base.loc[base["spread_label"].notna()].pipe(copy_frame)
     if base.empty:
         return pd.DataFrame()
     score_key = "variant_score"
     if model_name:
         base_scores = fit_full_model_predictions(base, model_name=model_name).rename(
-            columns={"prediction": score_key}
+            columns={"prediction": score_key},
         )
         base = base.merge(base_scores, on="backbone_id", how="left", validate="1:1")
     else:
-        base[score_key] = base[score_column].fillna(0.0)
+        base[score_key] = base[score_column].pipe(fill0)
     base = base.sort_values(score_key, ascending=False).reset_index(drop=True)
-    candidates = base.head(candidate_n)[["backbone_id", score_key]].copy()
+    candidates = base.head(candidate_n)[["backbone_id", score_key]].pipe(copy_frame)
     candidates["base_rank"] = np.arange(1, len(candidates) + 1)
     tasks = [
         (name, frame)
@@ -2969,18 +3015,18 @@ def build_variant_rank_consistency_table(
         task: tuple[str, pd.DataFrame],
     ) -> tuple[str, tuple[dict[str, int], int] | None]:
         name, frame = task
-        working = frame.loc[frame["member_count_train"].fillna(0).astype(int) > 0].copy()
+        working = frame.loc[frame["member_count_train"].pipe(int0) > 0].pipe(copy_frame)
         if model_name:
-            working = working.loc[working["spread_label"].notna()].copy()
+            working = working.loc[working["spread_label"].notna()].pipe(copy_frame)
         if working.empty:
             return name, None
         if model_name:
             predictions = fit_full_model_predictions(working, model_name=model_name).rename(
-                columns={"prediction": score_key}
+                columns={"prediction": score_key},
             )
             working = working.merge(predictions, on="backbone_id", how="left", validate="1:1")
         elif score_column in working.columns:
-            working[score_key] = working[score_column].fillna(0.0)
+            working[score_key] = working[score_column].pipe(fill0)
         else:
             return name, None
         ranked = working.sort_values(score_key, ascending=False).reset_index(drop=True)
@@ -3031,7 +3077,7 @@ def build_variant_rank_consistency_table(
                 "variant_mean_rank": float(rank_array.mean()),
                 "variant_median_rank": float(np.median(rank_array)),
                 "variant_rank_std": float(rank_array.std()),
-            }
+            },
         )
     return pd.DataFrame(rows).sort_values("base_rank").reset_index(drop=True)
 
@@ -3046,7 +3092,7 @@ def build_group_holdout_performance(
     n_jobs: int | None = 1,
 ) -> pd.DataFrame:
     """Evaluate selected models on strict held-out groups such as source or dominant genus."""
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
     eligible["spread_label"] = eligible["spread_label"].astype(int)
@@ -3056,7 +3102,7 @@ def build_group_holdout_performance(
     for group_column in group_columns:
         if group_column not in eligible.columns:
             continue
-        working = eligible.copy()
+        working = eligible.pipe(copy_frame)
         working[group_column] = working[group_column].fillna("unknown").astype(str)
         counts = working[group_column].value_counts()
         if group_column == "dominant_source":
@@ -3066,8 +3112,8 @@ def build_group_holdout_performance(
                 counts.loc[counts >= min_group_size].head(max_groups_per_column).index.tolist()
             )
         for group_value in selected_groups:
-            test = working.loc[working[group_column] == group_value].copy()
-            train = working.loc[working[group_column] != group_value].copy()
+            test = working.loc[working[group_column] == group_value].pipe(copy_frame)
+            train = working.loc[working[group_column] != group_value].pipe(copy_frame)
             n_positive = int(test["spread_label"].sum())
             base_row = {
                 "group_column": group_column,
@@ -3090,7 +3136,7 @@ def build_group_holdout_performance(
                             "average_precision": np.nan,
                             "brier_score": np.nan,
                             "status": "skipped_insufficient_label_variation",
-                        }
+                        },
                     )
                     continue
                 tasks.append((base_row, train, test, model_name))
@@ -3159,19 +3205,20 @@ def build_blocked_holdout_summary(
         & group_holdout.get("group_column", pd.Series(dtype=str))
         .astype(str)
         .isin([str(column) for column in blocked_group_columns])
-    ].copy()
+    ].pipe(copy_frame)
     if working.empty:
         return pd.DataFrame()
 
     rows: list[dict[str, object]] = []
     for (model_name, group_column), frame in working.groupby(
-        ["model_name", "group_column"], sort=False
+        ["model_name", "group_column"],
+        sort=False,
     ):
-        weights = pd.to_numeric(
-            frame.get("n_test_backbones", pd.Series(0.0, index=frame.index)), errors="coerce"
-        ).fillna(0.0)
-        aucs = pd.to_numeric(
-            frame.get("roc_auc", pd.Series(np.nan, index=frame.index)), errors="coerce"
+        weights = to_numeric_series(
+            frame.get("n_test_backbones", pd.Series(0.0, index=frame.index)),
+        ).pipe(fill0)
+        aucs = to_numeric_series(
+            frame.get("roc_auc", pd.Series(np.nan, index=frame.index)),
         )
         valid = aucs.notna()
         if not valid.any():
@@ -3201,7 +3248,7 @@ def build_blocked_holdout_summary(
                 ),
                 "worst_blocked_holdout_group_roc_auc": float(aucs.loc[worst_idx]),
                 "pooled_overlap_summary": True,
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -3272,10 +3319,10 @@ def build_logistic_implementation_audit(
         "sklearn_average_precision_lift": average_precision_score(y, sklearn_preds)
         - _positive_prevalence_any(y),
         "pearson_prediction_correlation": float(
-            pd.Series(custom_preds).corr(pd.Series(sklearn_preds), method="pearson")
+            pd.Series(custom_preds).corr(pd.Series(sklearn_preds), method="pearson"),
         ),
         "spearman_prediction_correlation": float(
-            pd.Series(custom_preds).corr(pd.Series(sklearn_preds), method="spearman")
+            pd.Series(custom_preds).corr(pd.Series(sklearn_preds), method="spearman"),
         ),
         "mean_absolute_prediction_difference": float(diff.mean()),
         "max_absolute_prediction_difference": float(diff.max()),
@@ -3297,14 +3344,16 @@ def build_model_simplicity_summary(
     if primary_model_name not in available.index or conservative_model_name not in available.index:
         return pd.DataFrame()
 
-    primary = predictions.loc[predictions["model_name"] == primary_model_name].copy()
-    conservative = predictions.loc[predictions["model_name"] == conservative_model_name].copy()
+    primary = predictions.loc[predictions["model_name"] == primary_model_name].pipe(copy_frame)
+    conservative = predictions.loc[predictions["model_name"] == conservative_model_name].pipe(
+        copy_frame
+    )
     if primary.empty or conservative.empty:
         return pd.DataFrame()
 
     primary = primary.sort_values("oof_prediction", ascending=False).reset_index(drop=True)
     conservative = conservative.sort_values("oof_prediction", ascending=False).reset_index(
-        drop=True
+        drop=True,
     )
     primary_ids = primary["backbone_id"].astype(str).tolist()
     conservative_ids = conservative["backbone_id"].astype(str).tolist()
@@ -3312,21 +3361,21 @@ def build_model_simplicity_summary(
     row: dict[str, object] = {
         "primary_model_name": primary_model_name,
         "conservative_model_name": conservative_model_name,
-        "primary_roc_auc": _coerce_float(available.loc[primary_model_name, "roc_auc"]),
-        "conservative_roc_auc": _coerce_float(available.loc[conservative_model_name, "roc_auc"]),
+        "primary_roc_auc": coerce_float(available.loc[primary_model_name, "roc_auc"]),
+        "conservative_roc_auc": coerce_float(available.loc[conservative_model_name, "roc_auc"]),
         "roc_auc_delta_primary_minus_conservative": (
-            _coerce_float(available.loc[primary_model_name, "roc_auc"])
-            - _coerce_float(available.loc[conservative_model_name, "roc_auc"])
+            coerce_float(available.loc[primary_model_name, "roc_auc"])
+            - coerce_float(available.loc[conservative_model_name, "roc_auc"])
         ),
-        "primary_average_precision": _coerce_float(
-            available.loc[primary_model_name, "average_precision"]
+        "primary_average_precision": coerce_float(
+            available.loc[primary_model_name, "average_precision"],
         ),
-        "conservative_average_precision": _coerce_float(
-            available.loc[conservative_model_name, "average_precision"]
+        "conservative_average_precision": coerce_float(
+            available.loc[conservative_model_name, "average_precision"],
         ),
-        "primary_brier_score": _coerce_float(available.loc[primary_model_name, "brier_score"]),
-        "conservative_brier_score": _coerce_float(
-            available.loc[conservative_model_name, "brier_score"]
+        "primary_brier_score": coerce_float(available.loc[primary_model_name, "brier_score"]),
+        "conservative_brier_score": coerce_float(
+            available.loc[conservative_model_name, "brier_score"],
         ),
     }
     for top_k in top_ks:
@@ -3344,9 +3393,11 @@ def build_temporal_drift_summary(records: pd.DataFrame) -> pd.DataFrame:
     """Summarize how record density and source composition change over time."""
     if records.empty or "resolved_year" not in records.columns:
         return pd.DataFrame()
-    working = records.copy()
-    working["resolved_year"] = pd.to_numeric(working["resolved_year"], errors="coerce")
-    working = working.loc[working["resolved_year"].between(1900, 2100, inclusive="both")].copy()
+    working = records.pipe(copy_frame)
+    working["resolved_year"] = to_numeric_series(working["resolved_year"])
+    working = working.loc[working["resolved_year"].between(1900, 2100, inclusive="both")].pipe(
+        copy_frame
+    )
     if working.empty:
         return pd.DataFrame()
     working["resolved_year"] = working["resolved_year"].astype(int)
@@ -3356,7 +3407,7 @@ def build_temporal_drift_summary(records: pd.DataFrame) -> pd.DataFrame:
         genus_values = frame["genus"].fillna("").astype(str).str.strip()
         rows.append(
             {
-                "resolved_year": _coerce_int(year),
+                "resolved_year": coerce_int(year),
                 "n_records": int(len(frame)),
                 "n_backbones": int(frame["backbone_id"].nunique()),
                 "n_countries": int(country_values.loc[country_values != ""].nunique()),
@@ -3368,21 +3419,21 @@ def build_temporal_drift_summary(records: pd.DataFrame) -> pd.DataFrame:
                 if "record_origin" in frame.columns
                 else np.nan,
                 "mobilizable_fraction": float(
-                    frame["is_mobilizable"].fillna(False).astype(bool).mean()
+                    frame["is_mobilizable"].fillna(False).astype(bool).mean(),
                 )
                 if "is_mobilizable" in frame.columns
                 else np.nan,
                 "conjugative_fraction": float(
-                    frame["is_conjugative"].fillna(False).astype(bool).mean()
+                    frame["is_conjugative"].fillna(False).astype(bool).mean(),
                 )
                 if "is_conjugative" in frame.columns
                 else np.nan,
-            }
+            },
         )
     summary = pd.DataFrame(rows).sort_values("resolved_year").reset_index(drop=True)
     if summary.empty:
         return summary
-    summary["low_density_year"] = summary["n_records"].fillna(0).astype(int) < 20
+    summary["low_density_year"] = summary["n_records"].pipe(int0) < 20
     for column in [
         "n_records",
         "n_backbones",
@@ -3407,23 +3458,27 @@ def build_temporal_rank_stability_table(
     if predictions.empty or not required.issubset(predictions.columns):
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
-    working = predictions.copy()
-    working["split_year"] = pd.to_numeric(working["split_year"], errors="coerce")
-    working["oof_prediction"] = pd.to_numeric(working["oof_prediction"], errors="coerce")
-    working = working.loc[working["split_year"].notna() & working["oof_prediction"].notna()].copy()
+    working = predictions.pipe(copy_frame)
+    working["split_year"] = to_numeric_series(working["split_year"])
+    working["oof_prediction"] = to_numeric_series(working["oof_prediction"])
+    working = working.loc[working["split_year"].notna() & working["oof_prediction"].notna()].pipe(
+        copy_frame
+    )
     if working.empty:
         return pd.DataFrame()
     working["split_year"] = working["split_year"].astype(int)
     for split_year_a, split_year_b in split_year_pairs:
-        pair = working.loc[
-            working["split_year"].isin([int(split_year_a), int(split_year_b)])
-        ].copy()
+        pair = working.loc[working["split_year"].isin([int(split_year_a), int(split_year_b)])].pipe(
+            copy_frame
+        )
         for model_name, frame in pair.groupby("model_name", sort=False):
             left = frame.loc[
-                frame["split_year"] == int(split_year_a), ["backbone_id", "oof_prediction"]
+                frame["split_year"] == int(split_year_a),
+                ["backbone_id", "oof_prediction"],
             ]
             right = frame.loc[
-                frame["split_year"] == int(split_year_b), ["backbone_id", "oof_prediction"]
+                frame["split_year"] == int(split_year_b),
+                ["backbone_id", "oof_prediction"],
             ]
             if left.empty or right.empty:
                 continue
@@ -3442,7 +3497,7 @@ def build_temporal_rank_stability_table(
                         "n_common_backbones": int(len(merged)),
                         "kendall_tau": np.nan,
                         "status": "skipped_insufficient_overlap",
-                    }
+                    },
                 )
                 continue
             rank_a = merged["oof_prediction_a"].rank(method="average", ascending=False)
@@ -3483,9 +3538,9 @@ def build_sleeper_threat_table(model_metrics: pd.DataFrame) -> pd.DataFrame:
     required = {"model_name", "average_precision", "novelty_adjusted_average_precision"}
     if model_metrics.empty or not required.issubset(model_metrics.columns):
         return pd.DataFrame()
-    working = model_metrics.copy()
-    ap = pd.to_numeric(working["average_precision"], errors="coerce")
-    naap = pd.to_numeric(working["novelty_adjusted_average_precision"], errors="coerce")
+    working = model_metrics.pipe(copy_frame)
+    ap = to_numeric_series(working["average_precision"])
+    naap = to_numeric_series(working["novelty_adjusted_average_precision"])
     result = pd.DataFrame(
         {
             "model_name": working["model_name"].astype(str),
@@ -3498,7 +3553,7 @@ def build_sleeper_threat_table(model_metrics: pd.DataFrame) -> pd.DataFrame:
                 "favors_low_knownness_positives",
                 "rides_knownness_bias",
             ),
-        }
+        },
     )
     return result.sort_values(
         ["naap_minus_ap", "novelty_adjusted_average_precision"],
@@ -3516,9 +3571,9 @@ def build_magic_number_sensitivity_table(
     required = {"variant", "roc_auc"}
     if sensitivity_results.empty or not required.issubset(sensitivity_results.columns):
         return pd.DataFrame()
-    working = sensitivity_results.copy()
+    working = sensitivity_results.pipe(copy_frame)
     working["variant"] = working["variant"].astype(str)
-    working["roc_auc"] = pd.to_numeric(working["roc_auc"], errors="coerce")
+    working["roc_auc"] = to_numeric_series(working["roc_auc"])
     if "parameter_name" not in working.columns:
         working["parameter_name"] = "global"
     if "parameter_value" not in working.columns:
@@ -3544,7 +3599,7 @@ def build_magic_number_sensitivity_table(
         np.nan,
     )
     working["passes_auc_tolerance"] = working["abs_relative_auc_delta"].le(
-        float(tolerance_fraction)
+        float(tolerance_fraction),
     )
     return working.sort_values(
         ["parameter_name", "passes_auc_tolerance", "abs_relative_auc_delta", "variant"],
@@ -3579,7 +3634,8 @@ def build_candidate_universe_table(
     if not candidate_sets:
         return pd.DataFrame()
     candidate_ids = pd.Index(
-        pd.concat(candidate_sets, ignore_index=True).drop_duplicates().tolist(), dtype=object
+        pd.concat(candidate_sets, ignore_index=True).drop_duplicates().tolist(),
+        dtype=object,
     )
     base = pd.DataFrame({"backbone_id": candidate_ids.astype(str)})
 
@@ -3595,7 +3651,7 @@ def build_candidate_universe_table(
         "coherence_score",
     ]
     scored_payload = (
-        scored[[column for column in scored_columns if column in scored.columns]].copy()
+        scored[[column for column in scored_columns if column in scored.columns]].pipe(copy_frame)
         if not scored.empty
         else pd.DataFrame()
     )
@@ -3617,7 +3673,7 @@ def build_candidate_universe_table(
                 ]
                 if column in consensus_candidates.columns
             ]
-        ].copy()
+        ].pipe(copy_frame)
         consensus_payload["in_consensus_top50"] = True
         base = coalescing_left_merge(base, consensus_payload, on="backbone_id")
     if not candidate_dossiers.empty:
@@ -3645,7 +3701,7 @@ def build_candidate_universe_table(
                 ]
                 if column in candidate_dossiers.columns
             ]
-        ].copy()
+        ].pipe(copy_frame)
         dossier_payload["in_candidate_dossier_top25"] = True
         base = coalescing_left_merge(base, dossier_payload, on="backbone_id")
     if not candidate_portfolio.empty:
@@ -3666,7 +3722,7 @@ def build_candidate_universe_table(
                 ]
                 if column in candidate_portfolio.columns
             ]
-        ].copy()
+        ].pipe(copy_frame)
         portfolio_payload["in_candidate_portfolio"] = True
         base = coalescing_left_merge(base, portfolio_payload, on="backbone_id")
     if not novelty_watchlist.empty:
@@ -3687,7 +3743,7 @@ def build_candidate_universe_table(
                 ]
                 if column in novelty_watchlist.columns
             ]
-        ].copy()
+        ].pipe(copy_frame)
         novelty_payload["in_novelty_watchlist"] = True
         base = coalescing_left_merge(base, novelty_payload, on="backbone_id")
     if not prospective_freeze.empty:
@@ -3701,7 +3757,7 @@ def build_candidate_universe_table(
                 ]
                 if column in prospective_freeze.columns
             ]
-        ].copy()
+        ].pipe(copy_frame)
         freeze_payload["in_prospective_freeze"] = True
         base = coalescing_left_merge(base, freeze_payload, on="backbone_id")
     if not high_confidence_candidates.empty:
@@ -3715,7 +3771,7 @@ def build_candidate_universe_table(
                 ]
                 if column in high_confidence_candidates.columns
             ]
-        ].copy()
+        ].pipe(copy_frame)
         high_conf_payload["in_higher_confidence_shortlist"] = True
         base = coalescing_left_merge(base, high_conf_payload, on="backbone_id")
     if not candidate_risk.empty:
@@ -3730,10 +3786,10 @@ def build_candidate_universe_table(
                 ]
                 if column in candidate_risk.columns
             ]
-        ].copy()
+        ].pipe(copy_frame)
         base = coalescing_left_merge(base, risk_payload, on="backbone_id")
 
-    base = base.copy()
+    base = base.pipe(copy_frame)
 
     flag_columns = (
         "in_consensus_top50",
@@ -3755,16 +3811,18 @@ def build_candidate_universe_table(
         {
             **flag_updates,
             "evidence_tier": base.get(
-                "candidate_confidence_tier", pd.Series("unknown", index=base.index)
+                "candidate_confidence_tier",
+                pd.Series("unknown", index=base.index),
             ).fillna("unknown"),
             "action_tier": base.get(
-                "recommended_monitoring_tier", pd.Series("unassigned", index=base.index)
+                "recommended_monitoring_tier",
+                pd.Series("unassigned", index=base.index),
             ).fillna("unassigned"),
             "main_outcome_status": np.select(
                 [
                     base.get("spread_label", pd.Series(np.nan, index=base.index)).isna(),
                     base.get("spread_label", pd.Series(0.0, index=base.index))
-                    .fillna(0.0)
+                    .pipe(fill0)
                     .astype(float)
                     >= 1.0,
                 ],
@@ -3775,7 +3833,8 @@ def build_candidate_universe_table(
         index=base.index,
     )
     base = pd.concat(
-        [base.drop(columns=list(base_updates.columns), errors="ignore"), base_updates], axis=1
+        [base.drop(columns=list(base_updates.columns), errors="ignore"), base_updates],
+        axis=1,
     )
     base["candidate_universe_origin"] = np.select(
         [
@@ -3833,7 +3892,7 @@ def build_primary_model_selection_summary(
     """Make the publication choice of the primary model explicit for reviewers."""
     model_metrics = _active_model_metrics(model_metrics)
     if model_metrics.empty or primary_model_name not in set(
-        model_metrics["model_name"].astype(str)
+        model_metrics["model_name"].astype(str),
     ):
         return pd.DataFrame()
     available = model_metrics.set_index("model_name", drop=False)
@@ -3864,10 +3923,10 @@ def build_primary_model_selection_summary(
         available.loc[governance_model_name] if governance_model_name in available.index else None
     )
     governance_strict_acceptance = bool(
-        governance_scorecard.get("strict_knownness_acceptance_flag", False)
+        governance_scorecard.get("strict_knownness_acceptance_flag", False),
     )
     governance_scientific_acceptance_status = str(
-        governance_scorecard.get("scientific_acceptance_status", "")
+        governance_scorecard.get("scientific_acceptance_status", ""),
     ).strip()
     governance_scientific_acceptance = (
         bool(governance_scorecard.get("scientific_acceptance_flag", False))
@@ -3904,7 +3963,7 @@ def build_primary_model_selection_summary(
         "strongest_metric_model_average_precision": float(strongest["average_precision"]),
         "primary_minus_strongest_roc_auc": float(primary["roc_auc"] - strongest["roc_auc"]),
         "primary_minus_strongest_average_precision": float(
-            primary["average_precision"] - strongest["average_precision"]
+            primary["average_precision"] - strongest["average_precision"],
         ),
         "conservative_model_name": conservative_model_name,
         "conservative_model_track": "control",
@@ -3931,12 +3990,12 @@ def build_primary_model_selection_summary(
         and pd.notna(governance_scorecard.get("selection_rank", np.nan))
         else np.nan,
         "governance_primary_strict_knownness_acceptance_flag": bool(
-            governance_scorecard.get("strict_knownness_acceptance_flag", False)
+            governance_scorecard.get("strict_knownness_acceptance_flag", False),
         )
         if not governance_scorecard.empty
         else np.nan,
         "governance_primary_scientific_acceptance_flag": bool(
-            governance_scorecard.get("scientific_acceptance_flag", False)
+            governance_scorecard.get("scientific_acceptance_flag", False),
         )
         if not governance_scorecard.empty
         and governance_scientific_acceptance_status in {"pass", "fail"}
@@ -3945,27 +4004,27 @@ def build_primary_model_selection_summary(
         if governance_scientific_acceptance_status
         else "not_scored",
         "governance_primary_knownness_matched_gap": float(
-            governance_scorecard.get("knownness_matched_gap", np.nan)
+            governance_scorecard.get("knownness_matched_gap", np.nan),
         )
         if not governance_scorecard.empty
         else np.nan,
         "governance_primary_source_holdout_gap": float(
-            governance_scorecard.get("source_holdout_gap", np.nan)
+            governance_scorecard.get("source_holdout_gap", np.nan),
         )
         if not governance_scorecard.empty
         else np.nan,
         "governance_primary_guardrail_loss": float(
-            governance_scorecard.get("guardrail_loss", np.nan)
+            governance_scorecard.get("guardrail_loss", np.nan),
         )
         if not governance_scorecard.empty
         else np.nan,
         "governance_primary_governance_priority_score": float(
-            governance_scorecard.get("governance_priority_score", np.nan)
+            governance_scorecard.get("governance_priority_score", np.nan),
         )
         if not governance_scorecard.empty
         else np.nan,
         "governance_primary_leakage_review_required": bool(
-            governance_scorecard.get("leakage_review_required", False)
+            governance_scorecard.get("leakage_review_required", False),
         )
         if not governance_scorecard.empty
         else False,
@@ -3994,7 +4053,9 @@ def build_primary_model_selection_summary(
     def _sorted_predictions(model_name: str) -> pd.DataFrame:
         if predictions is None or predictions.empty:
             return pd.DataFrame()
-        frame = predictions.loc[predictions["model_name"].astype(str) == str(model_name)].copy()
+        frame = predictions.loc[predictions["model_name"].astype(str) == str(model_name)].pipe(
+            copy_frame
+        )
         if frame.empty:
             return frame
         return frame.sort_values("oof_prediction", ascending=False).reset_index(drop=True)
@@ -4003,7 +4064,7 @@ def build_primary_model_selection_summary(
         if decision_yield.empty:
             return pd.Series(dtype=object)
         model_series = decision_yield.get("model_name", pd.Series(dtype=str)).astype(str)
-        top_k_series = pd.to_numeric(
+        top_k_series = to_numeric_series(
             decision_yield.get("top_k", pd.Series(np.nan, index=decision_yield.index, dtype=float)),
             errors="coerce",
         ).astype("Int64")
@@ -4045,12 +4106,14 @@ def build_primary_model_selection_summary(
             & ~blocked_holdout_calibration_summary.get("calibration_method", pd.Series(dtype=str))
             .astype(str)
             .eq("raw")
-        ].copy()
+        ].pipe(copy_frame)
         if non_raw.empty:
             best_row = pd.Series(dtype=object)
         else:
             best_row = non_raw.sort_values(
-                ["brier_score", "ece"], ascending=[True, True], kind="mergesort"
+                ["brier_score", "ece"],
+                ascending=[True, True],
+                kind="mergesort",
             ).iloc[0]
         combined = pd.Series(dtype=object)
         if not raw_row.empty:
@@ -4061,10 +4124,10 @@ def build_primary_model_selection_summary(
             combined["best_brier_score"] = float(best_row.get("brier_score", np.nan))
             combined["best_ece"] = float(best_row.get("ece", np.nan))
             combined["best_calibration_gain_vs_raw_brier"] = float(
-                best_row.get("calibration_gain_vs_raw_brier", np.nan)
+                best_row.get("calibration_gain_vs_raw_brier", np.nan),
             )
             combined["best_calibration_gain_vs_raw_ece"] = float(
-                best_row.get("calibration_gain_vs_raw_ece", np.nan)
+                best_row.get("calibration_gain_vs_raw_ece", np.nan),
             )
         return combined
 
@@ -4092,7 +4155,7 @@ def build_primary_model_selection_summary(
         frame = _sorted_predictions(model_name)
         if frame.empty:
             return
-        subset = frame.head(min(10, len(frame))).copy()
+        subset = frame.head(min(10, len(frame))).pipe(copy_frame)
         total_positive = int(frame["spread_label"].sum())
         selected_positive = int(subset["spread_label"].sum()) if not subset.empty else 0
         row[f"{prefix}_top_10_precision"] = (
@@ -4115,22 +4178,22 @@ def build_primary_model_selection_summary(
         if scorecard_row.empty:
             return
         row[f"{prefix}_decision_utility_score"] = float(
-            scorecard_row.get("decision_utility_score", np.nan)
+            scorecard_row.get("decision_utility_score", np.nan),
         )
         row[f"{prefix}_decision_utility_cost"] = float(
-            scorecard_row.get("decision_utility_cost", np.nan)
+            scorecard_row.get("decision_utility_cost", np.nan),
         )
         row[f"{prefix}_optimal_decision_threshold"] = float(
-            scorecard_row.get("optimal_decision_threshold", np.nan)
+            scorecard_row.get("optimal_decision_threshold", np.nan),
         )
         row[f"{prefix}_decision_utility_precision"] = float(
-            scorecard_row.get("decision_utility_precision", np.nan)
+            scorecard_row.get("decision_utility_precision", np.nan),
         )
         row[f"{prefix}_decision_utility_recall"] = float(
-            scorecard_row.get("decision_utility_recall", np.nan)
+            scorecard_row.get("decision_utility_recall", np.nan),
         )
         row[f"{prefix}_decision_utility_positive_rate"] = float(
-            scorecard_row.get("decision_utility_positive_rate", np.nan)
+            scorecard_row.get("decision_utility_positive_rate", np.nan),
         )
 
     _add_topk_overlap("strongest", strongest_model_name)
@@ -4177,138 +4240,138 @@ def build_primary_model_selection_summary(
         if pd.notna(primary_scorecard.get("selection_rank", np.nan)):
             row["published_primary_selection_rank"] = int(primary_scorecard["selection_rank"])
         row["published_primary_strict_knownness_acceptance_flag"] = bool(
-            primary_scorecard.get("strict_knownness_acceptance_flag", False)
+            primary_scorecard.get("strict_knownness_acceptance_flag", False),
         )
         row["published_primary_scientific_acceptance_flag"] = bool(
-            primary_scorecard.get("scientific_acceptance_flag", False)
+            primary_scorecard.get("scientific_acceptance_flag", False),
         )
         row["published_primary_scientific_acceptance_status"] = str(
-            primary_scorecard.get("scientific_acceptance_status", "not_scored")
+            primary_scorecard.get("scientific_acceptance_status", "not_scored"),
         )
         row["published_primary_knownness_matched_gap"] = float(
-            primary_scorecard.get("knownness_matched_gap", np.nan)
+            primary_scorecard.get("knownness_matched_gap", np.nan),
         )
         row["published_primary_source_holdout_gap"] = float(
-            primary_scorecard.get("source_holdout_gap", np.nan)
+            primary_scorecard.get("source_holdout_gap", np.nan),
         )
         row["published_primary_leakage_review_required"] = bool(
-            primary_scorecard.get("leakage_review_required", False)
+            primary_scorecard.get("leakage_review_required", False),
         )
     primary_calibration_row = _blocked_holdout_row(primary_model_name)
     if not primary_calibration_row.empty:
         row["published_primary_blocked_holdout_raw_brier_score"] = float(
-            primary_calibration_row.get("raw_brier_score", np.nan)
+            primary_calibration_row.get("raw_brier_score", np.nan),
         )
         row["published_primary_blocked_holdout_raw_ece"] = float(
-            primary_calibration_row.get("raw_ece", np.nan)
+            primary_calibration_row.get("raw_ece", np.nan),
         )
         row["published_primary_blocked_holdout_best_calibration_method"] = str(
-            primary_calibration_row.get("best_calibration_method", "")
+            primary_calibration_row.get("best_calibration_method", ""),
         )
         row["published_primary_blocked_holdout_best_brier_score"] = float(
-            primary_calibration_row.get("best_brier_score", np.nan)
+            primary_calibration_row.get("best_brier_score", np.nan),
         )
         row["published_primary_blocked_holdout_best_ece"] = float(
-            primary_calibration_row.get("best_ece", np.nan)
+            primary_calibration_row.get("best_ece", np.nan),
         )
         row["published_primary_blocked_holdout_best_calibration_gain_vs_raw_brier"] = float(
-            primary_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan)
+            primary_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan),
         )
         row["published_primary_blocked_holdout_best_calibration_gain_vs_raw_ece"] = float(
-            primary_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan)
+            primary_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan),
         )
     if not strongest_scorecard.empty:
         if pd.notna(strongest_scorecard.get("selection_rank", np.nan)):
             row["strongest_metric_model_selection_rank"] = int(
-                strongest_scorecard["selection_rank"]
+                strongest_scorecard["selection_rank"],
             )
         row["strongest_metric_model_strict_knownness_acceptance_flag"] = bool(
-            strongest_scorecard.get("strict_knownness_acceptance_flag", False)
+            strongest_scorecard.get("strict_knownness_acceptance_flag", False),
         )
         row["strongest_metric_model_scientific_acceptance_flag"] = bool(
-            strongest_scorecard.get("scientific_acceptance_flag", False)
+            strongest_scorecard.get("scientific_acceptance_flag", False),
         )
         row["strongest_metric_model_scientific_acceptance_status"] = str(
-            strongest_scorecard.get("scientific_acceptance_status", "not_scored")
+            strongest_scorecard.get("scientific_acceptance_status", "not_scored"),
         )
         row["strongest_metric_model_knownness_matched_gap"] = float(
-            strongest_scorecard.get("knownness_matched_gap", np.nan)
+            strongest_scorecard.get("knownness_matched_gap", np.nan),
         )
         row["strongest_metric_model_source_holdout_gap"] = float(
-            strongest_scorecard.get("source_holdout_gap", np.nan)
+            strongest_scorecard.get("source_holdout_gap", np.nan),
         )
         row["strongest_metric_model_leakage_review_required"] = bool(
-            strongest_scorecard.get("leakage_review_required", False)
+            strongest_scorecard.get("leakage_review_required", False),
         )
     strongest_calibration_row = _blocked_holdout_row(strongest_model_name)
     if not strongest_calibration_row.empty:
         row["strongest_metric_model_blocked_holdout_raw_brier_score"] = float(
-            strongest_calibration_row.get("raw_brier_score", np.nan)
+            strongest_calibration_row.get("raw_brier_score", np.nan),
         )
         row["strongest_metric_model_blocked_holdout_raw_ece"] = float(
-            strongest_calibration_row.get("raw_ece", np.nan)
+            strongest_calibration_row.get("raw_ece", np.nan),
         )
         row["strongest_metric_model_blocked_holdout_best_calibration_method"] = str(
-            strongest_calibration_row.get("best_calibration_method", "")
+            strongest_calibration_row.get("best_calibration_method", ""),
         )
         row["strongest_metric_model_blocked_holdout_best_brier_score"] = float(
-            strongest_calibration_row.get("best_brier_score", np.nan)
+            strongest_calibration_row.get("best_brier_score", np.nan),
         )
         row["strongest_metric_model_blocked_holdout_best_ece"] = float(
-            strongest_calibration_row.get("best_ece", np.nan)
+            strongest_calibration_row.get("best_ece", np.nan),
         )
         row["strongest_metric_model_blocked_holdout_best_calibration_gain_vs_raw_brier"] = float(
-            strongest_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan)
+            strongest_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan),
         )
         row["strongest_metric_model_blocked_holdout_best_calibration_gain_vs_raw_ece"] = float(
-            strongest_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan)
+            strongest_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan),
         )
     conservative_calibration_row = _blocked_holdout_row(conservative_model_name)
     if not conservative_calibration_row.empty:
         row["conservative_blocked_holdout_raw_brier_score"] = float(
-            conservative_calibration_row.get("raw_brier_score", np.nan)
+            conservative_calibration_row.get("raw_brier_score", np.nan),
         )
         row["conservative_blocked_holdout_raw_ece"] = float(
-            conservative_calibration_row.get("raw_ece", np.nan)
+            conservative_calibration_row.get("raw_ece", np.nan),
         )
         row["conservative_blocked_holdout_best_calibration_method"] = str(
-            conservative_calibration_row.get("best_calibration_method", "")
+            conservative_calibration_row.get("best_calibration_method", ""),
         )
         row["conservative_blocked_holdout_best_brier_score"] = float(
-            conservative_calibration_row.get("best_brier_score", np.nan)
+            conservative_calibration_row.get("best_brier_score", np.nan),
         )
         row["conservative_blocked_holdout_best_ece"] = float(
-            conservative_calibration_row.get("best_ece", np.nan)
+            conservative_calibration_row.get("best_ece", np.nan),
         )
         row["conservative_blocked_holdout_best_calibration_gain_vs_raw_brier"] = float(
-            conservative_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan)
+            conservative_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan),
         )
         row["conservative_blocked_holdout_best_calibration_gain_vs_raw_ece"] = float(
-            conservative_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan)
+            conservative_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan),
         )
     if governance_model_name and governance is not None:
         governance_calibration_row = _blocked_holdout_row(governance_model_name)
         if not governance_calibration_row.empty:
             row["governance_primary_blocked_holdout_raw_brier_score"] = float(
-                governance_calibration_row.get("raw_brier_score", np.nan)
+                governance_calibration_row.get("raw_brier_score", np.nan),
             )
             row["governance_primary_blocked_holdout_raw_ece"] = float(
-                governance_calibration_row.get("raw_ece", np.nan)
+                governance_calibration_row.get("raw_ece", np.nan),
             )
             row["governance_primary_blocked_holdout_best_calibration_method"] = str(
-                governance_calibration_row.get("best_calibration_method", "")
+                governance_calibration_row.get("best_calibration_method", ""),
             )
             row["governance_primary_blocked_holdout_best_brier_score"] = float(
-                governance_calibration_row.get("best_brier_score", np.nan)
+                governance_calibration_row.get("best_brier_score", np.nan),
             )
             row["governance_primary_blocked_holdout_best_ece"] = float(
-                governance_calibration_row.get("best_ece", np.nan)
+                governance_calibration_row.get("best_ece", np.nan),
             )
             row["governance_primary_blocked_holdout_best_calibration_gain_vs_raw_brier"] = float(
-                governance_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan)
+                governance_calibration_row.get("best_calibration_gain_vs_raw_brier", np.nan),
             )
             row["governance_primary_blocked_holdout_best_calibration_gain_vs_raw_ece"] = float(
-                governance_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan)
+                governance_calibration_row.get("best_calibration_gain_vs_raw_ece", np.nan),
             )
     if (
         strongest_model_name != primary_model_name
@@ -4317,7 +4380,7 @@ def build_primary_model_selection_summary(
     ):
         primary_guardrail = bool(primary_scorecard.get("strict_knownness_acceptance_flag", False))
         primary_scientific_status = str(
-            primary_scorecard.get("scientific_acceptance_status", "")
+            primary_scorecard.get("scientific_acceptance_status", ""),
         ).strip()
         primary_guardrail = (
             bool(primary_scorecard.get("scientific_acceptance_flag", False))
@@ -4325,10 +4388,10 @@ def build_primary_model_selection_summary(
             else primary_guardrail
         )
         strongest_guardrail = bool(
-            strongest_scorecard.get("strict_knownness_acceptance_flag", False)
+            strongest_scorecard.get("strict_knownness_acceptance_flag", False),
         )
         strongest_scientific_status = str(
-            strongest_scorecard.get("scientific_acceptance_status", "")
+            strongest_scorecard.get("scientific_acceptance_status", ""),
         ).strip()
         strongest_guardrail = (
             bool(strongest_scorecard.get("scientific_acceptance_flag", False))
@@ -4365,31 +4428,31 @@ def build_primary_model_selection_summary(
         family_index = family_summary.set_index("model_name", drop=False)
         if primary_model_name in family_index.index:
             row["published_primary_evidence_role"] = str(
-                family_index.loc[primary_model_name, "evidence_role"]
+                family_index.loc[primary_model_name, "evidence_role"],
             )
             row["published_primary_evidence_summary"] = str(
-                family_index.loc[primary_model_name, "evidence_summary"]
+                family_index.loc[primary_model_name, "evidence_summary"],
             )
         if strongest_model_name in family_index.index:
             row["strongest_metric_model_evidence_role"] = str(
-                family_index.loc[strongest_model_name, "evidence_role"]
+                family_index.loc[strongest_model_name, "evidence_role"],
             )
             row["strongest_metric_model_evidence_summary"] = str(
-                family_index.loc[strongest_model_name, "evidence_summary"]
+                family_index.loc[strongest_model_name, "evidence_summary"],
             )
         if conservative_model_name in family_index.index:
             row["conservative_model_evidence_role"] = str(
-                family_index.loc[conservative_model_name, "evidence_role"]
+                family_index.loc[conservative_model_name, "evidence_role"],
             )
             row["conservative_model_evidence_summary"] = str(
-                family_index.loc[conservative_model_name, "evidence_summary"]
+                family_index.loc[conservative_model_name, "evidence_summary"],
             )
         if governance_model_name and governance_model_name in family_index.index:
             row["governance_primary_evidence_role"] = str(
-                family_index.loc[governance_model_name, "evidence_role"]
+                family_index.loc[governance_model_name, "evidence_role"],
             )
             row["governance_primary_evidence_summary"] = str(
-                family_index.loc[governance_model_name, "evidence_summary"]
+                family_index.loc[governance_model_name, "evidence_summary"],
             )
 
     if simplicity_summary is not None and not simplicity_summary.empty:
@@ -4400,15 +4463,15 @@ def build_primary_model_selection_summary(
             legacy_jaccard = f"top_{top_k}_jaccard"
             if legacy_count in summary_row.index:
                 row[f"primary_vs_conservative_top_{top_k}_overlap_count"] = int(
-                    summary_row[legacy_count]
+                    summary_row[legacy_count],
                 )
             if legacy_fraction in summary_row.index:
                 row[f"primary_vs_conservative_top_{top_k}_overlap_fraction"] = float(
-                    summary_row[legacy_fraction]
+                    summary_row[legacy_fraction],
                 )
             if legacy_jaccard in summary_row.index:
                 row[f"primary_vs_conservative_top_{top_k}_jaccard"] = float(
-                    summary_row[legacy_jaccard]
+                    summary_row[legacy_jaccard],
                 )
 
     return pd.DataFrame([row])
@@ -4444,7 +4507,7 @@ def build_benchmark_protocol_table(
     governance_model_name = str(
         governance_model_name
         or selection_row.get("governance_primary_model", "")
-        or _select_governance_scorecard_row(model_selection_scorecard).get("model_name", "")
+        or _select_governance_scorecard_row(model_selection_scorecard).get("model_name", ""),
     ).strip()
 
     rows: list[dict[str, object]] = []
@@ -4458,11 +4521,16 @@ def build_benchmark_protocol_table(
         return match.iloc[0] if not match.empty else pd.Series(dtype=object)
 
     def _safe_float(value: object) -> float:
-        coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        coerced = to_numeric_series(pd.Series([value])).iloc[0]
         return float(coerced) if pd.notna(coerced) else float("nan")
 
     def _append_single(
-        model_name: str, *, role: str, status: str, track: str, rationale: str
+        model_name: str,
+        *,
+        role: str,
+        status: str,
+        track: str,
+        rationale: str,
     ) -> None:
         if model_name not in metrics_index.index:
             return
@@ -4487,14 +4555,14 @@ def build_benchmark_protocol_table(
             else np.nan,
             "strict_knownness_acceptance_flag": strict_flag,
             "scientific_acceptance_flag": bool(
-                scorecard_row.get("scientific_acceptance_flag", False)
+                scorecard_row.get("scientific_acceptance_flag", False),
             )
             if not scorecard_row.empty
             and str(scorecard_row.get("scientific_acceptance_status", "")).strip()
             in {"pass", "fail"}
             else np.nan,
             "scientific_acceptance_status": str(
-                scorecard_row.get("scientific_acceptance_status", "not_scored")
+                scorecard_row.get("scientific_acceptance_status", "not_scored"),
             )
             if not scorecard_row.empty
             else "not_scored",
@@ -4607,13 +4675,14 @@ def build_benchmark_protocol_table(
     if not adaptive_gated_metrics.empty:
         gated = adaptive_gated_metrics.loc[
             adaptive_gated_metrics.get("status", pd.Series(dtype=str)).astype(str) == "ok"
-        ].copy()
+        ].pipe(copy_frame)
         if not gated.empty:
             preferred_name = None
             if not gate_consistency_audit.empty:
                 stable_names = gate_consistency_audit.loc[
                     gate_consistency_audit.get(
-                        "gate_consistency_tier", pd.Series(dtype=str)
+                        "gate_consistency_tier",
+                        pd.Series(dtype=str),
                     ).astype(str)
                     == "stable",
                     "model_name",
@@ -4651,10 +4720,10 @@ def build_benchmark_protocol_table(
                             if not gate_row.empty
                             else np.nan,
                             "specialist_weight_lower_half": float(
-                                preferred.iloc[0].get("specialist_weight_lower_half", np.nan)
+                                preferred.iloc[0].get("specialist_weight_lower_half", np.nan),
                             ),
                             "selection_rationale": "Preferred adaptive audit because it preserves gate stability while improving low-knownness performance.",
-                        }
+                        },
                     )
             strongest_adaptive = gated.sort_values(
                 ["roc_auc", "average_precision"],
@@ -4667,7 +4736,7 @@ def build_benchmark_protocol_table(
                     gate_row = (
                         gate_consistency_audit.loc[
                             gate_consistency_audit.get("model_name", pd.Series(dtype=str)).astype(
-                                str
+                                str,
                             )
                             == strongest_adaptive_name
                         ].head(1)
@@ -4683,7 +4752,7 @@ def build_benchmark_protocol_table(
                             "model_family": "adaptive_routing",
                             "roc_auc": float(strongest_adaptive.iloc[0]["roc_auc"]),
                             "average_precision": float(
-                                strongest_adaptive.iloc[0]["average_precision"]
+                                strongest_adaptive.iloc[0]["average_precision"],
                             ),
                             "selection_rank": np.nan,
                             "strict_knownness_acceptance_flag": np.nan,
@@ -4696,11 +4765,12 @@ def build_benchmark_protocol_table(
                             else np.nan,
                             "specialist_weight_lower_half": float(
                                 strongest_adaptive.iloc[0].get(
-                                    "specialist_weight_lower_half", np.nan
-                                )
+                                    "specialist_weight_lower_half",
+                                    np.nan,
+                                ),
                             ),
                             "selection_rationale": "Highest-metric adaptive routing result kept as an upper-bound audit, not as the headline benchmark.",
-                        }
+                        },
                     )
 
     protocol = pd.DataFrame(rows)
@@ -4734,7 +4804,7 @@ def build_official_benchmark_panel(benchmark_protocol: pd.DataFrame) -> pd.DataF
     if benchmark_protocol.empty:
         return pd.DataFrame()
     if "benchmark_role" not in benchmark_protocol.columns:
-        return benchmark_protocol.copy().reset_index(drop=True)
+        return benchmark_protocol.pipe(copy_frame).reset_index(drop=True)
     official_roles = {
         "primary_benchmark",
         "governance_benchmark",
@@ -4744,7 +4814,7 @@ def build_official_benchmark_panel(benchmark_protocol: pd.DataFrame) -> pd.DataF
     }
     panel = benchmark_protocol.loc[
         benchmark_protocol["benchmark_role"].astype(str).isin(official_roles)
-    ].copy()
+    ].pipe(copy_frame)
     if panel.empty:
         return panel
     role_order = {
@@ -4792,11 +4862,11 @@ def build_model_selection_scorecard(
     available_metrics = model_metrics.set_index("model_name", drop=False)
     requested_models = [str(name) for name in (model_names or available_metrics.index.tolist())]
     if "spread_label" in scored.columns:
-        eligible_scored = scored.loc[
-            pd.to_numeric(scored["spread_label"], errors="coerce").notna()
-        ].copy()
+        eligible_scored = scored.loc[to_numeric_series(scored["spread_label"]).notna()].pipe(
+            copy_frame
+        )
     else:
-        eligible_scored = scored.copy()
+        eligible_scored = scored.pipe(copy_frame)
     annotated = annotate_knownness_metadata(
         eligible_scored[
             [
@@ -4809,7 +4879,7 @@ def build_model_selection_scorecard(
                 )
                 if column in eligible_scored.columns
             ]
-        ].drop_duplicates("backbone_id")
+        ].drop_duplicates("backbone_id"),
     )
     annotated["backbone_id"] = annotated["backbone_id"].astype(str)
 
@@ -4817,7 +4887,9 @@ def build_model_selection_scorecard(
     for model_name in requested_models:
         if model_name not in available_metrics.index:
             continue
-        frame = predictions.loc[predictions["model_name"].astype(str) == model_name].copy()
+        frame = predictions.loc[predictions["model_name"].astype(str) == model_name].pipe(
+            copy_frame
+        )
         if frame.empty:
             continue
         frame["backbone_id"] = frame["backbone_id"].astype(str)
@@ -4827,7 +4899,9 @@ def build_model_selection_scorecard(
             how="left",
             validate="m:1",
         )
-        valid = frame.loc[frame["spread_label"].notna() & frame["oof_prediction"].notna()].copy()
+        valid = frame.loc[frame["spread_label"].notna() & frame["oof_prediction"].notna()].pipe(
+            copy_frame
+        )
         if valid.empty:
             continue
         valid["spread_label"] = valid["spread_label"].astype(int)
@@ -4841,12 +4915,13 @@ def build_model_selection_scorecard(
         row = {
             "model_name": model_name,
             "model_track": _safe_model_track(model_name),
-            "roc_auc": _coerce_float(available_metrics.loc[model_name, "roc_auc"]),
-            "average_precision": _coerce_float(
-                available_metrics.loc[model_name, "average_precision"]
+            "roc_auc": coerce_float(available_metrics.loc[model_name, "roc_auc"]),
+            "average_precision": coerce_float(
+                available_metrics.loc[model_name, "average_precision"],
             ),
             "prediction_vs_knownness_spearman": _safe_spearman(
-                valid["oof_prediction"], valid["knownness_score"]
+                valid["oof_prediction"],
+                valid["knownness_score"],
             ),
         }
         for extra_metric in (
@@ -4866,14 +4941,14 @@ def build_model_selection_scorecard(
             if extra_metric in available_metrics.columns:
                 row[extra_metric] = available_metrics.loc[model_name, extra_metric]
         if _is_missing(row.get("decision_utility_score", np.nan)):
-            weighted_cost = pd.to_numeric(
-                pd.Series([row.get("weighted_classification_cost", np.nan)]), errors="coerce"
+            weighted_cost = to_numeric_series(
+                pd.Series([row.get("weighted_classification_cost", np.nan)]),
             ).iloc[0]
             if _is_present(weighted_cost):
                 row["decision_utility_score"] = float(-weighted_cost)
         if _is_missing(row.get("decision_utility_cost", np.nan)):
-            utility_score = pd.to_numeric(
-                pd.Series([row.get("decision_utility_score", np.nan)]), errors="coerce"
+            utility_score = to_numeric_series(
+                pd.Series([row.get("decision_utility_score", np.nan)]),
             ).iloc[0]
             if _is_present(utility_score):
                 row["decision_utility_cost"] = float(-utility_score)
@@ -4881,18 +4956,19 @@ def build_model_selection_scorecard(
             ("lower_half_knownness", valid["knownness_half"].astype(str).eq("lower_half")),
             ("lowest_knownness_quartile", valid["knownness_quartile"].astype(str).eq("q1_lowest")),
         ):
-            cohort = valid.loc[mask].copy()
+            cohort = valid.loc[mask].pipe(copy_frame)
             row[f"{cohort_name}_n_backbones"] = int(len(cohort))
             if not cohort.empty and cohort["spread_label"].nunique() >= 2:
                 row[f"{cohort_name}_roc_auc"] = _roc_auc_score_any(
-                    cohort["spread_label"], cohort["oof_prediction"]
+                    cohort["spread_label"],
+                    cohort["oof_prediction"],
                 )
             else:
                 row[f"{cohort_name}_roc_auc"] = np.nan
         matched_row = knownness_matched_validation.loc[
             (
                 knownness_matched_validation.get("matched_stratum", pd.Series(dtype=str)).astype(
-                    str
+                    str,
                 )
                 == "__weighted_overall__"
             )
@@ -4903,10 +4979,10 @@ def build_model_selection_scorecard(
         ]
         if not matched_row.empty:
             if "weighted_mean_roc_auc" in matched_row.columns and pd.notna(
-                matched_row.iloc[0]["weighted_mean_roc_auc"]
+                matched_row.iloc[0]["weighted_mean_roc_auc"],
             ):
                 row["matched_knownness_weighted_roc_auc"] = float(
-                    matched_row.iloc[0]["weighted_mean_roc_auc"]
+                    matched_row.iloc[0]["weighted_mean_roc_auc"],
                 )
             elif "roc_auc" in matched_row.columns and pd.notna(matched_row.iloc[0]["roc_auc"]):
                 row["matched_knownness_weighted_roc_auc"] = float(matched_row.iloc[0]["roc_auc"])
@@ -4914,14 +4990,17 @@ def build_model_selection_scorecard(
                 row["matched_knownness_weighted_roc_auc"] = np.nan
         else:
             row["matched_knownness_weighted_roc_auc"] = np.nan
-        if _is_missing(row.get("matched_knownness_weighted_roc_auc")) and not finalist_metrics.empty:
-            row["matched_knownness_weighted_roc_auc"] = pd.to_numeric(
+        if (
+            _is_missing(row.get("matched_knownness_weighted_roc_auc"))
+            and not finalist_metrics.empty
+        ):
+            row["matched_knownness_weighted_roc_auc"] = to_numeric_series(
                 pd.Series([finalist_metrics.get("matched_knownness_weighted_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
         matched_knownness_available = _is_present(row.get("matched_knownness_weighted_roc_auc"))
         if _is_missing(row.get("matched_knownness_weighted_roc_auc")):
-            row["matched_knownness_weighted_roc_auc"] = _coerce_float(row.get("roc_auc", np.nan))
+            row["matched_knownness_weighted_roc_auc"] = coerce_float(row.get("roc_auc", np.nan))
         source_rows = group_holdout.loc[
             (
                 group_holdout.get("group_column", pd.Series(dtype=str)).astype(str)
@@ -4929,10 +5008,10 @@ def build_model_selection_scorecard(
             )
             & (group_holdout.get("model_name", pd.Series(dtype=str)).astype(str) == model_name)
             & (group_holdout.get("status", pd.Series(dtype=str)).astype(str) == "ok")
-        ].copy()
+        ].pipe(copy_frame)
         if not source_rows.empty:
-            weights = pd.to_numeric(source_rows["n_test_backbones"], errors="coerce").fillna(0.0)
-            aucs = pd.to_numeric(source_rows["roc_auc"], errors="coerce")
+            weights = to_numeric_series(source_rows["n_test_backbones"]).pipe(fill0)
+            aucs = to_numeric_series(source_rows["roc_auc"])
             if float(weights.sum()) > 0:
                 row["source_holdout_weighted_roc_auc"] = float(np.average(aucs, weights=weights))
             else:
@@ -4942,33 +5021,33 @@ def build_model_selection_scorecard(
             row["source_holdout_weighted_roc_auc"] = np.nan
             row["source_holdout_macro_roc_auc"] = np.nan
         if _is_missing(row.get("source_holdout_weighted_roc_auc")) and not finalist_metrics.empty:
-            row["source_holdout_weighted_roc_auc"] = pd.to_numeric(
+            row["source_holdout_weighted_roc_auc"] = to_numeric_series(
                 pd.Series([finalist_metrics.get("source_holdout_weighted_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
         source_holdout_available = _is_present(row.get("source_holdout_weighted_roc_auc"))
         if _is_missing(row.get("source_holdout_weighted_roc_auc")):
-            row["source_holdout_weighted_roc_auc"] = _coerce_float(row.get("roc_auc", np.nan))
+            row["source_holdout_weighted_roc_auc"] = coerce_float(row.get("roc_auc", np.nan))
         spatial_holdout_available = _is_present(row.get("spatial_holdout_roc_auc", np.nan))
         if _is_missing(row.get("spatial_holdout_roc_auc", np.nan)) and not finalist_metrics.empty:
-            row["spatial_holdout_roc_auc"] = pd.to_numeric(
+            row["spatial_holdout_roc_auc"] = to_numeric_series(
                 pd.Series([finalist_metrics.get("spatial_holdout_weighted_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
         ece_available = _is_present(row.get("ece", np.nan))
         if _is_missing(row.get("ece", np.nan)) and not finalist_metrics.empty:
-            row["ece"] = pd.to_numeric(
+            row["ece"] = to_numeric_series(
                 pd.Series([finalist_metrics.get("ece", np.nan)]),
                 errors="coerce",
             ).iloc[0]
         selection_adjusted_available = _is_present(
-            row.get("selection_adjusted_empirical_p_roc_auc", np.nan)
+            row.get("selection_adjusted_empirical_p_roc_auc", np.nan),
         )
         if (
             _is_missing(row.get("selection_adjusted_empirical_p_roc_auc", np.nan))
             and not finalist_metrics.empty
         ):
-            row["selection_adjusted_empirical_p_roc_auc"] = pd.to_numeric(
+            row["selection_adjusted_empirical_p_roc_auc"] = to_numeric_series(
                 pd.Series([finalist_metrics.get("selection_adjusted_empirical_p_roc_auc", np.nan)]),
                 errors="coerce",
             ).iloc[0]
@@ -5013,7 +5092,7 @@ def build_model_selection_scorecard(
     ]
     if available_component_columns:
         scorecard["selection_composite_score"] = (
-            scorecard[available_component_columns].fillna(0.0).mean(axis=1)
+            scorecard[available_component_columns].pipe(fill0).mean(axis=1)
         )
         scorecard["selection_metric_count"] = (
             scorecard[available_component_columns].notna().sum(axis=1).astype(int)
@@ -5026,10 +5105,10 @@ def build_model_selection_scorecard(
         scorecard["selection_metric_count"] = 0
         scorecard["selection_missing_metric_count"] = 0
     scorecard["leakage_review_required"] = (
-        pd.to_numeric(
-            scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+        to_numeric_series(
+            scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)),
         )
-        .fillna(0.0)
+        .pipe(fill0)
         .ge(0.90)
     )
     scorecard["leakage_review_reason"] = np.where(
@@ -5037,19 +5116,20 @@ def build_model_selection_scorecard(
         "roc_auc_ge_0p90_on_current_feature_universe",
         "",
     )
-    matched_gap = pd.to_numeric(
+    matched_gap = to_numeric_series(
         scorecard.get(
-            "matched_knownness_weighted_roc_auc", pd.Series(np.nan, index=scorecard.index)
+            "matched_knownness_weighted_roc_auc",
+            pd.Series(np.nan, index=scorecard.index),
         ),
         errors="coerce",
-    ) - pd.to_numeric(
-        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+    ) - to_numeric_series(
+        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)),
     )
-    source_gap = pd.to_numeric(
+    source_gap = to_numeric_series(
         scorecard.get("source_holdout_weighted_roc_auc", pd.Series(np.nan, index=scorecard.index)),
         errors="coerce",
-    ) - pd.to_numeric(
-        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+    ) - to_numeric_series(
+        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)),
     )
     scorecard["knownness_matched_gap"] = matched_gap
     scorecard["source_holdout_gap"] = source_gap
@@ -5057,9 +5137,9 @@ def build_model_selection_scorecard(
     source_gap_loss = source_gap.abs().fillna(1.0)
     scorecard["guardrail_loss"] = knownness_gap_loss + source_gap_loss
     scorecard["governance_priority_score"] = (
-        pd.to_numeric(
-            scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
-        ).fillna(0.0)
+        to_numeric_series(
+            scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)),
+        ).pipe(fill0)
         - scorecard["guardrail_loss"].fillna(1.0)
         - 0.25 * scorecard["leakage_review_required"].astype(float)
     )
@@ -5070,25 +5150,26 @@ def build_model_selection_scorecard(
         & scorecard["source_holdout_weighted_roc_auc"].ge(scorecard["roc_auc"] - 0.005)
     )
 
-    ece_series = pd.to_numeric(
+    ece_series = to_numeric_series(
         scorecard.get(
             "ece",
             scorecard.get("expected_calibration_error", pd.Series(np.nan, index=scorecard.index)),
         ),
         errors="coerce",
     )
-    spatial_holdout_auc = pd.to_numeric(
+    spatial_holdout_auc = to_numeric_series(
         scorecard.get("spatial_holdout_roc_auc", pd.Series(np.nan, index=scorecard.index)),
         errors="coerce",
     )
-    selection_adjusted_p = pd.to_numeric(
+    selection_adjusted_p = to_numeric_series(
         scorecard.get(
-            "selection_adjusted_empirical_p_roc_auc", pd.Series(np.nan, index=scorecard.index)
+            "selection_adjusted_empirical_p_roc_auc",
+            pd.Series(np.nan, index=scorecard.index),
         ),
         errors="coerce",
     )
-    scorecard["spatial_holdout_gap"] = spatial_holdout_auc - pd.to_numeric(
-        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)), errors="coerce"
+    scorecard["spatial_holdout_gap"] = spatial_holdout_auc - to_numeric_series(
+        scorecard.get("roc_auc", pd.Series(np.nan, index=scorecard.index)),
     )
     scorecard["matched_knownness_gate_pass"] = scorecard[
         "matched_knownness_weighted_roc_auc"
@@ -5100,18 +5181,18 @@ def build_model_selection_scorecard(
         "spatial_holdout_gap"
     ].ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["spatial_holdout_gap_min"])
     scorecard["calibration_gate_pass"] = ece_series.notna() & ece_series.le(
-        FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"]
+        FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"],
     )
-    calibration_slope = pd.to_numeric(
+    calibration_slope = to_numeric_series(
         scorecard.get("calibration_slope", pd.Series(np.nan, index=scorecard.index)),
         errors="coerce",
     )
-    calibration_intercept = pd.to_numeric(
+    calibration_intercept = to_numeric_series(
         scorecard.get("calibration_intercept", pd.Series(np.nan, index=scorecard.index)),
         errors="coerce",
     )
     scorecard["calibration_slope_gate_pass"] = calibration_slope.notna() & calibration_slope.sub(
-        1.0
+        1.0,
     ).abs().le(0.15)
     scorecard["calibration_intercept_gate_pass"] = calibration_intercept.notna() & (
         calibration_intercept.abs().le(0.1)
@@ -5124,7 +5205,7 @@ def build_model_selection_scorecard(
         selection_adjusted_p.le(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["selection_adjusted_p_max"])
     )
     scorecard["leakage_review_gate_pass"] = ~scorecard["leakage_review_required"].fillna(
-        False
+        False,
     ).astype(bool)
     required_gate_inputs = {
         "matched_knownness_weighted_roc_auc": scorecard[
@@ -5178,9 +5259,9 @@ def build_model_selection_scorecard(
         "not_scored",
     )
     scorecard["selection_metrics_complete"] = scorecard.pop(
-        "_selection_metrics_matched_knownness_available"
+        "_selection_metrics_matched_knownness_available",
     ).fillna(False).astype(bool) & scorecard.pop(
-        "_selection_metrics_source_holdout_available"
+        "_selection_metrics_source_holdout_available",
     ).fillna(False).astype(bool)
     scorecard = scorecard.drop(
         columns=[
@@ -5191,7 +5272,8 @@ def build_model_selection_scorecard(
         errors="ignore",
     )
     scorecard["scientific_acceptance_failed_criteria"] = scorecard.apply(
-        _scientific_acceptance_reason, axis=1
+        _scientific_acceptance_reason,
+        axis=1,
     )
     scorecard = scorecard.sort_values(
         [
@@ -5207,7 +5289,9 @@ def build_model_selection_scorecard(
     rankable = scorecard["selection_metrics_complete"].fillna(False).astype(bool)
     if rankable.any():
         scorecard.loc[rankable, "selection_rank"] = pd.Series(
-            np.arange(1, int(rankable.sum()) + 1), index=scorecard.index[rankable], dtype="Int64"
+            np.arange(1, int(rankable.sum()) + 1),
+            index=scorecard.index[rankable],
+            dtype="Int64",
         )
     scorecard["track_rank"] = (
         scorecard.groupby(scorecard["model_track"].astype(str), sort=False).cumcount() + 1
@@ -5273,17 +5357,17 @@ def build_frozen_scientific_acceptance_audit(
     """Summarize the frozen acceptance gate for official benchmark surfaces."""
     if model_selection_scorecard.empty:
         return pd.DataFrame()
-    working = model_selection_scorecard.copy()
+    working = model_selection_scorecard.pipe(copy_frame)
     if "model_track" not in working.columns:
         working["model_track"] = working["model_name"].map(_safe_model_track)
     if model_names is None:
         working = working.loc[
             working["model_track"].astype(str).isin({"baseline", "discovery", "governance"})
-        ].copy()
+        ].pipe(copy_frame)
     else:
         working = working.loc[
             working["model_name"].astype(str).isin({str(name) for name in model_names})
-        ].copy()
+        ].pipe(copy_frame)
     if working.empty:
         return pd.DataFrame()
     for column, value in FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS.items():
@@ -5372,7 +5456,7 @@ def build_single_model_pareto_finalists(
         kind="mergesort",
     ).reset_index(drop=True)
     if max_finalists > 0:
-        working = working.head(int(max_finalists)).copy()
+        working = working.head(int(max_finalists)).pipe(copy_frame)
     return working.reset_index(drop=True)
 
 
@@ -5405,7 +5489,7 @@ def build_single_model_selection_adjusted_permutation_null(
             continue
         parent_model_name = str(finalist.get("parent_model_name", model_name))
         fit_kwargs = _model_fit_kwargs(parent_model_name)
-        eligible = _ensure_feature_columns(scored, feature_set).loc[eligible_mask].copy()
+        eligible = _ensure_feature_columns(scored, feature_set).loc[eligible_mask].pipe(copy_frame)
         eligible["spread_label"] = eligible["spread_label"].astype(int)
         prepared_inputs[model_name] = (eligible, feature_set, fit_kwargs)
     if not prepared_inputs:
@@ -5457,7 +5541,7 @@ def build_single_model_selection_adjusted_permutation_null(
                     "model_name": model_name,
                     "null_roc_auc": float(_roc_auc_score_any(permuted_y, preds)),
                     "null_average_precision": float(_average_precision_any(permuted_y, preds)),
-                }
+                },
             )
         permutation_frame = pd.DataFrame(permutation_rows).sort_values(
             ["null_roc_auc", "null_average_precision", "model_name"],
@@ -5476,7 +5560,7 @@ def build_single_model_selection_adjusted_permutation_null(
                 "selected_model_name": str(selected_row["model_name"]),
                 "selected_null_roc_auc": float(selected_row["null_roc_auc"]),
                 "selected_null_average_precision": float(selected_row["null_average_precision"]),
-            }
+            },
         )
 
     if not selected_null_aucs:
@@ -5506,18 +5590,18 @@ def build_single_model_selection_adjusted_permutation_null(
                 "null_roc_auc_q975": float(np.quantile(selected_null_aucs, 0.975)),
                 "selection_adjusted_empirical_p_roc_auc": float(
                     (1 + sum(value >= observed_auc for value in selected_null_aucs))
-                    / (len(selected_null_aucs) + 1)
+                    / (len(selected_null_aucs) + 1),
                 ),
                 "null_average_precision_mean": float(np.mean(selected_null_aps)),
                 "null_average_precision_std": float(np.std(selected_null_aps)),
                 "null_average_precision_q975": float(np.quantile(selected_null_aps, 0.975)),
                 "selection_adjusted_empirical_p_average_precision": float(
                     (1 + sum(value >= observed_ap for value in selected_null_aps))
-                    / (len(selected_null_aps) + 1)
+                    / (len(selected_null_aps) + 1),
                 ),
                 "modal_selected_model_name": modal_selected_model,
                 "modal_selected_model_share": modal_selected_share,
-            }
+            },
         )
     return pd.DataFrame(detail_rows), pd.DataFrame(summary_rows)
 
@@ -5567,32 +5651,32 @@ def build_single_model_finalist_audit(
         heavy["selection_adjusted_empirical_p_roc_auc"] = np.nan
         heavy["n_permutations"] = 0
 
-    heavy["matched_knownness_gate_pass"] = pd.to_numeric(
-        heavy["knownness_matched_gap"], errors="coerce"
+    heavy["matched_knownness_gate_pass"] = to_numeric_series(
+        heavy["knownness_matched_gap"],
     ).ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["matched_knownness_gap_min"])
-    heavy["source_holdout_gate_pass"] = pd.to_numeric(
-        heavy["source_holdout_gap"], errors="coerce"
+    heavy["source_holdout_gate_pass"] = to_numeric_series(
+        heavy["source_holdout_gap"],
     ).ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["source_holdout_gap_min"])
-    heavy["spatial_holdout_gate_pass"] = pd.to_numeric(
-        heavy["spatial_holdout_gap"], errors="coerce"
+    heavy["spatial_holdout_gate_pass"] = to_numeric_series(
+        heavy["spatial_holdout_gap"],
     ).ge(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["spatial_holdout_gap_min"])
-    calibration_slope = pd.to_numeric(
-        heavy.get("calibration_slope", pd.Series(np.nan, index=heavy.index)), errors="coerce"
+    calibration_slope = to_numeric_series(
+        heavy.get("calibration_slope", pd.Series(np.nan, index=heavy.index)),
     )
-    calibration_intercept = pd.to_numeric(
+    calibration_intercept = to_numeric_series(
         heavy.get("calibration_intercept", pd.Series(np.nan, index=heavy.index)),
         errors="coerce",
     )
     heavy["calibration_gate_pass"] = (
-        pd.to_numeric(heavy["ece"], errors="coerce").le(
-            FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"]
+        to_numeric_series(heavy["ece"]).le(
+            FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["ece_max"],
         )
         & calibration_slope.notna()
         & calibration_slope.sub(1.0).abs().le(0.15)
         & (calibration_intercept.notna() & calibration_intercept.abs().le(0.1))
     )
-    heavy["selection_adjusted_gate_pass"] = pd.to_numeric(
-        heavy["selection_adjusted_empirical_p_roc_auc"], errors="coerce"
+    heavy["selection_adjusted_gate_pass"] = to_numeric_series(
+        heavy["selection_adjusted_empirical_p_roc_auc"],
     ).le(FROZEN_SCIENTIFIC_ACCEPTANCE_THRESHOLDS["selection_adjusted_p_max"])
     required_columns = [
         "knownness_matched_gap",
@@ -5656,7 +5740,7 @@ def build_single_model_official_decision(finalists: pd.DataFrame) -> pd.DataFram
     """Choose one official model from finalists using scientific-first ordering."""
     if finalists.empty:
         return pd.DataFrame()
-    working = finalists.copy()
+    working = finalists.pipe(copy_frame)
     if "failure_severity" not in working.columns:
         working = add_failure_severity(working)
     working["acceptance_sort"] = (
@@ -5694,7 +5778,7 @@ def build_single_model_official_decision(finalists: pd.DataFrame) -> pd.DataFram
                 "decision_reason": decision_reason,
                 "scientific_acceptance_status": acceptance_status,
                 "scientific_acceptance_failed_criteria": str(
-                    winner.get("scientific_acceptance_failed_criteria", "")
+                    winner.get("scientific_acceptance_failed_criteria", ""),
                 ),
                 "failure_severity": float(winner.get("failure_severity", np.nan)),
                 "roc_auc": float(winner.get("roc_auc", np.nan)),
@@ -5703,6 +5787,6 @@ def build_single_model_official_decision(finalists: pd.DataFrame) -> pd.DataFram
                 "screen_fit_seconds": float(winner.get("screen_fit_seconds", np.nan)),
                 "compute_efficiency_score": float(winner.get("compute_efficiency_score", np.nan)),
                 "selected_from_n_finalists": int(len(ranked)),
-            }
-        ]
+            },
+        ],
     )

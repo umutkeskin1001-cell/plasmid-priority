@@ -18,7 +18,7 @@ class CiWorkflowTests(unittest.TestCase):
 
     def test_ci_installs_dev_dependencies(self) -> None:
         install_step = self._get_install_step()
-        self.assertIn('-e ".[analysis,dev,tree-models]"', install_step["run"])
+        self.assertIn('-e ".[analysis,api,dev,tree-models]"', install_step["run"])
 
     def test_ci_installs_tree_models(self) -> None:
         """Primary model (discovery_boosted/LightGBM) must be installed in CI."""

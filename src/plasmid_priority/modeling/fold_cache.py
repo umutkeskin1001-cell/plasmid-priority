@@ -247,6 +247,10 @@ class UniversalModelCache:
                 json.dumps(manifest, indent=2, sort_keys=True),
                 encoding="utf-8",
             )
-        except Exception:
+        except Exception as exc:
             # Silently fail if save fails to avoid blocking the pipeline
+            import logging
+            logging.getLogger(__name__).warning(
+                "Caught suppressed exception: %s", exc, exc_info=True
+            )
             pass

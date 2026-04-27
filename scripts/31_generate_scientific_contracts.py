@@ -292,7 +292,9 @@ def _read_candidate_sources(project_root: Path) -> tuple[pd.DataFrame, pd.DataFr
     try:
         portfolio = read_table(portfolio_path)
         evidence = read_table(evidence_path)
-    except Exception:
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Caught suppressed exception: %s", exc, exc_info=True)
         return pd.DataFrame(), pd.DataFrame()
     return portfolio, evidence
 
@@ -423,7 +425,9 @@ def main(argv: list[str] | None = None) -> int:
             literature_artifacts = generate_literature_validation_artifacts(
                 args.project_root, top_k=100
             )
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("Caught suppressed exception: %s", exc, exc_info=True)
             core_dir = ensure_directory(args.project_root / "reports" / "core_tables")
             diag_dir = ensure_directory(args.project_root / "reports" / "diagnostic_tables")
             matrix_path = core_dir / "literature_validation_matrix.tsv"

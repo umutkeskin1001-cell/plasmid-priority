@@ -1,6 +1,7 @@
 """Unified tabular IO helpers with Parquet-first defaults."""
 
 
+import logging
 import math
 from collections.abc import Collection, Sequence
 from pathlib import Path
@@ -24,6 +25,7 @@ except ImportError:  # pragma: no cover - optional dependency
 # Global switch — can be overridden via environment or config
 USE_POLARS = True
 duckdb: ModuleType | None = _duckdb
+LOGGER = logging.getLogger(__name__)
 
 FilterOperator = Literal["==", "!=", ">", ">=", "<", "<=", "in", "not in"]
 FilterClause: TypeAlias = tuple[str, FilterOperator, Any]
@@ -198,9 +200,13 @@ def read_table(
                 lazy_frame = lazy_frame.select(list(columns))
             lazy_frame = _apply_filters_lazy_frame(lazy_frame, filters)
             return cast(pd.DataFrame, lazy_frame.collect().to_pandas())
-        except Exception:
+        except Exception as exc:
             # Fallback if parquet is corrupted or incompatible
-            pass
+            LOGGER.warning(
+                "Caught suppressed exception: %s",
+                exc,
+                exc_info=True,
+            )
 
     # Middle path: DuckDB for filtered CSV/TSV
     if duckdb is not None and (columns or filters):
@@ -209,8 +215,12 @@ def read_table(
             with duckdb.connect(database=":memory:") as connection:
                 result = connection.execute(query).fetchdf()
                 return cast(pd.DataFrame, result)
-        except Exception:
-            pass
+        except Exception as exc:
+            LOGGER.warning(
+                "Caught suppressed exception: %s",
+                exc,
+                exc_info=True,
+            )
 
     # Fallback path: standard pandas
     if resolved.suffix == ".parquet":

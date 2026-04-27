@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Entrypoint shim for report build workflow.
 
-Full implementation lives in `plasmid_priority.reporting.build_reports_script_impl`.
+Full implementation lives in `plasmid_priority.reporting.build_reports_script`.
 """
 
 import json
@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from shutil import copyfile
 
-from plasmid_priority.reporting import build_reports_script_impl as _impl
+from plasmid_priority.reporting import build_reports_script as _impl
 
 globals().update({name: value for name, value in vars(_impl).items() if not name.startswith("__")})
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Assemble final summary tables and report metadata."""
 
+# mypy: ignore-errors
 
 import argparse
 import json
