@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 import re
-import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -15,31 +14,21 @@ import pandas as pd
 from plasmid_priority.config import PipelineSettings, build_context, find_project_root
 from plasmid_priority.utils.dataframe import clean_text_series as _clean_text_series
 from plasmid_priority.utils.geography import country_to_macro_region
-
-# Thread-local storage for injected settings (for testing) - thread-safe
-_injected_settings_local = threading.local()
+from plasmid_priority.utils.numeric_ops import copy_frame, fill0, int0, to_numeric_series
 
 
 def _pipeline_settings(settings: PipelineSettings | None = None) -> PipelineSettings:
-    """Get pipeline settings, with optional injection for testing.
-
-    This function supports dependency injection for testing:
-    - If settings argument provided, uses it (and stores for subsequent calls)
-    - If settings previously injected, returns cached settings
-    - Otherwise, loads from disk on first call
+    """Get pipeline settings.
 
     Args:
-        settings: Optional settings to inject. If provided, replaces any cached settings.
+        settings: Optional settings to use. If None, loads from disk.
 
     Returns:
         PipelineSettings instance
     """
     if settings is not None:
-        _injected_settings_local.value = settings
         return settings
-    if hasattr(_injected_settings_local, "value") and _injected_settings_local.value is not None:
-        return cast(PipelineSettings, _injected_settings_local.value)
-    # Lazy load from disk only on first uncached call
+    # Lazy load from disk only on first call
     return build_context(find_project_root(Path(__file__).resolve())).pipeline_settings
 
 
@@ -218,20 +207,20 @@ def _taxonomy_rank_lookup() -> pd.DataFrame:
     )
     if not taxonomy_path.exists():
         return pd.DataFrame(
-            columns=["taxonomy_uid", *[column for column, _ in HOST_TAXONOMY_LEVELS]]
+            columns=["taxonomy_uid", *[column for column, _ in HOST_TAXONOMY_LEVELS]],
         ).set_index("taxonomy_uid")
     lookup = pd.read_csv(
         taxonomy_path,
         usecols=["TAXONOMY_UID", *[column for column, _ in HOST_TAXONOMY_LEVELS]],
         low_memory=False,
     ).rename(columns={"TAXONOMY_UID": "taxonomy_uid"})
-    lookup["taxonomy_uid"] = pd.to_numeric(lookup["taxonomy_uid"], errors="coerce").astype("Int64")
+    lookup["taxonomy_uid"] = to_numeric_series(lookup["taxonomy_uid"]).astype("Int64")
     lookup = lookup.dropna(subset=["taxonomy_uid"]).drop_duplicates(subset=["taxonomy_uid"])
     return lookup.set_index("taxonomy_uid")
 
 
 def _normalized_taxon_identifier(values: pd.Series, fallback: pd.Series) -> pd.Series:
-    numeric = pd.to_numeric(values, errors="coerce")
+    numeric = to_numeric_series(values)
     normalized = pd.Series("", index=values.index, dtype=object)
     valid_numeric = numeric.notna() & (numeric > 0)
     if bool(valid_numeric.any()):
@@ -245,8 +234,8 @@ def _normalized_taxon_identifier(values: pd.Series, fallback: pd.Series) -> pd.S
 
 def _host_taxonomy_signature_series(records: pd.DataFrame) -> pd.Series:
     taxonomy_lookup = _taxonomy_rank_lookup()
-    taxonomy_uid = pd.to_numeric(
-        _series_or_default(records, "taxonomy_uid", np.nan), errors="coerce"
+    taxonomy_uid = to_numeric_series(
+        _series_or_default(records, "taxonomy_uid", np.nan),
     ).astype("Int64")
     signatures: list[pd.Series] = []
     for id_column, fallback_column in HOST_TAXONOMY_LEVELS:
@@ -337,7 +326,7 @@ def _normalized_shannon_evenness(values: list[object]) -> float:
 
 def _rank_score_series(values: pd.Series) -> pd.Series:
     cleaned = _clean_text_series(values).str.lower()
-    return cleaned.map(HOST_RANGE_RANK_SCORES).fillna(0.0).astype(float)
+    return cleaned.map(HOST_RANGE_RANK_SCORES).pipe(fill0).astype(float)
 
 
 def _pmid_count(cell: object) -> int:
@@ -381,7 +370,7 @@ def _grouped_dominant_share(backbone_ids: pd.Series, values: pd.Series) -> pd.Se
             {
                 "backbone_id": backbone_ids.loc[mask].astype(str).to_numpy(),
                 "value": cleaned.loc[mask].to_numpy(),
-            }
+            },
         )
         .groupby(["backbone_id", "value"], sort=False)
         .size()
@@ -432,19 +421,21 @@ def _vectorized_context_labels(frame: pd.DataFrame) -> pd.Series:
     labels.loc[food_mask] = "food"
     remaining = remaining & ~food_mask
     environmental_mask = remaining & _lowered_series_contains_any(
-        combined_lower, ENVIRONMENTAL_CONTEXT_TERMS
+        combined_lower,
+        ENVIRONMENTAL_CONTEXT_TERMS,
     )
     labels.loc[environmental_mask] = "environmental"
     remaining = remaining & ~environmental_mask
     host_associated_mask = remaining & _lowered_series_contains_any(
-        combined_lower, HOST_ASSOCIATED_CONTEXT_TERMS
+        combined_lower,
+        HOST_ASSOCIATED_CONTEXT_TERMS,
     )
     labels.loc[host_associated_mask] = "host_associated"
     return labels
 
 
 def _global_max_normalized_richness(unique_counts: pd.Series) -> pd.Series:
-    unique = unique_counts.astype(float).fillna(0.0).clip(lower=0.0)
+    unique = unique_counts.astype(float).pipe(fill0).clip(lower=0.0)
     max_count = float(unique.max())
     if max_count <= 0.0:
         return pd.Series(0.0, index=unique.index, dtype=float)
@@ -454,10 +445,11 @@ def _global_max_normalized_richness(unique_counts: pd.Series) -> pd.Series:
 
 
 def _menhinick_normalized_richness(
-    unique_counts: pd.Series, observation_counts: pd.Series
+    unique_counts: pd.Series,
+    observation_counts: pd.Series,
 ) -> pd.Series:
-    unique = unique_counts.astype(float).fillna(0.0).clip(lower=0.0)
-    observations = observation_counts.astype(float).fillna(0.0).clip(lower=0.0)
+    unique = unique_counts.astype(float).pipe(fill0).clip(lower=0.0)
+    observations = observation_counts.astype(float).pipe(fill0).clip(lower=0.0)
     denominator = np.sqrt(observations.clip(lower=1.0))
     menhinick = np.divide(
         unique,
@@ -477,15 +469,15 @@ def _training_period_records(
     split_year: int,
     label: str,
 ) -> pd.DataFrame:
-    working = records.copy()
-    years = pd.to_numeric(working["resolved_year"], errors="coerce")
-    training = working.loc[years.notna() & (years <= float(split_year))].copy()
+    working = records.pipe(copy_frame)
+    years = to_numeric_series(working["resolved_year"])
+    training = working.loc[years.notna() & (years <= float(split_year))].pipe(copy_frame)
     if not training.empty:
-        max_year = int(pd.to_numeric(training["resolved_year"], errors="coerce").dropna().max())
+        max_year = int(to_numeric_series(training["resolved_year"]).dropna().max())
         if max_year > int(split_year):
             raise ValueError(
                 f"{label} contains training rows newer than split_year={int(split_year)}; "
-                f"observed max training year={max_year}."
+                f"observed max training year={max_year}.",
             )
     return training
 
@@ -514,7 +506,7 @@ def build_training_canonical_table(
     for column, default in numeric_defaults.items():
         if column not in merged.columns:
             merged[column] = default
-        merged[column] = pd.to_numeric(merged[column], errors="coerce").fillna(default).astype(int)
+        merged[column] = to_numeric_series(merged[column]).fillna(default).astype(int)
     if "amr_gene_symbols" not in merged.columns:
         merged["amr_gene_symbols"] = ""
     else:
@@ -592,7 +584,7 @@ def compute_feature_t(training_canonical: pd.DataFrame) -> pd.DataFrame:
         .reset_index()
     )
     summary["support_shrinkage"] = summary["member_count_train"].map(
-        lambda value: _support_factor(int(value))
+        lambda value: _support_factor(int(value)),
     )
     summary["T_raw"] = (
         (1.0 * summary["relaxase_support"])
@@ -662,7 +654,7 @@ def compute_feature_h(
         {
             "backbone_id": training.loc[genus_nonempty, "backbone_id"].astype(str).to_numpy(),
             "value": genus_values.loc[genus_nonempty].to_numpy(),
-        }
+        },
     )
 
     host_observation_count = (
@@ -701,7 +693,7 @@ def compute_feature_h(
             {
                 "backbone_id": training.loc[rank_nonempty, "backbone_id"].astype(str).to_numpy(),
                 "value": rank_values.loc[rank_nonempty].to_numpy(),
-            }
+            },
         )
         unique_counts = (
             rank_frame.groupby("backbone_id", sort=False)["value"]
@@ -718,7 +710,7 @@ def compute_feature_h(
         [
             component.reindex(backbone_order, fill_value=np.nan).to_numpy(dtype=float)
             for component in breadth_components.values()
-        ]
+        ],
     )
     positive_mask = np.isfinite(breadth_array) & (breadth_array > 0.0)
     log_values = np.full_like(breadth_array, np.nan, dtype=float)
@@ -733,7 +725,9 @@ def compute_feature_h(
     )
     phylo_breadth = np.exp(breadth_logs)
     phylo_breadth = pd.Series(
-        np.where(positive_count > 0, phylo_breadth, 0.0), index=backbone_order, dtype=float
+        np.where(positive_count > 0, phylo_breadth, 0.0),
+        index=backbone_order,
+        dtype=float,
     )
 
     host_signatures = _host_taxonomy_signature_series(training)
@@ -745,7 +739,7 @@ def compute_feature_h(
                 .astype(str)
                 .to_numpy(),
                 "signature": host_signatures.loc[signature_nonempty].to_list(),
-            }
+            },
         )
         host_taxon_signature_count = (
             signature_frame.groupby("backbone_id", sort=False)["signature"]
@@ -826,7 +820,7 @@ def compute_feature_h(
     h_raw = (
         np.sqrt(
             genus_norm.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
-            * phylo_breadth.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
+            * phylo_breadth.clip(lower=0.0, upper=1.0).to_numpy(dtype=float),
         )
         * bias_correction
     )
@@ -835,19 +829,21 @@ def compute_feature_h(
     h_phylogenetic_raw = (
         np.sqrt(
             genus_norm.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
-            * phylo_breadth_augmented.clip(lower=0.0, upper=1.0).to_numpy(dtype=float)
+            * phylo_breadth_augmented.clip(lower=0.0, upper=1.0).to_numpy(dtype=float),
         )
         * bias_correction
     )
     h_phylogenetic_raw = pd.Series(
-        np.clip(h_phylogenetic_raw, 0.0, 1.0), index=backbone_order, dtype=float
+        np.clip(h_phylogenetic_raw, 0.0, 1.0),
+        index=backbone_order,
+        dtype=float,
     )
 
     predicted_rank_values = _rank_score_series(
-        _series_or_default(training, "predicted_host_range_overall_rank")
+        _series_or_default(training, "predicted_host_range_overall_rank"),
     )
     reported_rank_values = _rank_score_series(
-        _series_or_default(training, "reported_host_range_lit_rank")
+        _series_or_default(training, "reported_host_range_lit_rank"),
     )
     predicted_support_mask = predicted_rank_values > 0.0
     reported_support_mask = reported_rank_values > 0.0
@@ -885,10 +881,11 @@ def compute_feature_h(
         )
         .replace(0.0, np.nan)
         .mean(axis=1)
-        .fillna(0.0)
+        .pipe(fill0)
     )
     external_support = np.maximum(
-        predicted_support.to_numpy(dtype=float), reported_support.to_numpy(dtype=float)
+        predicted_support.to_numpy(dtype=float),
+        reported_support.to_numpy(dtype=float),
     )
     external_score_array = external_score.to_numpy(dtype=float)
     support_composite = pd.Series(
@@ -904,18 +901,20 @@ def compute_feature_h(
         external_score_array > 0.0,
         np.sqrt(
             np.clip(h_raw.to_numpy(dtype=float), 0.0, None)
-            * np.clip(external_score_array, 0.0, None)
+            * np.clip(external_score_array, 0.0, None),
         ),
         h_raw.to_numpy(dtype=float),
     )
     h_augmented_raw = pd.Series(
-        np.clip(h_augmented_raw_array, 0.0, 1.0), index=backbone_order, dtype=float
+        np.clip(h_augmented_raw_array, 0.0, 1.0),
+        index=backbone_order,
+        dtype=float,
     )
     h_phylogenetic_augmented_raw_array = np.where(
         external_score_array > 0.0,
         np.sqrt(
             np.clip(h_phylogenetic_raw.to_numpy(dtype=float), 0.0, None)
-            * np.clip(external_score_array, 0.0, None)
+            * np.clip(external_score_array, 0.0, None),
         ),
         h_phylogenetic_raw.to_numpy(dtype=float),
     )
@@ -959,7 +958,7 @@ def compute_feature_h(
             "H_phylogenetic_augmented_eff": (
                 h_phylogenetic_augmented_raw * support_composite
             ).to_numpy(dtype=float),
-        }
+        },
     )
     return result
 
@@ -1008,10 +1007,10 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
         "IA": 1.0,
     }
 
-    base = training_canonical.copy().reset_index(drop=True)
+    base = training_canonical.pipe(copy_frame).reset_index(drop=True)
     base["row_id"] = np.arange(len(base))
     base["amr_gene_symbols"] = base.get("amr_gene_symbols", pd.Series("", index=base.index)).fillna(
-        ""
+        "",
     )
     grouped = base.groupby("backbone_id", sort=False)
     summary = grouped.agg(
@@ -1021,27 +1020,29 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
         amr_positive_members=("amr_hit_count", lambda values: int((values > 0).sum())),
     ).reset_index()
     summary["amr_support_factor"] = summary["amr_positive_members"].map(
-        lambda value: _support_factor(int(value))
+        lambda value: _support_factor(int(value)),
     )
 
-    row_amr = base[["row_id", "backbone_id", "amr_drug_classes", "amr_gene_symbols"]].copy()
+    row_amr = base[["row_id", "backbone_id", "amr_drug_classes", "amr_gene_symbols"]].pipe(
+        copy_frame
+    )
     row_amr["public_health_classes"] = row_amr["amr_drug_classes"].map(
         lambda value: sorted(
             {
                 token
                 for token in (_normalize_amr_class_token(item) for item in _split_values(value))
                 if _is_public_health_amr_class(token)
-            }
-        )
+            },
+        ),
     )
     row_amr["last_resort_class_count"] = row_amr["public_health_classes"].map(
-        lambda values: int(sum(_is_last_resort_amr_class(token) for token in values))
+        lambda values: int(sum(_is_last_resort_amr_class(token) for token in values)),
     )
     row_amr["public_health_class_count"] = row_amr["public_health_classes"].map(len).astype(int)
     row_amr["amr_gene_families"] = row_amr["amr_gene_symbols"].map(
         lambda value: sorted(
-            {family for family in (_gene_family(item) for item in _split_values(value)) if family}
-        )
+            {family for family in (_gene_family(item) for item in _split_values(value)) if family},
+        ),
     )
     row_amr["gene_family_count"] = row_amr["amr_gene_families"].map(len).astype(int)
     row_amr["mdr_proxy_flag"] = row_amr["public_health_class_count"].ge(3).astype(float)
@@ -1084,12 +1085,12 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
         "mean_last_resort_convergence_score",
         "mean_amr_mechanism_diversity_proxy",
     ):
-        summary[column] = summary[column].fillna(0.0).astype(float)
+        summary[column] = summary[column].pipe(fill0).astype(float)
 
     class_tokens = (
         base[["row_id", "backbone_id", "amr_drug_classes"]]
         .assign(
-            amr_class=lambda frame: frame["amr_drug_classes"].fillna("").astype(str).str.split(",")
+            amr_class=lambda frame: frame["amr_drug_classes"].fillna("").astype(str).str.split(","),
         )
         .explode("amr_class")
     )
@@ -1121,8 +1122,9 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
 
     class_tokens["threat_weight"] = class_tokens["amr_class"].map(
         lambda value: who_weights.get(
-            str(WHO_MIA_CLASS_MAP.get(value, {}).get("who_mia_category", "")), 1.0
-        )
+            str(WHO_MIA_CLASS_MAP.get(value, {}).get("who_mia_category", "")),
+            1.0,
+        ),
     )
     row_threat = (
         class_tokens.groupby(["backbone_id", "row_id"], sort=False)["threat_weight"]
@@ -1140,7 +1142,7 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
     )
     total_members = summary.set_index("backbone_id")["canonical_member_count_train"].astype(float)
     class_counts["prevalence"] = class_counts["count"] / class_counts["backbone_id"].map(
-        total_members
+        total_members,
     )
     consistency = (
         class_counts.groupby("backbone_id", sort=False)["prevalence"].mean().rename("A_consistency")
@@ -1156,10 +1158,10 @@ def compute_feature_a(training_canonical: pd.DataFrame) -> pd.DataFrame:
     summary = summary.merge(consistency, on="backbone_id", how="left")
     summary = summary.merge(recurrence, on="backbone_id", how="left")
     summary["mean_amr_clinical_threat_score"] = (
-        summary["mean_amr_clinical_threat_score"].fillna(0.0).astype(float)
+        summary["mean_amr_clinical_threat_score"].pipe(fill0).astype(float)
     )
-    summary["A_consistency"] = summary["A_consistency"].fillna(0.0).astype(float)
-    summary["A_recurrence"] = summary["A_recurrence"].fillna(0.0).astype(float)
+    summary["A_consistency"] = summary["A_consistency"].pipe(fill0).astype(float)
+    summary["A_recurrence"] = summary["A_recurrence"].pipe(fill0).astype(float)
     return summary[
         [
             "backbone_id",
@@ -1200,12 +1202,12 @@ def build_backbone_table(
     if assignment_mode not in {"training_only", "all_records"}:
         raise ValueError(
             "build_backbone_table requires backbone_assignment_mode to be either "
-            "`training_only` or `all_records`."
+            "`training_only` or `all_records`.",
         )
 
-    working = records.copy()
+    working = records.pipe(copy_frame)
     working["backbone_id"] = working["backbone_id"].astype(str)
-    years = pd.to_numeric(working["resolved_year"], errors="coerce")
+    years = to_numeric_series(working["resolved_year"])
     training = _training_period_records(
         working,
         split_year=int(split_year),
@@ -1213,7 +1215,7 @@ def build_backbone_table(
     )
     testing = working.loc[
         years.notna() & (years > float(split_year)) & (years <= float(test_year_end))
-    ].copy()
+    ].pipe(copy_frame)
 
     backbone_order = working["backbone_id"].drop_duplicates()
     backbone_table = pd.DataFrame({"backbone_id": backbone_order.to_list()})
@@ -1223,11 +1225,13 @@ def build_backbone_table(
 
     training_country_frame = training.assign(country_clean=_clean_text_series(training["country"]))
     training_pairs = training_country_frame.loc[
-        training_country_frame["country_clean"].ne(""), ["backbone_id", "country_clean"]
+        training_country_frame["country_clean"].ne(""),
+        ["backbone_id", "country_clean"],
     ].drop_duplicates()
     testing_country_frame = testing.assign(country_clean=_clean_text_series(testing["country"]))
     testing_pairs = testing_country_frame.loc[
-        testing_country_frame["country_clean"].ne(""), ["backbone_id", "country_clean"]
+        testing_country_frame["country_clean"].ne(""),
+        ["backbone_id", "country_clean"],
     ].drop_duplicates()
 
     n_countries_train = training_pairs.groupby("backbone_id", sort=False).size()
@@ -1237,7 +1241,10 @@ def build_backbone_table(
         new_country_first = pd.DataFrame(columns=["backbone_id", "country_clean", "resolved_year"])
     else:
         new_pairs = testing_pairs.merge(
-            training_pairs, on=["backbone_id", "country_clean"], how="left", indicator=True
+            training_pairs,
+            on=["backbone_id", "country_clean"],
+            how="left",
+            indicator=True,
         )
         new_pairs = new_pairs.loc[new_pairs["_merge"] == "left_only"]
         n_new_countries = new_pairs.groupby("backbone_id", sort=False).size()
@@ -1258,7 +1265,7 @@ def build_backbone_table(
         new_country_first = new_country_first.loc[
             new_country_first["_merge"] == "left_only",
             ["backbone_id", "country_clean", "resolved_year"],
-        ].copy()
+        ].pipe(copy_frame)
     if not new_country_first.empty:
         new_country_first["event_rank"] = new_country_first.groupby(
             "backbone_id",
@@ -1266,16 +1273,18 @@ def build_backbone_table(
         ).cumcount()
 
     training_regions = training_country_frame.assign(
-        macro_region=training_country_frame["country_clean"].map(country_to_macro_region)
+        macro_region=training_country_frame["country_clean"].map(country_to_macro_region),
     )
     testing_regions = testing_country_frame.assign(
-        macro_region=testing_country_frame["country_clean"].map(country_to_macro_region)
+        macro_region=testing_country_frame["country_clean"].map(country_to_macro_region),
     )
     train_region_pairs = training_regions.loc[
-        training_regions["macro_region"].ne(""), ["backbone_id", "macro_region"]
+        training_regions["macro_region"].ne(""),
+        ["backbone_id", "macro_region"],
     ].drop_duplicates()
     test_region_pairs = testing_regions.loc[
-        testing_regions["macro_region"].ne(""), ["backbone_id", "macro_region"]
+        testing_regions["macro_region"].ne(""),
+        ["backbone_id", "macro_region"],
     ].drop_duplicates()
     if train_region_pairs.empty or test_region_pairs.empty:
         new_region_pairs = pd.DataFrame(columns=["backbone_id", "macro_region"])
@@ -1289,7 +1298,7 @@ def build_backbone_table(
         new_region_pairs = new_region_pairs.loc[
             new_region_pairs["_merge"] == "left_only",
             ["backbone_id", "macro_region"],
-        ].copy()
+        ].pipe(copy_frame)
 
     refseq_share_train = (
         training.assign(_is_refseq=training["record_origin"].eq("refseq").astype(float))
@@ -1317,7 +1326,7 @@ def build_backbone_table(
                         "backbone_id": training["backbone_id"].values.repeat(len(purity_cols)),
                         "feature": np.tile(purity_cols, len(training)),
                         "value": components.values.flatten(),
-                    }
+                    },
                 )
                 .loc[mask.values.flatten()]
                 .groupby(["backbone_id", "feature", "value"], sort=False)
@@ -1365,7 +1374,7 @@ def build_backbone_table(
                 pmlst_allele_purity.rename("allele"),
             ],
             axis=1,
-        ).fillna(0.0)
+        ).pipe(fill0)
         positive_component_count = pmlst_components.gt(0.0).sum(axis=1)
         pmlst_internal_coherence = pd.Series(0.0, index=pmlst_components.index, dtype=float)
         positive_mask = positive_component_count > 0
@@ -1392,9 +1401,11 @@ def build_backbone_table(
             {
                 "backbone_id": training_backbone_ids.to_numpy(),
                 "context_label": context_labels.to_numpy(),
-            }
+            },
         )
-        context_nonempty = context_table.loc[context_table["context_label"].ne("unknown")].copy()
+        context_nonempty = context_table.loc[context_table["context_label"].ne("unknown")].pipe(
+            copy_frame
+        )
         context_unique = (
             context_nonempty.groupby("backbone_id", sort=False)["context_label"].nunique()
             if not context_nonempty.empty
@@ -1437,23 +1448,23 @@ def build_backbone_table(
             .astype(float)
         )
 
-        n_replicon_types = pd.to_numeric(
-            _series_or_default(training, "n_replicon_types", 0.0), errors="coerce"
-        ).fillna(0.0)
+        n_replicon_types = to_numeric_series(
+            _series_or_default(training, "n_replicon_types", 0.0),
+        ).pipe(fill0)
         mean_n_replicon_types = (
             n_replicon_types.groupby(training_backbone_ids, sort=False).mean().astype(float)
         )
         multi_replicon_fraction = (
             (n_replicon_types > 1.0).groupby(training_backbone_ids, sort=False).mean().astype(float)
         )
-        plasmidfinder_hit_count = pd.to_numeric(
+        plasmidfinder_hit_count = to_numeric_series(
             _series_or_default(training, "plasmidfinder_hit_count", 0.0),
             errors="coerce",
-        ).fillna(0.0)
-        plasmidfinder_type_count = pd.to_numeric(
+        ).pipe(fill0)
+        plasmidfinder_type_count = to_numeric_series(
             _series_or_default(training, "plasmidfinder_type_count", 0.0),
             errors="coerce",
-        ).fillna(0.0)
+        ).pipe(fill0)
         plasmidfinder_presence_fraction = (
             (plasmidfinder_hit_count > 0.0)
             .groupby(training_backbone_ids, sort=False)
@@ -1470,18 +1481,18 @@ def build_backbone_table(
             .astype(float)
         )
         plasmidfinder_identity = (
-            pd.to_numeric(
-                _series_or_default(training, "plasmidfinder_max_identity", 0.0), errors="coerce"
+            to_numeric_series(
+                _series_or_default(training, "plasmidfinder_max_identity", 0.0),
             )
-            .fillna(0.0)
+            .pipe(fill0)
             .clip(lower=0.0, upper=100.0)
             / 100.0
         )
         plasmidfinder_coverage = (
-            pd.to_numeric(
-                _series_or_default(training, "plasmidfinder_mean_coverage", 0.0), errors="coerce"
+            to_numeric_series(
+                _series_or_default(training, "plasmidfinder_mean_coverage", 0.0),
             )
-            .fillna(0.0)
+            .pipe(fill0)
             .clip(lower=0.0, upper=100.0)
             / 100.0
         )
@@ -1492,30 +1503,37 @@ def build_backbone_table(
             plasmidfinder_coverage.groupby(training_backbone_ids, sort=False).mean().astype(float)
         )
         plasmidfinder_dominant_type = _clean_text_series(
-            _series_or_default(training, "plasmidfinder_dominant_type")
+            _series_or_default(training, "plasmidfinder_dominant_type"),
         )
         plasmidfinder_dominant_type_purity = _grouped_dominant_share(
-            training_backbone_ids, plasmidfinder_dominant_type
+            training_backbone_ids,
+            plasmidfinder_dominant_type,
         )
         plasmidfinder_support_score = (
             plasmidfinder_presence_fraction.reindex(
-                plasmidfinder_dominant_type_purity.index, fill_value=0.0
+                plasmidfinder_dominant_type_purity.index,
+                fill_value=0.0,
             )
             * (
                 0.45 * plasmidfinder_dominant_type_purity
                 + 0.35
                 * plasmidfinder_mean_identity.reindex(
-                    plasmidfinder_dominant_type_purity.index, fill_value=0.0
+                    plasmidfinder_dominant_type_purity.index,
+                    fill_value=0.0,
                 )
                 + 0.20
                 * plasmidfinder_mean_coverage.reindex(
-                    plasmidfinder_dominant_type_purity.index, fill_value=0.0
+                    plasmidfinder_dominant_type_purity.index,
+                    fill_value=0.0,
                 )
             )
         ).clip(lower=0.0, upper=1.0)
         plasmidfinder_complexity_values = np.clip(
-            0.70 * (plasmidfinder_mean_type_count / 3.0).clip(lower=0.0, upper=1.0).to_numpy(
-                dtype=float
+            0.70
+            * (plasmidfinder_mean_type_count / 3.0)
+            .clip(lower=0.0, upper=1.0)
+            .to_numpy(
+                dtype=float,
             )
             + 0.30 * plasmidfinder_multi_type_fraction.to_numpy(dtype=float),
             0.0,
@@ -1534,26 +1552,26 @@ def build_backbone_table(
             .astype(float)
         )
         mash_neighbor_distance_train_mean = (
-            pd.to_numeric(
-                _series_or_default(training, "mash_neighbor_distance", 0.0), errors="coerce"
+            to_numeric_series(
+                _series_or_default(training, "mash_neighbor_distance", 0.0),
             )
-            .fillna(0.0)
+            .pipe(fill0)
             .groupby(training_backbone_ids, sort=False)
             .mean()
             .astype(float)
         )
 
         purity_table["genus_purity_train"] = (
-            purity_table["backbone_id"].map(genus_purity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(genus_purity).pipe(fill0).astype(float)
         )
         purity_table["family_purity_train"] = (
-            purity_table["backbone_id"].map(family_purity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(family_purity).pipe(fill0).astype(float)
         )
         purity_table["mobility_purity_train"] = (
-            purity_table["backbone_id"].map(mobility_purity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(mobility_purity).pipe(fill0).astype(float)
         )
         purity_table["replicon_purity_train"] = (
-            purity_table["backbone_id"].map(replicon_purity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(replicon_purity).pipe(fill0).astype(float)
         )
         purity_table["backbone_purity_score"] = purity_table[
             [
@@ -1564,10 +1582,10 @@ def build_backbone_table(
             ]
         ].mean(axis=1)
         purity_table["mean_n_replicon_types_train"] = (
-            purity_table["backbone_id"].map(mean_n_replicon_types).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(mean_n_replicon_types).pipe(fill0).astype(float)
         )
         purity_table["multi_replicon_fraction_train"] = (
-            purity_table["backbone_id"].map(multi_replicon_fraction).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(multi_replicon_fraction).pipe(fill0).astype(float)
         )
         purity_table["primary_replicon_diversity_train"] = np.where(
             purity_table["replicon_purity_train"] > 0.0,
@@ -1577,83 +1595,83 @@ def build_backbone_table(
         purity_table["plasmidfinder_presence_fraction_train"] = (
             purity_table["backbone_id"]
             .map(plasmidfinder_presence_fraction)
-            .fillna(0.0)
+            .pipe(fill0)
             .astype(float)
         )
         purity_table["plasmidfinder_mean_type_count_train"] = (
-            purity_table["backbone_id"].map(plasmidfinder_mean_type_count).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(plasmidfinder_mean_type_count).pipe(fill0).astype(float)
         )
         purity_table["plasmidfinder_multi_type_fraction_train"] = (
             purity_table["backbone_id"]
             .map(plasmidfinder_multi_type_fraction)
-            .fillna(0.0)
+            .pipe(fill0)
             .astype(float)
         )
         purity_table["plasmidfinder_mean_max_identity_train"] = (
-            purity_table["backbone_id"].map(plasmidfinder_mean_identity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(plasmidfinder_mean_identity).pipe(fill0).astype(float)
         )
         purity_table["plasmidfinder_mean_coverage_train"] = (
-            purity_table["backbone_id"].map(plasmidfinder_mean_coverage).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(plasmidfinder_mean_coverage).pipe(fill0).astype(float)
         )
         purity_table["plasmidfinder_dominant_type_purity_train"] = (
             purity_table["backbone_id"]
             .map(plasmidfinder_dominant_type_purity)
-            .fillna(0.0)
+            .pipe(fill0)
             .astype(float)
         )
         purity_table["plasmidfinder_support_score"] = (
-            purity_table["backbone_id"].map(plasmidfinder_support_score).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(plasmidfinder_support_score).pipe(fill0).astype(float)
         )
         purity_table["plasmidfinder_complexity_score"] = (
             purity_table["backbone_id"]
             .map(plasmidfinder_complexity_score)
-            .fillna(0.0)
+            .pipe(fill0)
             .astype(float)
         )
         purity_table["assignment_primary_fraction"] = (
-            purity_table["backbone_id"].map(assignment_primary_fraction).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(assignment_primary_fraction).pipe(fill0).astype(float)
         )
         purity_table["assignment_confidence_score"] = 0.5 + (
             0.5 * purity_table["assignment_primary_fraction"]
         )
         purity_table["pmlst_presence_fraction_train"] = (
-            purity_table["backbone_id"].map(pmlst_presence_fraction).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(pmlst_presence_fraction).pipe(fill0).astype(float)
         )
         purity_table["pmlst_scheme_purity_train"] = (
-            purity_table["backbone_id"].map(pmlst_scheme_purity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(pmlst_scheme_purity).pipe(fill0).astype(float)
         )
         purity_table["pmlst_st_purity_train"] = (
-            purity_table["backbone_id"].map(pmlst_st_purity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(pmlst_st_purity).pipe(fill0).astype(float)
         )
         purity_table["pmlst_allele_purity_train"] = (
-            purity_table["backbone_id"].map(pmlst_allele_purity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(pmlst_allele_purity).pipe(fill0).astype(float)
         )
         purity_table["pmlst_coherence_score"] = (
-            purity_table["backbone_id"].map(pmlst_coherence_score).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(pmlst_coherence_score).pipe(fill0).astype(float)
         )
         purity_table["mean_pmid_count_train"] = (
-            purity_table["backbone_id"].map(mean_pmid_count).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(mean_pmid_count).pipe(fill0).astype(float)
         )
         purity_table["max_pmid_count_train"] = (
-            purity_table["backbone_id"].map(max_pmid_count).fillna(0).astype(int)
+            purity_table["backbone_id"].map(max_pmid_count).pipe(int0)
         )
         purity_table["clinical_context_fraction_train"] = (
-            purity_table["backbone_id"].map(clinical_fraction).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(clinical_fraction).pipe(fill0).astype(float)
         )
         purity_table["environmental_context_fraction_train"] = (
-            purity_table["backbone_id"].map(environmental_fraction).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(environmental_fraction).pipe(fill0).astype(float)
         )
         purity_table["host_associated_context_fraction_train"] = (
-            purity_table["backbone_id"].map(host_associated_fraction).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(host_associated_fraction).pipe(fill0).astype(float)
         )
         purity_table["food_context_fraction_train"] = (
-            purity_table["backbone_id"].map(food_fraction).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(food_fraction).pipe(fill0).astype(float)
         )
         purity_table["pathogenic_context_fraction_train"] = (
-            purity_table["backbone_id"].map(pathogenic_fraction).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(pathogenic_fraction).pipe(fill0).astype(float)
         )
         purity_table["ecology_context_diversity_train"] = (
-            purity_table["backbone_id"].map(context_diversity).fillna(0.0).astype(float)
+            purity_table["backbone_id"].map(context_diversity).pipe(fill0).astype(float)
         )
         purity_table["ecology_context_score"] = np.clip(
             0.35 * purity_table["ecology_context_diversity_train"]
@@ -1668,30 +1686,30 @@ def build_backbone_table(
         purity_table["mash_neighbor_distance_train_mean"] = (
             purity_table["backbone_id"]
             .map(mash_neighbor_distance_train_mean)
-            .fillna(0.0)
+            .pipe(fill0)
             .astype(float)
         )
 
     backbone_table["member_count_train"] = (
-        backbone_table["backbone_id"].map(member_count_train).fillna(0).astype(int)
+        backbone_table["backbone_id"].map(member_count_train).pipe(int0)
     )
     backbone_table["member_count_total"] = (
-        backbone_table["backbone_id"].map(member_count_total).fillna(0).astype(int)
+        backbone_table["backbone_id"].map(member_count_total).pipe(int0)
     )
     backbone_table["n_countries_train"] = (
-        backbone_table["backbone_id"].map(n_countries_train).fillna(0).astype(int)
+        backbone_table["backbone_id"].map(n_countries_train).pipe(int0)
     )
     backbone_table["n_countries_test"] = (
-        backbone_table["backbone_id"].map(n_countries_test).fillna(0).astype(int)
+        backbone_table["backbone_id"].map(n_countries_test).pipe(int0)
     )
     backbone_table["n_new_countries"] = (
-        backbone_table["backbone_id"].map(n_new_countries).fillna(0).astype(int)
+        backbone_table["backbone_id"].map(n_new_countries).pipe(int0)
     )
     backbone_table["refseq_share_train"] = (
-        backbone_table["backbone_id"].map(refseq_share_train).fillna(0.0).astype(float)
+        backbone_table["backbone_id"].map(refseq_share_train).pipe(fill0).astype(float)
     )
     backbone_table["insd_share_train"] = (
-        backbone_table["backbone_id"].map(insd_share_train).fillna(0.0).astype(float)
+        backbone_table["backbone_id"].map(insd_share_train).pipe(fill0).astype(float)
     )
     backbone_table["split_year"] = int(split_year)
     backbone_table["test_year_end"] = int(test_year_end)
@@ -1732,19 +1750,19 @@ def build_backbone_table(
     first_new_year = new_country_first.groupby("backbone_id", sort=False)["resolved_year"].min()
     if "event_rank" in new_country_first.columns:
         third_new_year = new_country_first.loc[new_country_first["event_rank"].eq(2)].set_index(
-            "backbone_id"
+            "backbone_id",
         )["resolved_year"]
     else:
         third_new_year = pd.Series(dtype=float)
     backbone_table["time_to_first_new_country_years"] = backbone_table["backbone_id"].map(
-        first_new_year
+        first_new_year,
     ).astype(float) - float(split_year)
     backbone_table.loc[
         backbone_table["backbone_id"].map(first_new_year).isna(),
         "time_to_first_new_country_years",
     ] = math.nan
     backbone_table["time_to_third_new_country_years"] = backbone_table["backbone_id"].map(
-        third_new_year
+        third_new_year,
     ).astype(float) - float(split_year)
     backbone_table.loc[
         backbone_table["backbone_id"].map(third_new_year).isna(),
@@ -1753,19 +1771,29 @@ def build_backbone_table(
     first_delta = backbone_table["time_to_first_new_country_years"]
     third_delta = backbone_table["time_to_third_new_country_years"]
     backbone_table["event_within_1y_label"] = np.where(
-        eligible, ((first_delta <= 1) & first_delta.notna()).astype(float), np.nan
+        eligible,
+        ((first_delta <= 1) & first_delta.notna()).astype(float),
+        np.nan,
     )
     backbone_table["event_within_3y_label"] = np.where(
-        eligible, ((first_delta <= 3) & first_delta.notna()).astype(float), np.nan
+        eligible,
+        ((first_delta <= 3) & first_delta.notna()).astype(float),
+        np.nan,
     )
     backbone_table["event_within_5y_label"] = np.where(
-        eligible, ((first_delta <= 5) & first_delta.notna()).astype(float), np.nan
+        eligible,
+        ((first_delta <= 5) & first_delta.notna()).astype(float),
+        np.nan,
     )
     backbone_table["three_countries_within_3y_label"] = np.where(
-        eligible, ((third_delta <= 3) & third_delta.notna()).astype(float), np.nan
+        eligible,
+        ((third_delta <= 3) & third_delta.notna()).astype(float),
+        np.nan,
     )
     backbone_table["three_countries_within_5y_label"] = np.where(
-        eligible, ((third_delta <= 5) & third_delta.notna()).astype(float), np.nan
+        eligible,
+        ((third_delta <= 5) & third_delta.notna()).astype(float),
+        np.nan,
     )
     severity = pd.Series(np.nan, index=backbone_table.index, dtype=float)
     severity.loc[eligible & backbone_table["n_new_countries_recomputed"].eq(0)] = 0.0
@@ -1799,28 +1827,30 @@ def build_backbone_table(
         backbone_table["backbone_id"]
         .map(
             new_region_pairs.groupby("backbone_id", sort=False)["macro_region"].agg(
-                lambda values: ",".join(sorted(values.astype(str)))
-            )
+                lambda values: ",".join(sorted(values.astype(str))),
+            ),
         )
         .fillna("")
     )
     backbone_table["macro_region_jump_label"] = np.where(
-        eligible, backbone_table["n_new_macro_regions"].ge(1).astype(float), np.nan
+        eligible,
+        backbone_table["n_new_macro_regions"].ge(1).astype(float),
+        np.nan,
     )
 
     if "backbone_seen_in_training" in working.columns:
         testing_seen = (
             testing.assign(
-                _seen=testing["backbone_seen_in_training"].fillna(False).astype(bool).astype(float)
+                _seen=testing["backbone_seen_in_training"].fillna(False).astype(bool).astype(float),
             )
             .groupby("backbone_id", sort=False)["_seen"]
             .agg(["sum", "mean"])
         )
         backbone_table["n_test_records_seen_in_training"] = (
-            backbone_table["backbone_id"].map(testing_seen["sum"]).fillna(0).astype(int)
+            backbone_table["backbone_id"].map(testing_seen["sum"]).pipe(int0)
         )
         backbone_table["test_seen_in_training_fraction"] = (
-            backbone_table["backbone_id"].map(testing_seen["mean"]).fillna(0.0).astype(float)
+            backbone_table["backbone_id"].map(testing_seen["mean"]).pipe(fill0).astype(float)
         )
     else:
         backbone_table["n_test_records_seen_in_training"] = 0
@@ -1828,16 +1858,22 @@ def build_backbone_table(
     backbone_table["training_only_future_unseen_backbone_flag"] = backbone_table[
         "backbone_assignment_mode"
     ].astype(str).eq("training_only") & backbone_table["member_count_train"].fillna(0).astype(
-        int
+        int,
     ).eq(0)
 
     if not purity_table.empty:
         backbone_table = backbone_table.merge(
-            purity_table, on="backbone_id", how="left", validate="1:1"
+            purity_table,
+            on="backbone_id",
+            how="left",
+            validate="1:1",
         )
 
     if not coherence.empty:
         backbone_table = backbone_table.merge(
-            coherence, on="backbone_id", how="left", validate="1:1"
+            coherence,
+            on="backbone_id",
+            how="left",
+            validate="1:1",
         )
     return backbone_table

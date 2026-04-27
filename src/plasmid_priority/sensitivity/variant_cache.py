@@ -2,6 +2,7 @@
 
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ import pandas as pd
 
 from plasmid_priority.cache import stable_hash
 from plasmid_priority.utils.files import ensure_directory
+
+LOGGER = logging.getLogger(__name__)
 
 _COMPONENT_FRAME_KEYS: tuple[str, ...] = (
     "records",
@@ -98,7 +101,12 @@ class VariantCacheManager:
                 return None
             try:
                 return pd.read_parquet(frame_path)
-            except Exception:
+            except Exception as exc:
+                LOGGER.warning(
+                    "Caught suppressed exception: %s",
+                    exc,
+                    exc_info=True,
+                )
                 return None
         frames: dict[str, pd.DataFrame] = {}
         for frame_key in _COMPONENT_FRAME_KEYS:
@@ -107,7 +115,12 @@ class VariantCacheManager:
                 return None
             try:
                 frames[frame_key] = pd.read_parquet(frame_path)
-            except Exception:
+            except Exception as exc:
+                LOGGER.warning(
+                    "Caught suppressed exception: %s",
+                    exc,
+                    exc_info=True,
+                )
                 return None
         return {
             "cache_key": tuple(meta.get("cache_key_tuple", [])),
@@ -175,7 +188,12 @@ class VariantCacheManager:
             return None
         try:
             frame = pd.read_parquet(table_path)
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning(
+                "Caught suppressed exception: %s",
+                exc,
+                exc_info=True,
+            )
             return None
         self._memory_scored[key] = frame.copy()
         return frame

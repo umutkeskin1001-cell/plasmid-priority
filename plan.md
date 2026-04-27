@@ -27,7 +27,7 @@
 - Weak label fusion treats unsupported evidence as abstention, validates rater labels, and records convergence diagnostics.
 - Cache keys include data, feature schema, fit config, software fingerprint, and protocol hash; unsafe cache loads are limited to trusted local cache roots.
 - Critical-path coverage gate includes temporal helpers, probabilistic labels, branch contracts, model folds, calibration, config validation, and cache manifests.
-- `module_a_impl.py` is reduced by moving fold generation, preprocessing, calibration, prediction evaluation, and cache glue into focused modules behind compatibility wrappers.
+- `module_a.py` is reduced by moving fold generation, preprocessing, calibration, prediction evaluation, and cache glue into focused modules behind compatibility wrappers.
 
 ---
 
@@ -51,7 +51,7 @@
 
 - Create `src/plasmid_priority/modeling/temporal_cv.py`: reusable temporal/group-aware splitters returning index arrays compatible with current OOF functions.
 - Modify `src/plasmid_priority/modeling/module_a_support.py`: add `split_strategy` support while preserving `_stratified_folds`.
-- Modify `src/plasmid_priority/modeling/module_a_impl.py`: use governance default `temporal_group` folds and discovery default `stratified_repeated`.
+- Modify `src/plasmid_priority/modeling/module_a.py`: use governance default `temporal_group` folds and discovery default `stratified_repeated`.
 - Test `tests/test_modeling_temporal_cv.py`: no group overlap, no future-to-past leakage, rare-class failures are actionable.
 - Test `tests/test_modeling.py`: model evaluation reports selected split strategy.
 
@@ -520,7 +520,7 @@ git commit -m "fix: treat unsupported weak label evidence as abstention"
 **Files:**
 - Create: `src/plasmid_priority/modeling/temporal_cv.py`
 - Modify: `src/plasmid_priority/modeling/module_a_support.py`
-- Modify: `src/plasmid_priority/modeling/module_a_impl.py`
+- Modify: `src/plasmid_priority/modeling/module_a.py`
 - Test: `tests/test_modeling_temporal_cv.py`
 - Test: `tests/test_modeling.py`
 
@@ -683,7 +683,7 @@ def build_model_folds(
 
 - [ ] **Step 4: Wire governance models to temporal group folds**
 
-In `module_a_impl.py`, choose split strategy:
+In `module_a.py`, choose split strategy:
 
 ```python
 def _default_split_strategy(model_name: str, fit_kwargs: dict[str, object] | None) -> str:
@@ -714,7 +714,7 @@ Expected: all selected tests pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/plasmid_priority/modeling/temporal_cv.py src/plasmid_priority/modeling/module_a_support.py src/plasmid_priority/modeling/module_a_impl.py tests/test_modeling_temporal_cv.py tests/test_modeling.py
+git add src/plasmid_priority/modeling/temporal_cv.py src/plasmid_priority/modeling/module_a_support.py src/plasmid_priority/modeling/module_a.py tests/test_modeling_temporal_cv.py tests/test_modeling.py
 git commit -m "feat: add temporal group validation folds"
 ```
 
@@ -1202,7 +1202,7 @@ git commit -m "ci: add critical path coverage gate"
 - Create: `src/plasmid_priority/modeling/preprocessing.py`
 - Create: `src/plasmid_priority/modeling/oof_predictions.py`
 - Create: `src/plasmid_priority/modeling/evaluation_metrics.py`
-- Modify: `src/plasmid_priority/modeling/module_a_impl.py`
+- Modify: `src/plasmid_priority/modeling/module_a.py`
 - Test: `tests/test_modeling.py`
 
 - [ ] **Step 1: Snapshot current public API**
@@ -1228,7 +1228,7 @@ def test_module_a_public_api_remains_importable_after_split() -> None:
 
 - [ ] **Step 2: Move preprocessing functions**
 
-Create `preprocessing.py` and move these functions from `module_a_impl.py`:
+Create `preprocessing.py` and move these functions from `module_a.py`:
 
 ```python
 _knownness_score_series
@@ -1239,7 +1239,7 @@ _prepare_feature_matrices
 _ensure_feature_columns
 ```
 
-Keep compatibility imports in `module_a_impl.py`:
+Keep compatibility imports in `module_a.py`:
 
 ```python
 from plasmid_priority.modeling.preprocessing import (
@@ -1262,7 +1262,7 @@ _oof_predictions_from_eligible
 _oof_predictions_with_detail_from_eligible
 ```
 
-Import dependencies explicitly from support/preprocessing modules. Keep wrappers in `module_a_impl.py` only if tests or scripts import private names.
+Import dependencies explicitly from support/preprocessing modules. Keep wrappers in `module_a.py` only if tests or scripts import private names.
 
 - [ ] **Step 4: Move metric assembly**
 
@@ -1299,7 +1299,7 @@ Expected: tests pass; mypy has no new errors in touched modeling modules.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/plasmid_priority/modeling/preprocessing.py src/plasmid_priority/modeling/oof_predictions.py src/plasmid_priority/modeling/evaluation_metrics.py src/plasmid_priority/modeling/module_a_impl.py tests/test_modeling.py
+git add src/plasmid_priority/modeling/preprocessing.py src/plasmid_priority/modeling/oof_predictions.py src/plasmid_priority/modeling/evaluation_metrics.py src/plasmid_priority/modeling/module_a.py tests/test_modeling.py
 git commit -m "refactor: split module A evaluation internals"
 ```
 
@@ -1309,7 +1309,7 @@ git commit -m "refactor: split module A evaluation internals"
 - Create: `src/plasmid_priority/features/host_taxonomy.py`
 - Create: `src/plasmid_priority/features/amr_signals.py`
 - Create: `src/plasmid_priority/features/context_signals.py`
-- Modify: `src/plasmid_priority/features/core_impl.py`
+- Modify: `src/plasmid_priority/features/core.py`
 - Test: `tests/test_features.py`
 - Test: `tests/test_properties.py`
 
@@ -1334,7 +1334,7 @@ def test_feature_core_public_api_remains_importable_after_split() -> None:
 
 - [ ] **Step 2: Move host taxonomy helpers**
 
-Move these from `core_impl.py` to `host_taxonomy.py`:
+Move these from `core.py` to `host_taxonomy.py`:
 
 ```python
 HOST_TAXONOMY_LEVELS
@@ -1344,7 +1344,7 @@ _host_taxonomy_signature_series
 _pairwise_host_taxonomy_distance
 ```
 
-Import them back into `core_impl.py` to avoid behavior changes.
+Import them back into `core.py` to avoid behavior changes.
 
 - [ ] **Step 3: Move AMR token logic**
 
@@ -1384,7 +1384,7 @@ Expected: tests pass; no new mypy errors in touched feature modules.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/plasmid_priority/features/host_taxonomy.py src/plasmid_priority/features/amr_signals.py src/plasmid_priority/features/context_signals.py src/plasmid_priority/features/core_impl.py tests/test_features.py
+git add src/plasmid_priority/features/host_taxonomy.py src/plasmid_priority/features/amr_signals.py src/plasmid_priority/features/context_signals.py src/plasmid_priority/features/core.py tests/test_features.py
 git commit -m "refactor: split feature engineering helpers"
 ```
 

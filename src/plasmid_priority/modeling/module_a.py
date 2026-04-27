@@ -384,6 +384,20 @@ def _fit_knownness_residualizer(
     alpha: float | np.ndarray = 1.0,
     prepared: bool = False,
 ) -> np.ndarray:
+    def _solve_or_warn(lhs: np.ndarray, rhs: np.ndarray, *, label: str) -> np.ndarray:
+        try:
+            return np.asarray(np.linalg.solve(lhs, rhs), dtype=float)
+        except np.linalg.LinAlgError:
+            warnings.warn(
+                (
+                    "Knownness residualizer encountered a singular system "
+                    f"({label}); falling back to pseudo-inverse."
+                ),
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return np.asarray(np.linalg.pinv(lhs) @ rhs, dtype=float)
+
     Z = _knownness_design_matrix(train)
     working = train if prepared else _ensure_feature_columns(train, columns)
     X = working[columns].fillna(0.0).to_numpy(dtype=float)
@@ -393,10 +407,7 @@ def _fit_knownness_residualizer(
         penalty[0, 0] = 0.0
         lhs = Z.T @ Z + penalty
         rhs = Z.T @ X
-        try:
-            return np.asarray(np.linalg.solve(lhs, rhs), dtype=float)
-        except np.linalg.LinAlgError:
-            return np.asarray(np.linalg.pinv(lhs) @ rhs, dtype=float)
+        return _solve_or_warn(lhs, rhs, label="global-alpha solve")
 
     if alpha_array.size != len(columns):
         raise ValueError("Grouped preprocess alpha must match the number of feature columns.")
@@ -407,10 +418,7 @@ def _fit_knownness_residualizer(
     for idx, alpha_value in enumerate(alpha_array):
         lhs = ztz + (base_penalty * float(alpha_value))
         rhs = Z.T @ X[:, idx]
-        try:
-            coefficients[:, idx] = np.asarray(np.linalg.solve(lhs, rhs), dtype=float)
-        except np.linalg.LinAlgError:
-            coefficients[:, idx] = np.asarray(np.linalg.pinv(lhs) @ rhs, dtype=float)
+        coefficients[:, idx] = _solve_or_warn(lhs, rhs, label=f"grouped-alpha solve idx={idx}")
     return coefficients
 
 
@@ -3219,20 +3227,20 @@ def build_logistic_convergence_audit(
                     sample_weight=train_weight,
                     fit_backend=_fit_backend_name(fit_kwargs),
                 )
-                model_rows.append(
-                    {
-                        "model_name": model_name,
-                        "repeat_index": repeat_index,
-                        "fold_index": fold_index,
-                        "n_train_backbones": int(train_mask.sum()),
-                        "n_train_positive": int(y[train_mask].sum()),
-                        "converged": bool(diagnostics["converged"]),
-                        "used_pinv": bool(diagnostics["used_pinv"]),
-                        "iterations_run": int(diagnostics["iterations_run"]),
-                        "max_abs_delta": float(diagnostics["max_abs_delta"]),
-                        "status": "ok",
-                    }
-                )
+            model_rows.append(
+                {
+                    "model_name": model_name,
+                    "repeat_index": repeat_index,
+                    "fold_index": fold_index,
+                    "n_train_backbones": int(train_mask.sum()),
+                    "n_train_positive": int(y[train_mask].sum()),
+                    "converged": bool(diagnostics["converged"]),
+                    "used_pinv": bool(diagnostics["used_pinv"]),
+                    "iterations_run": int(diagnostics["iterations_run"]),
+                    "max_abs_delta": float(diagnostics["max_abs_delta"]),
+                    "status": "ok",
+                }
+            )
         return model_rows
 
     jobs = _resolve_parallel_jobs(n_jobs, max_tasks=len(model_names))

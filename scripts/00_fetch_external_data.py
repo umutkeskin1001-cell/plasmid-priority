@@ -493,7 +493,9 @@ def fetch_literature_evidence(context_root: Path, *, force: bool = False) -> dic
     try:
         frame.to_parquet(parquet_path, index=False)
         output_path = parquet_path
-    except Exception:  # pragma: no cover - parquet optional fallback
+    except Exception as exc:  # pragma: no cover - parquet optional fallback
+        import logging
+        logging.getLogger(__name__).warning("Caught suppressed exception: %s", exc, exc_info=True)
         output_path = tsv_path
     return {"path": str(output_path), "downloaded": True, "rows": int(len(frame))}
 

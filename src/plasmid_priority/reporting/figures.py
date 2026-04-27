@@ -1,13 +1,8 @@
 """Final report figure generation."""
 
-from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 from typing import cast
-
-os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "plasmid_priority_mpl"))
 
 import matplotlib
 
@@ -21,6 +16,7 @@ from matplotlib.lines import Line2D
 from sklearn.metrics import precision_recall_curve, roc_curve
 from sklearn.metrics import roc_auc_score as skl_roc_auc_score
 
+from plasmid_priority.reporting.cache import ReportCache, frame_fingerprint
 from plasmid_priority.reporting.figure_style import (
     PALETTE,
 )
@@ -55,23 +51,24 @@ from plasmid_priority.reporting.figure_style import (
     style as _style,
 )
 from plasmid_priority.utils.files import ensure_directory
+from plasmid_priority.utils.numeric_ops import copy_frame, fill0, int0, to_numeric_series
 from plasmid_priority.validation.metrics import average_precision
 
 
 def _coerce_float(value: object) -> float:
-    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    coerced = to_numeric_series(pd.Series([value])).iloc[0]
     return float(coerced) if pd.notna(coerced) else float("nan")
 
 
 def _coerce_int(value: object, *, default: int = 0) -> int:
-    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    coerced = to_numeric_series(pd.Series([value])).iloc[0]
     return int(coerced) if pd.notna(coerced) else int(default)
 
 
 def plot_score_distribution(scored: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = scored.copy()
+    working = scored.pipe(copy_frame)
     operational_priority_index = working.get("operational_priority_index")
     if isinstance(operational_priority_index, pd.Series):
         working["operational_priority_index"] = operational_priority_index.fillna(
@@ -80,15 +77,15 @@ def plot_score_distribution(scored: pd.DataFrame, output_path: Path) -> None:
     else:
         working["operational_priority_index"] = working.get("priority_index", 0.0)
     working["training_support_group"] = np.where(
-        working["member_count_train"].fillna(0).astype(int) > 0,
+        working["member_count_train"].pipe(int0) > 0,
         "training-supported",
         "no training support",
     )
     low_threshold = 0.25
-    eligible = working.loc[working["spread_label"].notna()].copy()
+    eligible = working.loc[working["spread_label"].notna()].pipe(copy_frame)
     eligible_low_cluster = eligible.loc[
-        eligible["operational_priority_index"].fillna(0.0) < low_threshold
-    ].copy()
+        eligible["operational_priority_index"].pipe(fill0) < low_threshold
+    ].pipe(copy_frame)
     bio_threshold = (
         float(eligible["bio_priority_index"].quantile(0.25)) if not eligible.empty else 0.25
     )
@@ -101,10 +98,10 @@ def plot_score_distribution(scored: pd.DataFrame, output_path: Path) -> None:
     support_order = ["no training support", "training-supported"]
     support_summary = []
     for group in support_order:
-        frame = working.loc[working["training_support_group"] == group].copy()
+        frame = working.loc[working["training_support_group"] == group].pipe(copy_frame)
         total = int(len(frame))
         low_n = (
-            int(frame["operational_priority_index"].fillna(0.0).lt(low_threshold).sum())
+            int(frame["operational_priority_index"].pipe(fill0).lt(low_threshold).sum())
             if total
             else 0
         )
@@ -152,8 +149,8 @@ def plot_score_distribution(scored: pd.DataFrame, output_path: Path) -> None:
     axes[0].legend(frameon=False, loc="upper right")
     _apply_axis_style(axes[0], grid_axis="y")
 
-    eligible_bio = eligible["bio_priority_index"].fillna(0.0)
-    eligible_evidence = eligible["evidence_support_index"].fillna(0.0)
+    eligible_bio = eligible["bio_priority_index"].pipe(fill0)
+    eligible_evidence = eligible["evidence_support_index"].pipe(fill0)
     axes[1].hist(
         [eligible_bio, eligible_evidence],
         bins=bins,
@@ -517,30 +514,30 @@ def plot_calibration_threshold_summary(
 
     fig, axes = plt.subplots(1, 2, figsize=(12.8, 5.4))
 
-    calibration_frame = calibration.copy()
+    calibration_frame = calibration.pipe(copy_frame)
     if not calibration_frame.empty:
-        calibration_frame["mean_prediction"] = pd.to_numeric(
+        calibration_frame["mean_prediction"] = to_numeric_series(
             calibration_frame.get(
                 "mean_prediction",
                 pd.Series(np.nan, index=calibration_frame.index),
             ),
             errors="coerce",
         )
-        calibration_frame["observed_rate"] = pd.to_numeric(
+        calibration_frame["observed_rate"] = to_numeric_series(
             calibration_frame.get(
                 "observed_rate",
                 pd.Series(np.nan, index=calibration_frame.index),
             ),
             errors="coerce",
         )
-        calibration_frame["n_backbones"] = pd.to_numeric(
+        calibration_frame["n_backbones"] = to_numeric_series(
             calibration_frame.get("n_backbones", pd.Series(0.0, index=calibration_frame.index)),
             errors="coerce",
-        ).fillna(0.0)
+        ).pipe(fill0)
         calibration_frame = calibration_frame.loc[
             calibration_frame["mean_prediction"].notna()
             & calibration_frame["observed_rate"].notna()
-        ].copy()
+        ].pipe(copy_frame)
 
     if calibration_frame.empty:
         axes[0].text(
@@ -622,20 +619,20 @@ def plot_calibration_threshold_summary(
         axes[0].set_ylim(0.0, 1.0)
         _apply_axis_style(axes[0], grid_axis="both")
 
-    threshold_frame = threshold_sensitivity.copy()
+    threshold_frame = threshold_sensitivity.pipe(copy_frame)
     threshold_column = "new_country_threshold"
     if "new_country_threshold" not in threshold_frame.columns:
         threshold_column = "threshold"
     if not threshold_frame.empty:
-        threshold_frame[threshold_column] = pd.to_numeric(
+        threshold_frame[threshold_column] = to_numeric_series(
             threshold_frame.get(threshold_column, pd.Series(np.nan, index=threshold_frame.index)),
             errors="coerce",
         )
-        threshold_frame["roc_auc"] = pd.to_numeric(
+        threshold_frame["roc_auc"] = to_numeric_series(
             threshold_frame.get("roc_auc", pd.Series(np.nan, index=threshold_frame.index)),
             errors="coerce",
         )
-        threshold_frame["roc_auc_ci_lower"] = pd.to_numeric(
+        threshold_frame["roc_auc_ci_lower"] = to_numeric_series(
             threshold_frame.get(
                 "roc_auc_ci_lower",
                 threshold_frame.get(
@@ -645,7 +642,7 @@ def plot_calibration_threshold_summary(
             ),
             errors="coerce",
         )
-        threshold_frame["roc_auc_ci_upper"] = pd.to_numeric(
+        threshold_frame["roc_auc_ci_upper"] = to_numeric_series(
             threshold_frame.get(
                 "roc_auc_ci_upper",
                 threshold_frame.get(
@@ -655,21 +652,21 @@ def plot_calibration_threshold_summary(
             ),
             errors="coerce",
         )
-        threshold_frame["average_precision"] = pd.to_numeric(
+        threshold_frame["average_precision"] = to_numeric_series(
             threshold_frame.get(
                 "average_precision", pd.Series(np.nan, index=threshold_frame.index)
             ),
             errors="coerce",
         )
-        threshold_frame["n_eligible_backbones"] = pd.to_numeric(
+        threshold_frame["n_eligible_backbones"] = to_numeric_series(
             threshold_frame.get(
                 "n_eligible_backbones", pd.Series(0.0, index=threshold_frame.index)
             ),
             errors="coerce",
-        ).fillna(0.0)
+        ).pipe(fill0)
         threshold_frame = threshold_frame.loc[
             threshold_frame[threshold_column].notna() & threshold_frame["roc_auc"].notna()
-        ].copy()
+        ].pipe(copy_frame)
         threshold_frame = threshold_frame.sort_values(threshold_column)
         default_threshold = threshold_frame.loc[
             threshold_frame.get("variant", pd.Series("", index=threshold_frame.index))
@@ -876,10 +873,10 @@ def plot_sensitivity_summary(sensitivity: dict[str, dict[str, float]], output_pa
     frame["variant_label"] = frame["variant"].astype(str).map(_pretty_sensitivity_label)
     frame["ap_lift_ci_lower"] = frame["average_precision_ci_lower"].fillna(
         frame["average_precision_lift"]
-    ) - frame["positive_prevalence"].fillna(0.0)
+    ) - frame["positive_prevalence"].pipe(fill0)
     frame["ap_lift_ci_upper"] = frame["average_precision_ci_upper"].fillna(
         frame["average_precision_lift"]
-    ) - frame["positive_prevalence"].fillna(0.0)
+    ) - frame["positive_prevalence"].pipe(fill0)
     default_row = frame.loc[frame["variant"].isin(["default", "parsimonious_model"])].head(1)
     use_delta = not default_row.empty
     if use_delta:
@@ -932,7 +929,7 @@ def plot_sensitivity_summary(sensitivity: dict[str, dict[str, float]], output_pa
     axes[1].set_xlabel("AP lift" if not use_delta else "delta AP lift vs default")
     axes[1].set_yticks(positions)
     axes[1].set_yticklabels([])
-    for idx, value in enumerate(frame["average_precision_lift"].fillna(0.0).tolist()):
+    for idx, value in enumerate(frame["average_precision_lift"].pipe(fill0).tolist()):
         axes[1].text(
             frame.iloc[idx]["lift_high"] + 0.004, idx, f"{value:+.3f}", va="center", fontsize=8
         )
@@ -1022,7 +1019,7 @@ def plot_threshold_roc_pr_curves(
     ensure_directory(output_path.parent)
     prediction_frame = predictions.loc[
         predictions["model_name"].astype(str) == str(model_name), ["backbone_id", "oof_prediction"]
-    ].copy()
+    ].pipe(copy_frame)
     if prediction_frame.empty:
         return
     outcome_column = (
@@ -1034,12 +1031,14 @@ def plot_threshold_roc_pr_curves(
         return
     merged = (
         scored[["backbone_id", outcome_column]]
-        .copy()
+        .pipe(copy_frame)
         .merge(prediction_frame, on="backbone_id", how="inner")
     )
-    merged[outcome_column] = pd.to_numeric(merged[outcome_column], errors="coerce")
-    merged["oof_prediction"] = pd.to_numeric(merged["oof_prediction"], errors="coerce")
-    merged = merged.loc[merged[outcome_column].notna() & merged["oof_prediction"].notna()].copy()
+    merged[outcome_column] = to_numeric_series(merged[outcome_column])
+    merged["oof_prediction"] = to_numeric_series(merged["oof_prediction"])
+    merged = merged.loc[merged[outcome_column].notna() & merged["oof_prediction"].notna()].pipe(
+        copy_frame
+    )
     if merged.empty:
         return
 
@@ -1141,12 +1140,12 @@ def plot_l2_sensitivity(sensitivity: dict[str, dict[str, float]], output_path: P
 def plot_pathogen_detection_support(comparison: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = comparison.copy()
+    working = comparison.pipe(copy_frame)
     if working.empty:
         return
-    combined = working.loc[working["pathogen_dataset"] == "combined"].copy()
+    combined = working.loc[working["pathogen_dataset"] == "combined"].pipe(copy_frame)
     if combined.empty:
-        combined = working.head(1).copy()
+        combined = working.head(1).pipe(copy_frame)
     row = combined.iloc[0]
     positions = np.arange(2)
     labels = ["high", "low"]
@@ -1199,7 +1198,7 @@ def plot_pathogen_detection_support(comparison: pd.DataFrame, output_path: Path)
 def plot_pathogen_detection_strata_summary(comparison: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = comparison.copy()
+    working = comparison.pipe(copy_frame)
     working = working.loc[
         working["pathogen_dataset"].isin(["combined", "clinical", "environmental"])
     ]
@@ -1213,8 +1212,8 @@ def plot_pathogen_detection_strata_summary(comparison: pd.DataFrame, output_path
     )
     positions = np.arange(len(working))
     fig, ax = plt.subplots(figsize=(9.8, 5.2))
-    low_values = working["mean_matching_fraction_low"].fillna(0.0).to_numpy(dtype=float)
-    high_values = working["mean_matching_fraction_high"].fillna(0.0).to_numpy(dtype=float)
+    low_values = working["mean_matching_fraction_low"].pipe(fill0).to_numpy(dtype=float)
+    high_values = working["mean_matching_fraction_high"].pipe(fill0).to_numpy(dtype=float)
     for idx, row in enumerate(working.itertuples(index=False)):
         low_value = _coerce_float(getattr(row, "mean_matching_fraction_low"))
         high_value = _coerce_float(getattr(row, "mean_matching_fraction_high"))
@@ -1279,7 +1278,7 @@ def plot_knownness_vs_oof_scatter(
     ensure_directory(output_path.parent)
     prediction_frame = predictions.loc[
         predictions["model_name"].astype(str) == str(model_name), ["backbone_id", "oof_prediction"]
-    ].copy()
+    ].pipe(copy_frame)
     if prediction_frame.empty:
         return
     working = scored.merge(prediction_frame, on="backbone_id", how="inner")
@@ -1287,7 +1286,7 @@ def plot_knownness_vs_oof_scatter(
         return
     working = working.loc[
         working["spread_label"].notna() & working["knownness_score"].notna()
-    ].copy()
+    ].pipe(copy_frame)
     if working.empty:
         return
     fig, ax = plt.subplots(figsize=(9.4, 6.1))
@@ -1298,7 +1297,7 @@ def plot_knownness_vs_oof_scatter(
         .fillna(PALETTE["muted"])
     )
     member_sizes = np.clip(
-        np.sqrt(working["member_count_train"].fillna(0.0).to_numpy(dtype=float) + 1.0) * 18.0,
+        np.sqrt(working["member_count_train"].pipe(fill0).to_numpy(dtype=float) + 1.0) * 18.0,
         20.0,
         220.0,
     )
@@ -1504,7 +1503,7 @@ def plot_benchmark_comparison(
     ]
     working = model_metrics.loc[
         model_metrics["model_name"].astype(str).isin([name for name in focus_order if name])
-    ].copy()
+    ].pipe(copy_frame)
     if working.empty:
         return
     working["plot_order"] = (
@@ -1592,7 +1591,7 @@ def plot_false_negative_heatmap(
     available = [column for column in feature_columns if column in scored.columns]
     if not available:
         return
-    working = false_negative_audit.head(max_rows).copy()
+    working = false_negative_audit.head(max_rows).pipe(copy_frame)
     missing_columns = [column for column in available if column not in working.columns]
     if missing_columns:
         working = working.merge(
@@ -1603,7 +1602,7 @@ def plot_false_negative_heatmap(
     available = [column for column in available if column in working.columns]
     if working.empty:
         return
-    matrix = working[available].copy().fillna(0.0)
+    matrix = working[available].pipe(copy_frame).pipe(fill0)
     for column in matrix.columns:
         values = matrix[column].to_numpy(dtype=float)
         min_value = float(np.nanmin(values))
@@ -1646,7 +1645,7 @@ def plot_core_model_coefficient_heatmap(
     ensure_directory(output_path.parent)
     if coefficients.empty:
         return
-    working = coefficients.copy()
+    working = coefficients.pipe(copy_frame)
     if (
         "coefficient" not in working.columns
         or "model_name" not in working.columns
@@ -1667,7 +1666,7 @@ def plot_core_model_coefficient_heatmap(
     pivot = pivot.loc[feature_strength.index]
     fig, ax = plt.subplots(figsize=(9.8, max(6.0, 0.28 * len(pivot))))
     image = ax.imshow(
-        pivot.fillna(0.0).to_numpy(dtype=float), aspect="auto", cmap="coolwarm", vmin=-1.0, vmax=1.0
+        pivot.pipe(fill0).to_numpy(dtype=float), aspect="auto", cmap="coolwarm", vmin=-1.0, vmax=1.0
     )
     ax.set_title("Core Model Coefficient Heatmap")
     ax.set_xticks(np.arange(len(pivot.columns)))
@@ -1711,7 +1710,7 @@ def plot_primary_model_coefficients(
         sds = (
             ordered["feature_name"]
             .map(stability["std_coefficient"])
-            .fillna(0.0)
+            .pipe(fill0)
             .to_numpy(dtype=float)
         )
         ax.errorbar(
@@ -1753,7 +1752,7 @@ def plot_feature_dropout_importance(
 ) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = dropout.loc[dropout["feature_name"] != "__full_model__"].copy()
+    working = dropout.loc[dropout["feature_name"] != "__full_model__"].pipe(copy_frame)
     working = working.sort_values("roc_auc_drop_vs_full", ascending=True)
     fig, ax = plt.subplots(figsize=(9, 5.5))
     labels = [_pretty_feature_label(name) for name in working["feature_name"].tolist()]
@@ -1820,11 +1819,11 @@ def plot_model_comparison_deltas(
         "T_plus_H_plus_A": 4,
         "source_only": 99,
     }
-    ordered = comparison.copy()
+    ordered = comparison.pipe(copy_frame)
     ordered["plot_order"] = ordered["comparison_model_name"].map(preferred_order).fillna(99)
     ordered = ordered.sort_values(["plot_order", "delta_roc_auc"])
-    core = ordered.loc[ordered["comparison_model_name"] != "source_only"].copy()
-    weak_control = ordered.loc[ordered["comparison_model_name"] == "source_only"].copy()
+    core = ordered.loc[ordered["comparison_model_name"] != "source_only"].pipe(copy_frame)
+    weak_control = ordered.loc[ordered["comparison_model_name"] == "source_only"].pipe(copy_frame)
 
     fig, axes = plt.subplots(
         1,
@@ -2121,7 +2120,7 @@ def plot_source_balance_resampling(
 def plot_card_mechanism_comparison(comparison: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = comparison.copy()
+    working = comparison.pipe(copy_frame)
     working["abs_delta"] = working["prevalence_delta_high_minus_low"].abs()
     working = working.sort_values("abs_delta", ascending=False).head(12).sort_values("high")
     positions = np.arange(len(working))
@@ -2167,18 +2166,18 @@ def plot_card_mechanism_comparison(comparison: pd.DataFrame, output_path: Path) 
 def plot_mobsuite_support_summary(summary: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = summary.copy()
+    working = summary.pipe(copy_frame)
     coverage = working["n_with_literature_support"] / working["n_backbones"].replace(0, np.nan)
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.8))
     colors = (
         working["priority_group"].map({"high": PALETTE["high"], "low": PALETTE["low"]}).tolist()
     )
 
-    axes[0].bar(working["priority_group"], coverage.fillna(0.0), color=colors)
+    axes[0].bar(working["priority_group"], coverage.pipe(fill0), color=colors)
     axes[0].set_title("MOB-suite Literature Coverage")
     axes[0].set_ylabel("Share of selected backbones")
     axes[0].set_ylim(0.0, 1.0)
-    _annotate_bar_values(axes[0], coverage.fillna(0.0).tolist(), list(range(len(working))))
+    _annotate_bar_values(axes[0], coverage.pipe(fill0).tolist(), list(range(len(working))))
     _apply_axis_style(axes[0], grid_axis="y")
 
     axes[1].bar(
@@ -2188,7 +2187,7 @@ def plot_mobsuite_support_summary(summary: pd.DataFrame, output_path: Path) -> N
     axes[1].set_ylabel("Unique reported host-range taxids")
     _annotate_bar_values(
         axes[1],
-        working["mean_reported_host_range_taxid_count"].fillna(0.0).tolist(),
+        working["mean_reported_host_range_taxid_count"].pipe(fill0).tolist(),
         list(range(len(working))),
     )
     _apply_axis_style(axes[1], grid_axis="y")
@@ -2202,9 +2201,9 @@ def plot_who_mia_category_support(comparison: pd.DataFrame, output_path: Path) -
     _style()
     ensure_directory(output_path.parent)
     ordered_categories = ["HPCIA", "CIA", "HIA", "IA"]
-    working = comparison.copy()
+    working = comparison.pipe(copy_frame)
     working = (
-        working.set_index("who_mia_category").reindex(ordered_categories).fillna(0.0).reset_index()
+        working.set_index("who_mia_category").reindex(ordered_categories).pipe(fill0).reset_index()
     )
     positions = list(range(len(working)))
     width = 0.36
@@ -2248,7 +2247,7 @@ def plot_who_mia_category_support(comparison: pd.DataFrame, output_path: Path) -
 def plot_amrfinder_concordance(summary: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = summary.loc[summary["priority_group"] != "overall"].copy()
+    working = summary.loc[summary["priority_group"] != "overall"].pipe(copy_frame)
     if working.empty:
         return
     working["amr_evidence_fraction"] = working["n_with_any_amr_evidence"] / working[
@@ -2265,7 +2264,7 @@ def plot_amrfinder_concordance(summary: pd.DataFrame, output_path: Path) -> None
         0.0
     )
     positions = np.arange(len(working))
-    axes[0].bar(positions, working["amr_evidence_fraction"].fillna(0.0), color=colors)
+    axes[0].bar(positions, working["amr_evidence_fraction"].pipe(fill0), color=colors)
     axes[0].set_title("AMR Evidence Coverage (probe panel)")
     axes[0].set_ylabel("Share with any AMR evidence")
     axes[0].set_ylim(0.0, 1.0)
@@ -2285,9 +2284,9 @@ def plot_amrfinder_concordance(summary: pd.DataFrame, output_path: Path) -> None
         )
     _apply_axis_style(axes[0], grid_axis="y")
 
-    gene_draw = gene_metric.copy()
-    gene_draw.loc[working["n_with_any_amr_evidence"].fillna(0).astype(int) < 3] = np.nan
-    axes[1].bar(positions, gene_draw.fillna(0.0), color=colors)
+    gene_draw = gene_metric.pipe(copy_frame)
+    gene_draw.loc[working["n_with_any_amr_evidence"].pipe(int0) < 3] = np.nan
+    axes[1].bar(positions, gene_draw.pipe(fill0), color=colors)
     axes[1].set_title("Gene Concordance on Evaluable Panel")
     axes[1].set_ylabel("Mean gene-set Jaccard")
     axes[1].set_ylim(0.0, 1.0)
@@ -2295,9 +2294,9 @@ def plot_amrfinder_concordance(summary: pd.DataFrame, output_path: Path) -> None
     axes[1].set_xticklabels(working["priority_group"].tolist())
     _apply_axis_style(axes[1], grid_axis="y")
 
-    class_draw = class_metric.copy()
-    class_draw.loc[working["n_with_any_amr_evidence"].fillna(0).astype(int) < 3] = np.nan
-    axes[2].bar(positions, class_draw.fillna(0.0), color=colors)
+    class_draw = class_metric.pipe(copy_frame)
+    class_draw.loc[working["n_with_any_amr_evidence"].pipe(int0) < 3] = np.nan
+    axes[2].bar(positions, class_draw.pipe(fill0), color=colors)
     axes[2].set_title("Class Concordance on Evaluable Panel")
     axes[2].set_ylabel("Mean class-set Jaccard")
     axes[2].set_ylim(0.0, 1.0)
@@ -2348,9 +2347,9 @@ def plot_rolling_temporal_validation(
 ) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = rolling.loc[
-        (rolling["status"] == "ok") & (rolling["model_name"] == model_name)
-    ].copy()
+    working = rolling.loc[(rolling["status"] == "ok") & (rolling["model_name"] == model_name)].pipe(
+        copy_frame
+    )
     if working.empty:
         return
     if "horizon_years" in working.columns and working["horizon_years"].nunique() > 1:
@@ -2361,7 +2360,7 @@ def plot_rolling_temporal_validation(
         )
         working = working.loc[
             working["horizon_years"].fillna(preferred_horizon).astype(int) == preferred_horizon
-        ].copy()
+        ].pipe(copy_frame)
         if (
             diagnostics is not None
             and not diagnostics.empty
@@ -2370,7 +2369,7 @@ def plot_rolling_temporal_validation(
             diagnostics = diagnostics.loc[
                 diagnostics["horizon_years"].fillna(preferred_horizon).astype(int)
                 == preferred_horizon
-            ].copy()
+            ].pipe(copy_frame)
     fig, axes = plt.subplots(1, 3, figsize=(17.2, 5.1))
     palette = {"all_records": PALETTE["primary"], "training_only": PALETTE["accent"]}
     mode_labels = {
@@ -2381,7 +2380,7 @@ def plot_rolling_temporal_validation(
     if diagnostics is not None and not diagnostics.empty:
         identical_curves = bool(
             diagnostics["eligible_identical"].fillna(False).all()
-            and diagnostics["roc_auc_delta_training_only_minus_all_records"].fillna(0.0).abs().max()
+            and diagnostics["roc_auc_delta_training_only_minus_all_records"].pipe(fill0).abs().max()
             < 1e-10
         )
     group_iterable = (
@@ -2457,10 +2456,10 @@ def plot_rolling_temporal_validation(
     )
     if diagnostics is not None and not diagnostics.empty:
         ordered_diag = diagnostics.sort_values("split_year")
-        unseen_share = ordered_diag["training_only_future_unseen_row_fraction"].fillna(0.0)
-        unseen_backbone_share = ordered_diag[
-            "training_only_future_unseen_backbone_fraction"
-        ].fillna(0.0)
+        unseen_share = ordered_diag["training_only_future_unseen_row_fraction"].pipe(fill0)
+        unseen_backbone_share = ordered_diag["training_only_future_unseen_backbone_fraction"].pipe(
+            fill0
+        )
         axes[2].plot(
             ordered_diag["split_year"],
             unseen_share,
@@ -2493,13 +2492,13 @@ def plot_rolling_temporal_validation(
 def plot_permutation_null_summary(summary: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = summary.copy()
+    working = summary.pipe(copy_frame)
     if working.empty:
         return
     fig, ax = plt.subplots(figsize=(10, 5.2))
     positions = list(range(len(working)))
-    observed = working["observed_roc_auc"].fillna(0.0).tolist()
-    null_cutoff = working["null_roc_auc_q975"].fillna(0.0).tolist()
+    observed = working["observed_roc_auc"].pipe(fill0).tolist()
+    null_cutoff = working["null_roc_auc_q975"].pipe(fill0).tolist()
     ax.bar(positions, observed, color=PALETTE["primary"], alpha=0.85, label="Observed ROC AUC")
     ax.scatter(positions, null_cutoff, color=PALETTE["accent"], s=80, label="97.5% null ROC AUC")
     ax.set_title("Permutation Null Audit")
@@ -2519,11 +2518,11 @@ def plot_candidate_stability(candidates: pd.DataFrame, output_path: Path) -> Non
     ensure_directory(output_path.parent)
     if candidates.empty:
         return
-    working = candidates.copy()
+    working = candidates.pipe(copy_frame)
     if "base_rank" not in working.columns:
         working = working.sort_values("priority_index", ascending=False).reset_index(drop=True)
         working["base_rank"] = range(1, len(working) + 1)
-    working = working.sort_values("base_rank").head(12).copy()
+    working = working.sort_values("base_rank").head(12).pipe(copy_frame)
     if "bootstrap_top_k_frequency" not in working.columns:
         working["bootstrap_top_k_frequency"] = 0.0
     if "variant_top_k_frequency" not in working.columns:
@@ -2539,19 +2538,19 @@ def plot_candidate_stability(candidates: pd.DataFrame, output_path: Path) -> Non
     bootstrap_retention = np.where(
         core_mask,
         working.get("bootstrap_top_10_frequency", working["bootstrap_top_k_frequency"])
-        .fillna(0.0)
+        .pipe(fill0)
         .to_numpy(dtype=float),
         working.get("bootstrap_top_25_frequency", working["bootstrap_top_k_frequency"])
-        .fillna(0.0)
+        .pipe(fill0)
         .to_numpy(dtype=float),
     )
     variant_retention = np.where(
         core_mask,
         working.get("variant_top_10_frequency", working["variant_top_k_frequency"])
-        .fillna(0.0)
+        .pipe(fill0)
         .to_numpy(dtype=float),
         working.get("variant_top_25_frequency", working["variant_top_k_frequency"])
-        .fillna(0.0)
+        .pipe(fill0)
         .to_numpy(dtype=float),
     )
     axes[0].bar(
@@ -2585,7 +2584,7 @@ def plot_candidate_stability(candidates: pd.DataFrame, output_path: Path) -> Non
 
     rank_std = (
         working.get("bootstrap_rank_std", pd.Series([0.0] * len(working)))
-        .fillna(0.0)
+        .pipe(fill0)
         .to_numpy(dtype=float)
     )
     axes[1].errorbar(
@@ -2643,7 +2642,7 @@ def plot_novelty_frontier(frontier: pd.DataFrame, output_path: Path, model_name:
             "primary_model_oof_prediction",
             "novelty_margin_vs_baseline",
         ]
-    ).copy()
+    ).pipe(copy_frame)
     if working.empty:
         return
 
@@ -2652,7 +2651,7 @@ def plot_novelty_frontier(frontier: pd.DataFrame, output_path: Path, model_name:
         .fillna("unknown")
         .astype(str)
     )
-    watchlist = working.loc[working["knownness_half"] == "lower_half"].copy()
+    watchlist = working.loc[working["knownness_half"] == "lower_half"].pipe(copy_frame)
     watchlist = watchlist.sort_values(
         ["novelty_margin_vs_baseline", "primary_model_oof_prediction"], ascending=[False, False]
     ).head(12)
@@ -2662,7 +2661,7 @@ def plot_novelty_frontier(frontier: pd.DataFrame, output_path: Path, model_name:
         ("upper_half", PALETTE["muted"], "upper-half knownness"),
         ("lower_half", PALETTE["accent"], "lower-half knownness"),
     ):
-        frame = working.loc[working["knownness_half"] == knownness_half].copy()
+        frame = working.loc[working["knownness_half"] == knownness_half].pipe(copy_frame)
         if frame.empty:
             continue
         frame["x_plot"] = (
@@ -2750,7 +2749,7 @@ def plot_novelty_frontier(frontier: pd.DataFrame, output_path: Path, model_name:
             ("upper_half", PALETTE["muted"], "upper-half knownness"),
             ("lower_half", PALETTE["accent"], "lower-half knownness"),
         ):
-            frame = working.loc[working["knownness_half"] == knownness_half].copy()
+            frame = working.loc[working["knownness_half"] == knownness_half].pipe(copy_frame)
             if frame.empty:
                 continue
             axes[1].scatter(
@@ -2800,7 +2799,7 @@ def plot_negative_control_audit(audit: pd.DataFrame, output_path: Path) -> None:
     ensure_directory(output_path.parent)
     if audit.empty:
         return
-    working = audit.copy().sort_values("roc_auc", ascending=True)
+    working = audit.pipe(copy_frame).sort_values("roc_auc", ascending=True)
     palette = []
     for audit_name in working["audit_name"].astype(str):
         if audit_name == "primary_model":
@@ -2827,15 +2826,15 @@ def plot_temporal_drift_summary(summary: pd.DataFrame, output_path: Path) -> Non
     ensure_directory(output_path.parent)
     if summary.empty:
         return
-    working = summary.sort_values("resolved_year").copy()
+    working = summary.sort_values("resolved_year").pipe(copy_frame)
     dense = (
-        working.loc[~working["low_density_year"].fillna(False)].copy()
+        working.loc[~working["low_density_year"].fillna(False)].pipe(copy_frame)
         if "low_density_year" in working.columns
-        else working.loc[working["n_records"].fillna(0).astype(int) >= 20].copy()
+        else working.loc[working["n_records"].pipe(int0) >= 20].pipe(copy_frame)
     )
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.0))
     if "low_density_year" in working.columns and working["low_density_year"].any():
-        low_density = working.loc[working["low_density_year"]].copy()
+        low_density = working.loc[working["low_density_year"]].pipe(copy_frame)
         axes[0].axvspan(
             low_density["resolved_year"].min() - 0.5,
             low_density["resolved_year"].max() + 0.5,
@@ -2887,28 +2886,28 @@ def plot_temporal_drift_summary(summary: pd.DataFrame, output_path: Path) -> Non
 
     axes[1].scatter(
         working["resolved_year"],
-        working["refseq_record_fraction"].fillna(0.0),
+        working["refseq_record_fraction"].pipe(fill0),
         color=PALETTE["support"],
         alpha=0.25,
         s=18,
     )
     axes[1].scatter(
         working["resolved_year"],
-        working["mobilizable_fraction"].fillna(0.0),
+        working["mobilizable_fraction"].pipe(fill0),
         color=PALETTE["high"],
         alpha=0.25,
         s=18,
     )
     axes[1].plot(
         dense["resolved_year"],
-        dense["refseq_record_fraction_rolling3"].fillna(0.0),
+        dense["refseq_record_fraction_rolling3"].pipe(fill0),
         color=PALETTE["support"],
         linewidth=2,
         label="RefSeq fraction (3-year mean)",
     )
     axes[1].plot(
         dense["resolved_year"],
-        dense["mobilizable_fraction_rolling3"].fillna(0.0),
+        dense["mobilizable_fraction_rolling3"].pipe(fill0),
         color=PALETTE["high"],
         linewidth=2,
         label="Mobilizable fraction (3-year mean)",
@@ -2928,14 +2927,16 @@ def plot_temporal_drift_summary(summary: pd.DataFrame, output_path: Path) -> Non
 def plot_module_f_enrichment(top_hits: pd.DataFrame, output_path: Path) -> None:
     _style()
     ensure_directory(output_path.parent)
-    working = top_hits.copy()
+    working = top_hits.pipe(copy_frame)
     if working.empty:
         return
     working["log2_odds_ratio"] = np.log2(
         working["odds_ratio"].replace(0.0, np.nan).replace(np.inf, 1e9)
     )
     working = (
-        working.sort_values(["q_value", "log2_odds_ratio"], ascending=[True, False]).head(12).copy()
+        working.sort_values(["q_value", "log2_odds_ratio"], ascending=[True, False])
+        .head(12)
+        .pipe(copy_frame)
     )
     working["display_label"] = (
         working["feature_group"].astype(str) + ": " + working["feature_value"].astype(str)
@@ -2990,10 +2991,9 @@ def generate_all_figures(
     governance_model_name: str | None = None,
     figures_dir: Path,
     primary_model_name: str,
-    report_cache: object | None = None,
+    report_cache: ReportCache | None = None,
     report_mode: str = "report-full",
 ) -> list[str]:
-    _ = (report_cache, report_mode)
     core_dir = figures_dir.parent / "core_figures"
     ensure_directory(core_dir)
     candidate_portfolio = candidate_portfolio if candidate_portfolio is not None else pd.DataFrame()
@@ -3007,9 +3007,57 @@ def generate_all_figures(
         core_model_coefficients if core_model_coefficients is not None else pd.DataFrame()
     )
     outputs = []
+    figure_function_hash = frame_fingerprint(
+        pd.DataFrame({"marker": ["generate_all_figures_v2"]}),
+        sample_rows=1,
+    )
+
+    from collections.abc import Callable
+
+    def _emit(
+        figure_name: str,
+        output_path: Path,
+        renderer: Callable[..., None],
+        *renderer_args: object,
+        fingerprint_parts: list[str],
+        renderer_kwargs: dict[str, object] | None = None,
+    ) -> None:
+        kwargs = renderer_kwargs or {}
+        data_fingerprint = "|".join(fingerprint_parts)
+        if report_cache is not None:
+            key = report_cache.build_figure_key(
+                figure_name=figure_name,
+                data_fingerprint=data_fingerprint,
+                function_hash=figure_function_hash,
+                mode=report_mode,
+            )
+            if report_cache.is_figure_current(
+                figure_name=figure_name,
+                figure_key=key,
+                output_path=output_path,
+            ):
+                outputs.append(str(output_path))
+                return
+            renderer(*renderer_args, **kwargs)
+            report_cache.put_figure(
+                figure_name=figure_name,
+                figure_key=key,
+                output_path=output_path,
+            )
+            outputs.append(str(output_path))
+            return
+        renderer(*renderer_args, **kwargs)
+        outputs.append(str(output_path))
+
     output = core_dir / "score_distribution.png"
-    plot_score_distribution(scored, output)
-    outputs.append(str(output))
+    _emit(
+        "score_distribution",
+        output,
+        plot_score_distribution,
+        scored,
+        output,
+        fingerprint_parts=[frame_fingerprint(scored)],
+    )
 
     available_prediction_models = set(predictions["model_name"].astype(str))
     curve_models = []
@@ -3024,81 +3072,190 @@ def generate_all_figures(
             curve_models.append(model_name)
 
     output = core_dir / "roc_curve.png"
-    plot_roc_curve(predictions, output, curve_models)
-    outputs.append(str(output))
+    _emit(
+        "roc_curve",
+        output,
+        plot_roc_curve,
+        predictions,
+        output,
+        curve_models,
+        fingerprint_parts=[frame_fingerprint(predictions), str(curve_models)],
+    )
 
     output = core_dir / "pr_curve.png"
-    plot_pr_curve(predictions, output, curve_models)
-    outputs.append(str(output))
+    _emit(
+        "pr_curve",
+        output,
+        plot_pr_curve,
+        predictions,
+        output,
+        curve_models,
+        fingerprint_parts=[frame_fingerprint(predictions), str(curve_models)],
+    )
 
     output = core_dir / "calibration_plot.png"
-    plot_calibration(calibration, output, primary_model_name)
-    outputs.append(str(output))
+    _emit(
+        "calibration_plot",
+        output,
+        plot_calibration,
+        calibration,
+        output,
+        primary_model_name,
+        fingerprint_parts=[frame_fingerprint(calibration), primary_model_name],
+    )
 
     if not threshold_sensitivity.empty:
         output = core_dir / "calibration_threshold_summary.png"
-        plot_calibration_threshold_summary(
+        _emit(
+            "calibration_threshold_summary",
+            output,
+            plot_calibration_threshold_summary,
             calibration,
             threshold_sensitivity,
             output,
             primary_model_name,
+            fingerprint_parts=[
+                frame_fingerprint(calibration),
+                frame_fingerprint(threshold_sensitivity),
+                primary_model_name,
+            ],
         )
-        outputs.append(str(output))
 
     output = core_dir / "threshold_roc_pr_curves.png"
-    plot_threshold_roc_pr_curves(scored, predictions, output, model_name=primary_model_name)
-    outputs.append(str(output))
+    _emit(
+        "threshold_roc_pr_curves",
+        output,
+        plot_threshold_roc_pr_curves,
+        scored,
+        predictions,
+        output,
+        fingerprint_parts=[
+            frame_fingerprint(scored),
+            frame_fingerprint(predictions),
+            primary_model_name,
+        ],
+        renderer_kwargs={"model_name": primary_model_name},
+    )
 
     if not candidate_portfolio.empty:
         output = core_dir / "tha_candidate_radar.png"
-        plot_tha_radar(candidate_portfolio, scored, output)
-        outputs.append(str(output))
+        _emit(
+            "tha_candidate_radar",
+            output,
+            plot_tha_radar,
+            candidate_portfolio,
+            scored,
+            output,
+            fingerprint_parts=[
+                frame_fingerprint(candidate_portfolio),
+                frame_fingerprint(scored),
+            ],
+        )
 
     output = core_dir / "knownness_vs_oof_score_scatter.png"
-    plot_knownness_vs_oof_scatter(scored, predictions, output, model_name=primary_model_name)
-    outputs.append(str(output))
+    _emit(
+        "knownness_vs_oof_score_scatter",
+        output,
+        plot_knownness_vs_oof_scatter,
+        scored,
+        predictions,
+        output,
+        fingerprint_parts=[
+            frame_fingerprint(scored),
+            frame_fingerprint(predictions),
+            primary_model_name,
+        ],
+        renderer_kwargs={"model_name": primary_model_name},
+    )
 
     output = core_dir / "temporal_design.png"
-    plot_temporal_design(output)
-    outputs.append(str(output))
+    _emit(
+        "temporal_design",
+        output,
+        plot_temporal_design,
+        output,
+        fingerprint_parts=["static-temporal-design"],
+    )
 
     output = core_dir / "baseline_vs_full_model_comparison.png"
-    plot_benchmark_comparison(
+    _emit(
+        "baseline_vs_full_model_comparison",
+        output,
+        plot_benchmark_comparison,
         model_metrics,
         output,
-        primary_model_name=primary_model_name,
-        governance_model_name=governance_model_name,
+        fingerprint_parts=[
+            frame_fingerprint(model_metrics),
+            primary_model_name,
+            str(governance_model_name or ""),
+        ],
+        renderer_kwargs={
+            "primary_model_name": primary_model_name,
+            "governance_model_name": governance_model_name,
+        },
     )
-    outputs.append(str(output))
 
     if not coefficient_table.empty:
         output = core_dir / "primary_model_coefficients.png"
-        plot_primary_model_coefficients(
+        _emit(
+            "primary_model_coefficients",
+            output,
+            plot_primary_model_coefficients,
             coefficient_table,
             output,
             primary_model_name,
-            coefficient_stability=coefficient_stability,
+            fingerprint_parts=[
+                frame_fingerprint(coefficient_table),
+                frame_fingerprint(coefficient_stability),
+                primary_model_name,
+            ],
+            renderer_kwargs={"coefficient_stability": coefficient_stability},
         )
-        outputs.append(str(output))
 
     if not dropout_table.empty:
         output = core_dir / "feature_dropout_importance.png"
-        plot_feature_dropout_importance(dropout_table, output, primary_model_name)
-        outputs.append(str(output))
+        _emit(
+            "feature_dropout_importance",
+            output,
+            plot_feature_dropout_importance,
+            dropout_table,
+            output,
+            primary_model_name,
+            fingerprint_parts=[frame_fingerprint(dropout_table), primary_model_name],
+        )
 
     if not candidate_stability.empty:
         output = core_dir / "candidate_stability.png"
-        plot_candidate_stability(candidate_stability, output)
-        outputs.append(str(output))
+        _emit(
+            "candidate_stability",
+            output,
+            plot_candidate_stability,
+            candidate_stability,
+            output,
+            fingerprint_parts=[frame_fingerprint(candidate_stability)],
+        )
 
     if not false_negative_audit.empty:
         output = core_dir / "false_negative_heatmap.png"
-        plot_false_negative_heatmap(false_negative_audit, scored, output)
-        outputs.append(str(output))
+        _emit(
+            "false_negative_heatmap",
+            output,
+            plot_false_negative_heatmap,
+            false_negative_audit,
+            scored,
+            output,
+            fingerprint_parts=[frame_fingerprint(false_negative_audit), frame_fingerprint(scored)],
+        )
 
     if not core_model_coefficients.empty:
         output = core_dir / "core_model_coefficient_heatmap.png"
-        plot_core_model_coefficient_heatmap(core_model_coefficients, output)
-        outputs.append(str(output))
+        _emit(
+            "core_model_coefficient_heatmap",
+            output,
+            plot_core_model_coefficient_heatmap,
+            core_model_coefficients,
+            output,
+            fingerprint_parts=[frame_fingerprint(core_model_coefficients)],
+        )
 
     return outputs

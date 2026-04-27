@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import multiprocessing
 import os
 import subprocess
 import sys
@@ -13,7 +12,6 @@ import time
 from concurrent.futures import (
     FIRST_COMPLETED,
     Future,
-    ProcessPoolExecutor,
     ThreadPoolExecutor,
     wait,
 )
@@ -42,7 +40,7 @@ from plasmid_priority.performance import (
     upsert_summary_telemetry,
 )
 from plasmid_priority.pipeline.step_contract import StepResult, write_step_result
-from plasmid_priority.protocol import ScientificProtocol, build_protocol_hash
+from plasmid_priority.protocol import ScientificProtocol, build_execution_hash, build_protocol_hash
 from plasmid_priority.utils.files import (
     atomic_write_json,
     path_signature_with_hash,
@@ -851,7 +849,7 @@ def _build_step_cache_bundle(
     step: WorkflowStep,
     *,
     context: object,
-    protocol_hash: str,
+    cache_protocol_hash: str,
 ) -> tuple[str, dict[str, object]] | None:
     if step.name in ARTIFACT_CACHE_DISABLED_STEPS:
         return None
@@ -884,7 +882,7 @@ def _build_step_cache_bundle(
         args=step.args,
         env=dict(step.env),
         config_hash=stable_hash(config_signatures),
-        protocol_hash=protocol_hash,
+        protocol_hash=cache_protocol_hash,
         software=software_fingerprint(),
         external_fingerprints=_external_db_fingerprints(context),
     )
@@ -983,31 +981,6 @@ def _enforce_step_boundary(mode: str, step: WorkflowStep) -> bool:
     return not (mode == "demo-pipeline" and step.name == "24_build_reports")
 
 
-def _get_executor_for_step(step_name: str, max_workers: int, pool_ctx: multiprocessing.context.BaseContext):
-    """Select appropriate executor based on step characteristics.
-
-    CPU-bound steps get ProcessPoolExecutor to escape the GIL.
-    I/O-bound steps get ThreadPoolExecutor for lightweight concurrency.
-    """
-    cpu_bound_steps = {
-        "16_run_module_A",
-        "21_run_validation",
-        "22_run_sensitivity",
-        "17_run_module_B",
-        "11_compute_feature_T",
-        "12_compute_feature_H",
-        "13_compute_feature_A",
-    }
-
-    if step_name in cpu_bound_steps:
-        # Note: In run_workflow, steps are run via subprocess.run, so they are already
-        # separate processes. However, using ProcessPoolExecutor here allows better
-        # OS-level resource management and isolation for heavy tasks.
-        return ProcessPoolExecutor(max_workers=max_workers, mp_context=pool_ctx)
-    else:
-        return ThreadPoolExecutor(max_workers=max_workers)
-
-
 def run_workflow(
     mode: str,
     *,
@@ -1022,6 +995,7 @@ def run_workflow(
     context = build_context(PROJECT_ROOT)
     protocol = ScientificProtocol.from_config(context.config)
     protocol_hash = build_protocol_hash(protocol)
+    cache_protocol_hash = build_execution_hash(protocol.execution)
     registry.discover_entry_points()
     steps = _workflow_steps(mode, skip_validation=skip_validation, skip_reports=skip_reports)
     workflow_started_at = datetime.now(timezone.utc)
@@ -1084,7 +1058,9 @@ def run_workflow(
             while ready and len(running) < max_workers:
                 step = ready.pop(0)
                 cache_bundle = _build_step_cache_bundle(
-                    step, context=context, protocol_hash=protocol_hash
+                    step,
+                    context=context,
+                    cache_protocol_hash=cache_protocol_hash,
                 )
                 if cache_bundle is not None:
                     step_cache_bundles[step.name] = cache_bundle
@@ -1154,12 +1130,6 @@ def run_workflow(
                                     flush=True,
                                 )
 
-                # Phase 0.2: Dynamic executor selection
-                # Note: We create a single-use executor here for specific steps if needed,
-                # but for simplicity in the loop, we use the main persistent executor
-                # unless it's a CPU-bound step that would benefit from ProcessPool.
-                # Since we already use subprocess.run, ThreadPool is actually fine,
-                # but we follow the plan's recommendation to distinguish them.
                 future = executor.submit(_run_step, step, auto_job_cap=auto_job_cap)
                 running[future] = step
                 running_started[step.name] = capture_resource_snapshot()

@@ -125,8 +125,10 @@ def _evaluate_governance_model_task(
                 y_score = eligible["backbone_id"].map(pred_map).fillna(0).to_numpy()
             else:
                 y_score = np.zeros(len(eligible))
-        except Exception:
+        except Exception as exc:
             # Fallback: use zeros if predictions unavailable
+            import logging
+            logging.getLogger(__name__).warning("Caught suppressed exception: %s", exc, exc_info=True)
             y_score = np.zeros(len(eligible))
 
         ece = expected_calibration_error(y_true, y_score, n_bins=10)

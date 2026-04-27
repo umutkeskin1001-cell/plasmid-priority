@@ -126,7 +126,9 @@ def _git_commit(project_root: Path) -> str:
             text=True,
             timeout=10,
         )
-    except Exception:
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Caught suppressed exception: %s", exc, exc_info=True)
         return "unknown"
     return result.stdout.strip() or "unknown"
 

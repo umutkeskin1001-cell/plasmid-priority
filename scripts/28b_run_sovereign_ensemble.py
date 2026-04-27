@@ -82,7 +82,9 @@ def compute_ensemble_performance(
 
     try:
         cal_auc = roc_auc_score(y_true, cal_preds)
-    except Exception:
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Caught suppressed exception: %s", exc, exc_info=True)
         cal_auc = auc
 
     return {

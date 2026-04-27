@@ -1,6 +1,5 @@
 """Advanced validation and audit helpers for secondary analyses."""
 
-from __future__ import annotations
 
 import math
 from typing import Any, cast
@@ -17,8 +16,10 @@ except ImportError:  # pragma: no cover
     _HAS_NETWORKX = False
 
 from plasmid_priority.modeling import annotate_knownness_metadata, evaluate_feature_columns
+from plasmid_priority.utils.coercion import coerce_int
 from plasmid_priority.utils.dataframe import clean_text_series as _clean_text
 from plasmid_priority.utils.geography import country_to_macro_region
+from plasmid_priority.utils.numeric_ops import copy_frame, fill0, int0, to_numeric_series
 from plasmid_priority.validation import (
     average_precision,
     bootstrap_spearman_ci,
@@ -46,18 +47,8 @@ def _split_field_tokens(value: object) -> set[str]:
     return {token.strip() for token in text.split(",") if token.strip()}
 
 
-def _coerce_float(value: object) -> float:
-    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-    return float(coerced) if pd.notna(coerced) else float("nan")
-
-
-def _coerce_int(value: object, *, default: int = 0) -> int:
-    coerced = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
-    return int(coerced) if pd.notna(coerced) else int(default)
-
-
 def _safe_qcut(series: pd.Series, *, q: int, default_label: str = "all") -> pd.Series:
-    cleaned = pd.to_numeric(series, errors="coerce")
+    cleaned = to_numeric_series(series)
     if cleaned.notna().sum() < max(q, 4) or cleaned.nunique(dropna=True) < 2:
         return pd.Series(default_label, index=series.index, dtype=object)
     try:
@@ -67,13 +58,13 @@ def _safe_qcut(series: pd.Series, *, q: int, default_label: str = "all") -> pd.S
 
 
 def _parse_float(value: object) -> float | None:
-    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    numeric = to_numeric_series(pd.Series([value])).iloc[0]
     return float(numeric) if pd.notna(numeric) else None
 
 
 def _safe_series_correlation(left: pd.Series, right: pd.Series) -> float:
-    left_numeric = pd.to_numeric(left, errors="coerce")
-    right_numeric = pd.to_numeric(right, errors="coerce")
+    left_numeric = to_numeric_series(left)
+    right_numeric = to_numeric_series(right)
     valid = left_numeric.notna() & right_numeric.notna()
     if int(valid.sum()) < 2:
         return float("nan")
@@ -102,309 +93,6 @@ def _recommended_cv_splits(labels: pd.Series, default_splits: int = 5) -> int | 
     return max_splits if max_splits >= 2 else None
 
 
-def build_country_upload_propensity(records: pd.DataFrame) -> pd.DataFrame:
-    """Summarize archive upload density by country and year."""
-    if records.empty:
-        return pd.DataFrame()
-    working = records.copy()
-    working["country_clean"] = _clean_text(
-        working.get("country", pd.Series("", index=working.index))
-    )
-    working["resolved_year"] = (
-        pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
-    )
-    working = working.loc[(working["country_clean"] != "") & working["resolved_year"].gt(0)].copy()
-    if working.empty:
-        return pd.DataFrame(
-            columns=[
-                "resolved_year",
-                "country",
-                "macro_region",
-                "n_records",
-                "n_backbones",
-                "year_total_records",
-                "year_country_share",
-                "inverse_upload_weight",
-                "rarity_weight",
-            ]
-        )
-    year_totals = working.groupby("resolved_year", sort=False).size().rename("year_total_records")
-    grouped = (
-        working.groupby(["resolved_year", "country_clean"], as_index=False)
-        .agg(
-            n_records=("backbone_id", "size"),
-            n_backbones=("backbone_id", "nunique"),
-        )
-        .rename(columns={"country_clean": "country"})
-    )
-    grouped = grouped.merge(year_totals, on="resolved_year", how="left")
-    grouped["macro_region"] = grouped["country"].map(country_to_macro_region)
-    grouped["year_country_share"] = (
-        grouped["n_records"].astype(float)
-        / grouped["year_total_records"].replace(0, np.nan).astype(float)
-    ).fillna(0.0)
-    grouped["inverse_upload_weight"] = 1.0 / np.sqrt(
-        grouped["n_records"].clip(lower=1).astype(float)
-    )
-    grouped["rarity_weight"] = 1.0 - grouped["year_country_share"].clip(lower=0.0, upper=1.0)
-    return grouped.sort_values(
-        ["resolved_year", "n_records", "country"], ascending=[True, False, True]
-    ).reset_index(drop=True)
-
-
-def build_macro_region_jump_table(
-    records: pd.DataFrame,
-    propensity_table: pd.DataFrame,
-    *,
-    split_year: int = 2015,
-    test_year_end: int = 2023,
-) -> pd.DataFrame:
-    """Compute new macro-region jumps and weighted new-country burden per backbone."""
-    if records.empty:
-        return pd.DataFrame()
-    working = records.copy()
-    working["backbone_id"] = working["backbone_id"].astype(str)
-    working["country_clean"] = _clean_text(
-        working.get("country", pd.Series("", index=working.index))
-    )
-    working["macro_region"] = working["country_clean"].map(country_to_macro_region)
-    working["resolved_year"] = (
-        pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
-    )
-    training = working.loc[working["resolved_year"] <= split_year].copy()
-    testing = working.loc[
-        (working["resolved_year"] > split_year) & (working["resolved_year"] <= test_year_end)
-    ].copy()
-    backbone_order = working["backbone_id"].drop_duplicates().tolist()
-    result = pd.DataFrame({"backbone_id": backbone_order})
-
-    train_country_pairs = training.loc[
-        training["country_clean"].ne(""), ["backbone_id", "country_clean"]
-    ].drop_duplicates()
-    test_country_first = (
-        testing.loc[
-            testing["country_clean"].ne(""), ["backbone_id", "country_clean", "resolved_year"]
-        ]
-        .sort_values(["backbone_id", "resolved_year", "country_clean"], kind="mergesort")
-        .drop_duplicates(["backbone_id", "country_clean"], keep="first")
-    )
-    new_country_first = test_country_first.merge(
-        train_country_pairs,
-        on=["backbone_id", "country_clean"],
-        how="left",
-        indicator=True,
-    )
-    new_country_first = new_country_first.loc[
-        new_country_first["_merge"] == "left_only",
-        ["backbone_id", "country_clean", "resolved_year"],
-    ].copy()
-
-    train_region_pairs = training.loc[
-        training["macro_region"].ne(""), ["backbone_id", "macro_region"]
-    ].drop_duplicates()
-    test_region_pairs = testing.loc[
-        testing["macro_region"].ne(""), ["backbone_id", "macro_region"]
-    ].drop_duplicates()
-    new_region_pairs = test_region_pairs.merge(
-        train_region_pairs,
-        on=["backbone_id", "macro_region"],
-        how="left",
-        indicator=True,
-    )
-    new_region_pairs = new_region_pairs.loc[
-        new_region_pairs["_merge"] == "left_only", ["backbone_id", "macro_region"]
-    ].copy()
-
-    training["host_family"] = _clean_text(
-        training.get("TAXONOMY_family", pd.Series("", index=training.index))
-    )
-    testing["host_family"] = _clean_text(
-        testing.get("TAXONOMY_family", pd.Series("", index=testing.index))
-    )
-    train_host_family_pairs = training.loc[
-        training["host_family"].ne(""), ["backbone_id", "host_family"]
-    ].drop_duplicates()
-    test_host_family_pairs = testing.loc[
-        testing["host_family"].ne(""), ["backbone_id", "host_family"]
-    ].drop_duplicates()
-    new_host_family_pairs = test_host_family_pairs.merge(
-        train_host_family_pairs,
-        on=["backbone_id", "host_family"],
-        how="left",
-        indicator=True,
-    )
-    new_host_family_pairs = new_host_family_pairs.loc[
-        new_host_family_pairs["_merge"] == "left_only", ["backbone_id", "host_family"]
-    ].copy()
-
-    training["host_order"] = _clean_text(
-        training.get("TAXONOMY_order", pd.Series("", index=training.index))
-    )
-    testing["host_order"] = _clean_text(
-        testing.get("TAXONOMY_order", pd.Series("", index=testing.index))
-    )
-    train_host_order_pairs = training.loc[
-        training["host_order"].ne(""), ["backbone_id", "host_order"]
-    ].drop_duplicates()
-    test_host_order_pairs = testing.loc[
-        testing["host_order"].ne(""), ["backbone_id", "host_order"]
-    ].drop_duplicates()
-    new_host_order_pairs = test_host_order_pairs.merge(
-        train_host_order_pairs,
-        on=["backbone_id", "host_order"],
-        how="left",
-        indicator=True,
-    )
-    new_host_order_pairs = new_host_order_pairs.loc[
-        new_host_order_pairs["_merge"] == "left_only", ["backbone_id", "host_order"]
-    ].copy()
-
-    result["n_train_macro_regions"] = (
-        result["backbone_id"]
-        .map(train_region_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["n_test_macro_regions"] = (
-        result["backbone_id"]
-        .map(test_region_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["n_new_macro_regions"] = (
-        result["backbone_id"]
-        .map(new_region_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["new_macro_regions"] = (
-        result["backbone_id"]
-        .map(
-            new_region_pairs.groupby("backbone_id", sort=False)["macro_region"].agg(
-                lambda values: ",".join(sorted(values.astype(str)))
-            )
-        )
-        .fillna("")
-    )
-    n_train_countries = (
-        result["backbone_id"]
-        .map(train_country_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    eligible = n_train_countries.between(1, 3, inclusive="both")
-    result["macro_region_jump_label"] = np.where(
-        eligible, result["n_new_macro_regions"].ge(1).astype(float), np.nan
-    )
-
-    result["n_train_host_families"] = (
-        result["backbone_id"]
-        .map(train_host_family_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["n_test_host_families"] = (
-        result["backbone_id"]
-        .map(test_host_family_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["n_new_host_families"] = (
-        result["backbone_id"]
-        .map(new_host_family_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["new_host_families"] = (
-        result["backbone_id"]
-        .map(
-            new_host_family_pairs.groupby("backbone_id", sort=False)["host_family"].agg(
-                lambda values: ",".join(sorted(values.astype(str)))
-            )
-        )
-        .fillna("")
-    )
-    result["host_family_jump_label"] = np.where(
-        eligible, result["n_new_host_families"].ge(1).astype(float), np.nan
-    )
-
-    result["n_train_host_orders"] = (
-        result["backbone_id"]
-        .map(train_host_order_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["n_test_host_orders"] = (
-        result["backbone_id"]
-        .map(test_host_order_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["n_new_host_orders"] = (
-        result["backbone_id"]
-        .map(new_host_order_pairs.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    result["new_host_orders"] = (
-        result["backbone_id"]
-        .map(
-            new_host_order_pairs.groupby("backbone_id", sort=False)["host_order"].agg(
-                lambda values: ",".join(sorted(values.astype(str)))
-            )
-        )
-        .fillna("")
-    )
-    result["host_order_jump_label"] = np.where(
-        eligible, result["n_new_host_orders"].ge(1).astype(float), np.nan
-    )
-
-    propensity_lookup = (
-        propensity_table[
-            ["resolved_year", "country", "inverse_upload_weight", "rarity_weight"]
-        ].copy()
-        if not propensity_table.empty
-        else pd.DataFrame()
-    )
-    if not new_country_first.empty and not propensity_lookup.empty:
-        weighted = new_country_first.rename(columns={"country_clean": "country"}).merge(
-            propensity_lookup,
-            on=["resolved_year", "country"],
-            how="left",
-        )
-        weighted_summary = weighted.groupby("backbone_id", as_index=False).agg(
-            weighted_new_country_burden=(
-                "inverse_upload_weight",
-                lambda values: float(
-                    pd.to_numeric(pd.Series(values), errors="coerce").fillna(0.0).sum()
-                ),
-            ),
-            rarity_weighted_new_country_burden=(
-                "rarity_weight",
-                lambda values: float(
-                    pd.to_numeric(pd.Series(values), errors="coerce").fillna(0.0).sum()
-                ),
-            ),
-        )
-        result = result.merge(weighted_summary, on="backbone_id", how="left")
-    else:
-        result["weighted_new_country_burden"] = 0.0
-        result["rarity_weighted_new_country_burden"] = 0.0
-    result["weighted_new_country_burden"] = (
-        result["weighted_new_country_burden"].fillna(0.0).astype(float)
-    )
-    result["rarity_weighted_new_country_burden"] = (
-        result["rarity_weighted_new_country_burden"].fillna(0.0).astype(float)
-    )
-    result["n_new_countries_recomputed"] = (
-        result["backbone_id"]
-        .map(new_country_first.groupby("backbone_id", sort=False).size())
-        .fillna(0)
-        .astype(int)
-    )
-    return result
-
-
 def _prediction_metric_row(
     model_name: str,
     outcome_name: str,
@@ -420,7 +108,7 @@ def _prediction_metric_row(
             "outcome_name": outcome_name,
             "status": "skipped_insufficient_label_variation",
             "n_backbones": int(valid.sum()),
-            "n_positive": int(outcome.loc[valid].fillna(0).astype(int).sum()),
+            "n_positive": int(outcome.loc[valid].pipe(int0).sum()),
         }
     order = np.argsort(-p, kind="mergesort")
     top_k = min(25, len(order))
@@ -452,11 +140,12 @@ def build_secondary_outcome_performance(
     if predictions.empty or outcomes.empty:
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
-    base = outcomes.copy()
+    base = outcomes.pipe(copy_frame)
     for model_name in model_names:
         model_rows = predictions.loc[
-            predictions["model_name"] == model_name, ["backbone_id", "oof_prediction"]
-        ].copy()
+            predictions["model_name"] == model_name,
+            ["backbone_id", "oof_prediction"],
+        ].pipe(copy_frame)
         if model_rows.empty:
             continue
         merged = base.merge(model_rows, on="backbone_id", how="inner")
@@ -469,7 +158,7 @@ def build_secondary_outcome_performance(
                     outcome_name,
                     merged[outcome_name],
                     merged["oof_prediction"],
-                )
+                ),
             )
     return pd.DataFrame(rows)
 
@@ -485,11 +174,12 @@ def build_weighted_outcome_audit(
     if predictions.empty or outcomes.empty or burden_column not in outcomes.columns:
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
-    base = outcomes[["backbone_id", burden_column]].copy()
+    base = outcomes[["backbone_id", burden_column]].pipe(copy_frame)
     for model_name in model_names:
         model_rows = predictions.loc[
-            predictions["model_name"] == model_name, ["backbone_id", "oof_prediction"]
-        ].copy()
+            predictions["model_name"] == model_name,
+            ["backbone_id", "oof_prediction"],
+        ].pipe(copy_frame)
         if model_rows.empty:
             continue
         merged = base.merge(model_rows, on="backbone_id", how="inner")
@@ -516,10 +206,10 @@ def build_weighted_outcome_audit(
                     merged.loc[valid]
                     .sort_values("oof_prediction", ascending=False)
                     .head(25)[burden_column]
-                    .mean()
+                    .mean(),
                 ),
                 "mean_weighted_burden_overall": float(burden.mean()),
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -535,11 +225,12 @@ def build_count_outcome_alignment(
     if predictions.empty or outcomes.empty or count_column not in outcomes.columns:
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
-    base = outcomes[["backbone_id", count_column]].copy()
+    base = outcomes[["backbone_id", count_column]].pipe(copy_frame)
     for model_name in model_names:
         model_rows = predictions.loc[
-            predictions["model_name"] == model_name, ["backbone_id", "oof_prediction"]
-        ].copy()
+            predictions["model_name"] == model_name,
+            ["backbone_id", "oof_prediction"],
+        ].pipe(copy_frame)
         if model_rows.empty:
             continue
         merged = base.merge(model_rows, on="backbone_id", how="inner")
@@ -550,7 +241,7 @@ def build_count_outcome_alignment(
                     "model_name": model_name,
                     "count_column": count_column,
                     "status": "skipped_insufficient_rows",
-                }
+                },
             )
             continue
         counts = merged.loc[valid, count_column].astype(float)
@@ -578,9 +269,201 @@ def build_count_outcome_alignment(
                 else float("nan"),
                 "mean_count_overall": float(counts.mean()),
                 "median_count_overall": float(counts.median()),
-            }
+            },
         )
     return pd.DataFrame(rows)
+
+
+def build_country_upload_propensity(
+    records: pd.DataFrame,
+    *,
+    split_year: int = 2015,
+    test_year_end: int = 2023,
+) -> pd.DataFrame:
+    """Backbone-level country expansion burden with rarity-aware weighting."""
+    if records.empty:
+        return pd.DataFrame()
+    working = records.pipe(copy_frame)
+    working["resolved_year"] = to_numeric_series(
+        _series_or_default(working, "resolved_year"),
+    ).pipe(int0)
+    working["country_clean"] = _clean_text(_series_or_default(working, "country"))
+    training = working.loc[
+        (working["resolved_year"] <= split_year) & working["country_clean"].ne("")
+    ].pipe(copy_frame)
+    testing = working.loc[
+        (working["resolved_year"] > split_year)
+        & (working["resolved_year"] <= test_year_end)
+        & working["country_clean"].ne("")
+    ].pipe(copy_frame)
+    train_country_sets = (
+        training.groupby("backbone_id", sort=False)["country_clean"]
+        .apply(lambda s: set(_clean_text(s).loc[lambda x: x != ""]))
+        .to_dict()
+    )
+    train_country_counts = {key: len(value) for key, value in train_country_sets.items()}
+    train_country_frequency = (
+        training.groupby("country_clean", sort=False).size().astype(float)
+        if not training.empty
+        else pd.Series(dtype=float)
+    )
+    country_rarity = (
+        pd.Series(
+            1.0 / np.log1p(train_country_frequency.clip(lower=1.0)),
+            index=train_country_frequency.index,
+            dtype=float,
+        )
+        if not train_country_frequency.empty
+        else pd.Series(dtype=float)
+    )
+    all_backbone_ids = working["backbone_id"].astype(str).drop_duplicates()
+    rows: list[dict[str, object]] = []
+    for backbone_id in all_backbone_ids:
+        bid = str(backbone_id)
+        train_set = train_country_sets.get(bid, set())
+        test_set = set(
+            _clean_text(
+                testing.loc[testing["backbone_id"].astype(str).eq(bid), "country_clean"],
+            ).loc[lambda x: x != ""],
+        )
+        new_countries = sorted(test_set - train_set)
+        weighted = float(len(new_countries))
+        rarity_weighted = float(
+            sum(float(country_rarity.get(country, 1.0)) for country in new_countries),
+        )
+        n_train = int(train_country_counts.get(bid, 0))
+        eligible = 1 <= n_train <= 3
+        rows.append(
+            {
+                "backbone_id": bid,
+                "n_train_countries": n_train,
+                "n_test_countries": int(len(test_set)),
+                "n_new_countries_recomputed": int(len(new_countries)),
+                "weighted_new_country_burden": weighted,
+                "rarity_weighted_new_country_burden": rarity_weighted,
+                "country_expansion_label": (
+                    float(int(len(new_countries) >= 1)) if eligible else np.nan
+                ),
+                "three_new_countries_label": (
+                    float(int(len(new_countries) >= 3)) if eligible else np.nan
+                ),
+            },
+        )
+    return pd.DataFrame(rows)
+
+
+def build_macro_region_jump_table(
+    records: pd.DataFrame,
+    propensity_table: pd.DataFrame,
+    *,
+    split_year: int = 2015,
+    test_year_end: int = 2023,
+) -> pd.DataFrame:
+    """Compute macro-region and host-taxonomy jump labels for secondary outcomes."""
+    if records.empty:
+        return pd.DataFrame()
+    working = records.pipe(copy_frame)
+    working["resolved_year"] = to_numeric_series(
+        _series_or_default(working, "resolved_year"),
+    ).pipe(int0)
+    working["country_clean"] = _clean_text(_series_or_default(working, "country"))
+    working["macro_region"] = working["country_clean"].map(country_to_macro_region)
+    family_series = _series_or_default(working, "host_family_clean")
+    if family_series.eq("").all():
+        family_series = _series_or_default(working, "TAXONOMY_family")
+    order_series = _series_or_default(working, "host_order_clean")
+    if order_series.eq("").all():
+        order_series = _series_or_default(working, "TAXONOMY_order")
+    working["host_family_clean"] = _clean_text(family_series)
+    working["host_order_clean"] = _clean_text(order_series)
+    training = working.loc[working["resolved_year"] <= split_year].pipe(copy_frame)
+    testing = working.loc[
+        (working["resolved_year"] > split_year) & (working["resolved_year"] <= test_year_end)
+    ].pipe(copy_frame)
+    propensity_lookup: dict[str, tuple[float, float]] = {}
+    if not propensity_table.empty and "country" in propensity_table.columns:
+        prop = propensity_table.pipe(copy_frame)
+        prop["country_clean"] = _clean_text(_series_or_default(prop, "country"))
+        inverse_weight = to_numeric_series(
+            _series_or_default(prop, "inverse_upload_weight", default=1.0),
+        ).pipe(fill0)
+        rarity_weight = to_numeric_series(
+            _series_or_default(prop, "rarity_weight", default=1.0),
+        ).pipe(fill0)
+        prop["inverse_upload_weight"] = inverse_weight
+        prop["rarity_weight"] = rarity_weight
+        propensity_lookup = {
+            str(country): (float(inv), float(rarity))
+            for country, inv, rarity in prop.groupby("country_clean", as_index=False)
+            .mean(
+                numeric_only=True,
+            )[["country_clean", "inverse_upload_weight", "rarity_weight"]]
+            .itertuples(index=False, name=None)
+            if str(country)
+        }
+    rows: list[dict[str, object]] = []
+    for backbone_id in working["backbone_id"].astype(str).drop_duplicates():
+        bid = str(backbone_id)
+        train_frame = training.loc[training["backbone_id"].astype(str).eq(bid)].pipe(copy_frame)
+        test_frame = testing.loc[testing["backbone_id"].astype(str).eq(bid)].pipe(copy_frame)
+        train_countries = set(_clean_text(train_frame["country_clean"]).loc[lambda s: s != ""])
+        test_countries = set(_clean_text(test_frame["country_clean"]).loc[lambda s: s != ""])
+        new_countries = sorted(test_countries - train_countries)
+        weighted_new_country_burden = float(
+            sum(propensity_lookup.get(country, (1.0, 1.0))[0] for country in new_countries),
+        )
+        rarity_weighted_new_country_burden = float(
+            sum(propensity_lookup.get(country, (1.0, 1.0))[1] for country in new_countries),
+        )
+        n_train = int(len(train_countries))
+        eligible = 1 <= n_train <= 3
+        train_regions = set(_clean_text(train_frame["macro_region"]).loc[lambda s: s != ""])
+        test_regions = set(_clean_text(test_frame["macro_region"]).loc[lambda s: s != ""])
+        train_families = set(_clean_text(train_frame["host_family_clean"]).loc[lambda s: s != ""])
+        test_families = set(_clean_text(test_frame["host_family_clean"]).loc[lambda s: s != ""])
+        train_orders = set(_clean_text(train_frame["host_order_clean"]).loc[lambda s: s != ""])
+        test_orders = set(_clean_text(test_frame["host_order_clean"]).loc[lambda s: s != ""])
+        macro_jump = len(test_regions - train_regions)
+        family_jump = len(test_families - train_families)
+        order_jump = len(test_orders - train_orders)
+        rows.append(
+            {
+                "backbone_id": bid,
+                "n_train_countries": n_train,
+                "n_new_countries_recomputed": int(len(new_countries)),
+                "weighted_new_country_burden": weighted_new_country_burden,
+                "rarity_weighted_new_country_burden": rarity_weighted_new_country_burden,
+                "macro_region_jump_count": int(macro_jump),
+                "n_new_macro_regions": int(macro_jump),
+                "host_family_jump_count": int(family_jump),
+                "n_new_host_families": int(family_jump),
+                "host_order_jump_count": int(order_jump),
+                "n_new_host_orders": int(order_jump),
+                "macro_region_jump_label": float(int(macro_jump >= 1)) if eligible else np.nan,
+                "host_family_jump_label": float(int(family_jump >= 1)) if eligible else np.nan,
+                "host_order_jump_label": float(int(order_jump >= 1)) if eligible else np.nan,
+            },
+        )
+    result = pd.DataFrame(rows)
+    if propensity_table.empty:
+        return result
+    keep = [
+        column
+        for column in [
+            "backbone_id",
+            "weighted_new_country_burden",
+            "rarity_weighted_new_country_burden",
+            "n_new_countries_recomputed",
+        ]
+        if column in propensity_table.columns
+    ]
+    if not keep:
+        return result
+    return result.merge(
+        propensity_table[keep].drop_duplicates(subset=["backbone_id"]),
+        on="backbone_id",
+        how="left",
+    )
 
 
 def build_exposure_adjusted_event_table(
@@ -594,20 +477,27 @@ def build_exposure_adjusted_event_table(
     if records.empty:
         return pd.DataFrame()
     timing = build_event_timing_outcomes(
-        records, split_year=split_year, test_year_end=test_year_end
+        records,
+        split_year=split_year,
+        test_year_end=test_year_end,
     )
     macro = build_macro_region_jump_table(
-        records, propensity_table, split_year=split_year, test_year_end=test_year_end
+        records,
+        propensity_table,
+        split_year=split_year,
+        test_year_end=test_year_end,
     )
     if timing.empty and macro.empty:
         return pd.DataFrame()
     if timing.empty:
-        result = macro[["backbone_id"]].drop_duplicates().copy()
+        result = macro[["backbone_id"]].drop_duplicates().pipe(copy_frame)
     elif macro.empty:
-        result = timing[["backbone_id"]].drop_duplicates().copy()
+        result = timing[["backbone_id"]].drop_duplicates().pipe(copy_frame)
     else:
         result = timing[["backbone_id"]].merge(
-            macro[["backbone_id"]], on="backbone_id", how="outer"
+            macro[["backbone_id"]],
+            on="backbone_id",
+            how="outer",
         )
     if not timing.empty:
         timing_columns = [
@@ -636,29 +526,29 @@ def build_exposure_adjusted_event_table(
         result = result.merge(macro[macro_columns], on="backbone_id", how="left")
     exposure_years = max(int(test_year_end - split_year), 1)
     result["exposure_years"] = int(exposure_years)
-    new_country_counts = pd.to_numeric(
+    new_country_counts = to_numeric_series(
         result.get("n_new_countries_recomputed", pd.Series(0.0, index=result.index)),
         errors="coerce",
-    ).fillna(0.0)
-    weighted_burden = pd.to_numeric(
+    ).pipe(fill0)
+    weighted_burden = to_numeric_series(
         result.get("weighted_new_country_burden", pd.Series(0.0, index=result.index)),
         errors="coerce",
-    ).fillna(0.0)
-    rarity_weighted_burden = pd.to_numeric(
+    ).pipe(fill0)
+    rarity_weighted_burden = to_numeric_series(
         result.get("rarity_weighted_new_country_burden", pd.Series(0.0, index=result.index)),
         errors="coerce",
-    ).fillna(0.0)
-    time_to_first = pd.to_numeric(
+    ).pipe(fill0)
+    time_to_first = to_numeric_series(
         result.get("time_to_first_new_country_years", pd.Series(np.nan, index=result.index)),
         errors="coerce",
     )
-    time_to_third = pd.to_numeric(
+    time_to_third = to_numeric_series(
         result.get("time_to_third_new_country_years", pd.Series(np.nan, index=result.index)),
         errors="coerce",
     )
     result["new_country_rate_per_year"] = (new_country_counts / float(exposure_years)).astype(float)
     result["weighted_new_country_rate_per_year"] = (weighted_burden / float(exposure_years)).astype(
-        float
+        float,
     )
     result["rarity_weighted_new_country_rate_per_year"] = (
         rarity_weighted_burden / float(exposure_years)
@@ -673,7 +563,7 @@ def build_exposure_adjusted_event_table(
         1.0 / (1.0 + np.maximum(time_to_third.astype(float), 0.0)),
         0.0,
     )
-    n_train_countries = pd.to_numeric(
+    n_train_countries = to_numeric_series(
         result.get("n_train_countries", pd.Series(np.nan, index=result.index)),
         errors="coerce",
     )
@@ -681,8 +571,8 @@ def build_exposure_adjusted_event_table(
     result["fast_or_broad_expansion_label"] = np.where(
         eligible,
         (
-            result["weighted_new_country_rate_per_year"].fillna(0.0).ge(0.30)
-            | result["first_event_speed_score"].fillna(0.0).ge(0.25)
+            result["weighted_new_country_rate_per_year"].pipe(fill0).ge(0.30)
+            | result["first_event_speed_score"].pipe(fill0).ge(0.25)
         ).astype(float),
         np.nan,
     )
@@ -734,8 +624,8 @@ def _monotone_binned_probability(
     ordinal_target: bool = False,
 ) -> pd.Series:
     """Calibrate a score against an outcome with a monotone binned mapping."""
-    score_numeric = pd.to_numeric(score, errors="coerce")
-    target_numeric = pd.to_numeric(target, errors="coerce")
+    score_numeric = to_numeric_series(score)
+    target_numeric = to_numeric_series(target)
     result = pd.Series(np.nan, index=score.index, dtype=float)
     valid = score_numeric.notna() & target_numeric.notna()
     if int(valid.sum()) < 5:
@@ -763,7 +653,8 @@ def _monotone_binned_probability(
 
     calibration_frame = pd.DataFrame({"score": valid_score, "target": valid_target, "bin": bins})
     summary = calibration_frame.groupby("bin", observed=False).agg(
-        target_mean=("target", "mean"), n=("target", "size")
+        target_mean=("target", "mean"),
+        n=("target", "size"),
     )
     if summary.empty:
         result.loc[valid] = valid_score.rank(method="average", pct=True).to_numpy(dtype=float)
@@ -773,9 +664,7 @@ def _monotone_binned_probability(
     smoothed = smoothed.cummax()
     mapped = bins.map(smoothed)
     fallback = valid_score.rank(method="average", pct=True)
-    result.loc[valid] = (
-        pd.to_numeric(mapped, errors="coerce").fillna(fallback).to_numpy(dtype=float)
-    )
+    result.loc[valid] = to_numeric_series(mapped).fillna(fallback).to_numpy(dtype=float)
     return result.clip(0.0, 1.0)
 
 
@@ -800,7 +689,7 @@ def build_operational_risk_dictionary(
     if not requested_models:
         return pd.DataFrame()
 
-    base = outcomes.copy()
+    base = outcomes.pipe(copy_frame)
     if "backbone_id" not in base.columns:
         return pd.DataFrame()
     base["backbone_id"] = base["backbone_id"].astype(str)
@@ -820,7 +709,7 @@ def build_operational_risk_dictionary(
                     )
                     if column in scored.columns
                 ],
-            ].drop_duplicates("backbone_id")
+            ].drop_duplicates("backbone_id"),
         )
         metadata_columns = [
             column
@@ -838,7 +727,7 @@ def build_operational_risk_dictionary(
             )
             if column in metadata_source.columns
         ]
-        metadata = metadata_source[metadata_columns].copy()
+        metadata = metadata_source[metadata_columns].pipe(copy_frame)
     else:
         metadata = pd.DataFrame({"backbone_id": base["backbone_id"].drop_duplicates()})
         for column in (
@@ -871,7 +760,7 @@ def build_operational_risk_dictionary(
             ["backbone_id", "oof_prediction", "spread_label"]
             if "spread_label" in predictions.columns
             else ["backbone_id", "oof_prediction"],
-        ].copy()
+        ].pipe(copy_frame)
         if model_rows.empty:
             continue
         model_rows["backbone_id"] = model_rows["backbone_id"].astype(str)
@@ -881,7 +770,7 @@ def build_operational_risk_dictionary(
         merged = merged.merge(metadata, on="backbone_id", how="left", validate="m:1")
         merged["model_name"] = model_name
         merged["risk_spread_probability"] = (
-            pd.to_numeric(merged["oof_prediction"], errors="coerce").fillna(0.0).clip(0.0, 1.0)
+            to_numeric_series(merged["oof_prediction"]).pipe(fill0).clip(0.0, 1.0)
         )
 
         risk_columns: dict[str, pd.Series] = {
@@ -905,8 +794,8 @@ def build_operational_risk_dictionary(
             )
 
         component_frame = pd.DataFrame(risk_columns)
-        component_weights = weights.reindex(component_frame.columns).fillna(0.0)
-        weighted_sum = (component_frame.fillna(0.0) * component_weights).sum(axis=1)
+        component_weights = weights.reindex(component_frame.columns).pipe(fill0)
+        weighted_sum = (component_frame.pipe(fill0) * component_weights).sum(axis=1)
         weight_total = component_frame.notna().mul(component_weights, axis=1).sum(axis=1)
         merged["operational_risk_score"] = np.where(
             weight_total.gt(0.0),
@@ -914,19 +803,22 @@ def build_operational_risk_dictionary(
             merged["risk_spread_probability"],
         ).astype(float)
         merged["operational_risk_score"] = pd.Series(
-            merged["operational_risk_score"], index=merged.index, dtype=float
+            merged["operational_risk_score"],
+            index=merged.index,
+            dtype=float,
         ).clip(0.0, 1.0)
-        filled_components = component_frame.copy()
+        filled_components = component_frame.pipe(copy_frame)
         for column_name in filled_components.columns:
             filled_components[column_name] = filled_components[column_name].fillna(
-                merged["risk_spread_probability"]
+                merged["risk_spread_probability"],
             )
-        merged["risk_component_std"] = filled_components.std(axis=1, ddof=0).fillna(0.0)
+        merged["risk_component_std"] = filled_components.std(axis=1, ddof=0).pipe(fill0)
         boundary_proximity = 1.0 - (2.0 * (merged["risk_spread_probability"] - 0.5).abs()).clip(
-            0.0, 1.0
+            0.0,
+            1.0,
         )
-        knownness = pd.to_numeric(
-            merged.get("knownness_score", pd.Series(np.nan, index=merged.index)), errors="coerce"
+        knownness = to_numeric_series(
+            merged.get("knownness_score", pd.Series(np.nan, index=merged.index)),
         )
         if knownness.notna().any():
             knownness_penalty = 1.0 - knownness.fillna(float(knownness.median())).clip(0.0, 1.0)
@@ -935,7 +827,7 @@ def build_operational_risk_dictionary(
             knownness_penalty = pd.Series(0.5, index=merged.index, dtype=float)
             low_knownness_cutoff = 0.25
         merged["risk_uncertainty"] = np.clip(
-            (0.45 * (2.0 * merged["risk_component_std"].fillna(0.0)))
+            (0.45 * (2.0 * merged["risk_component_std"].pipe(fill0)))
             + (0.35 * boundary_proximity)
             + (0.20 * knownness_penalty),
             0.0,
@@ -997,14 +889,14 @@ def build_operational_risk_dictionary(
                     "member_count_band",
                     "country_count_band",
                 ]
-            ].copy()
+            ].pipe(copy_frame),
         )
 
     if not rows:
         return pd.DataFrame()
     result = pd.concat(rows, ignore_index=True, sort=False)
     return result.sort_values(["model_name", "backbone_id"], kind="mergesort").reset_index(
-        drop=True
+        drop=True,
     )
 
 
@@ -1018,7 +910,7 @@ def build_knownness_matched_validation(
     """Evaluate models within matched visibility/source strata."""
     if scored.empty or predictions.empty:
         return pd.DataFrame()
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
     eligible["member_bin"] = pd.qcut(
@@ -1026,9 +918,9 @@ def build_knownness_matched_validation(
         q=min(n_bins, max(2, eligible["member_count_train"].nunique())),
         duplicates="drop",
     ).astype(str)
-    eligible["country_bin"] = eligible["n_countries_train"].fillna(0).astype(int).astype(str)
+    eligible["country_bin"] = eligible["n_countries_train"].pipe(int0).astype(str)
     eligible["source_bin"] = np.where(
-        eligible["refseq_share_train"].fillna(0.0).astype(float) >= 0.5,
+        eligible["refseq_share_train"].pipe(fill0).astype(float) >= 0.5,
         "refseq_leaning",
         "insd_leaning",
     )
@@ -1038,7 +930,10 @@ def build_knownness_matched_validation(
             ["backbone_id", "model_name", "oof_prediction"],
         ]
         .pivot_table(
-            index="backbone_id", columns="model_name", values="oof_prediction", aggfunc="first"
+            index="backbone_id",
+            columns="model_name",
+            values="oof_prediction",
+            aggfunc="first",
         )
         .reset_index()
     )
@@ -1053,7 +948,7 @@ def build_knownness_matched_validation(
     ]
     for stratum_columns in stratum_configs:
         rows = []
-        working = eligible.copy()
+        working = eligible.pipe(copy_frame)
         working["matched_stratum"] = working[stratum_columns].astype(str).agg("|".join, axis=1)
         for stratum, frame in working.groupby("matched_stratum", sort=False):
             y = frame["spread_label"].astype(int)
@@ -1081,7 +976,7 @@ def build_knownness_matched_validation(
                         if "source_bin" in frame.columns
                         else "",
                         "stratum_definition": ",".join(stratum_columns),
-                    }
+                    },
                 )
                 rows.append(metric_row)
         if rows:
@@ -1090,7 +985,8 @@ def build_knownness_matched_validation(
     if detail.empty:
         return detail
     for grouped_model_name, frame in detail.loc[detail["status"] == "ok"].groupby(
-        "model_name", sort=False
+        "model_name",
+        sort=False,
     ):
         model_name_str = str(grouped_model_name)
         weights = frame["n_backbones"].astype(float)
@@ -1105,31 +1001,31 @@ def build_knownness_matched_validation(
                 "outcome_name": "matched_primary_outcome",
                 "status": "ok",
                 "weighted_mean_roc_auc": float(
-                    np.average(frame["roc_auc"].astype(float), weights=weights)
+                    np.average(frame["roc_auc"].astype(float), weights=weights),
                 ),
                 "weighted_mean_average_precision": float(
-                    np.average(frame["average_precision"].astype(float), weights=weights)
+                    np.average(frame["average_precision"].astype(float), weights=weights),
                 ),
                 "n_strata": int(len(frame)),
                 "n_backbones": int(frame["n_backbones"].sum()),
                 "weighted_positive_prevalence": float(
-                    np.average(frame["positive_prevalence"].astype(float), weights=weights)
+                    np.average(frame["positive_prevalence"].astype(float), weights=weights),
                 ),
                 "weight_total": weight_total,
-            }
+            },
         )
     return pd.concat([detail, pd.DataFrame(summary_rows)], ignore_index=True, sort=False)
 
 
 def _estimate_propensity_scores(covariates: pd.DataFrame, treatment: pd.Series) -> pd.Series:
-    treatment_numeric = pd.to_numeric(treatment, errors="coerce").fillna(0).astype(int)
+    treatment_numeric = to_numeric_series(treatment).pipe(int0)
     if treatment_numeric.nunique(dropna=True) < 2:
         return pd.Series(
             float(treatment_numeric.mean()),
             index=treatment.index,
             dtype=float,
         )
-    X = covariates.apply(pd.to_numeric, errors="coerce").fillna(0.0).astype(float)
+    X = covariates.apply(pd.to_numeric).pipe(fill0).astype(float)
     means = X.mean(axis=0)
     stds = X.std(axis=0).replace(0.0, 1.0).fillna(1.0)
     X_scaled = (X - means) / stds
@@ -1153,16 +1049,16 @@ def build_matched_stratum_propensity_audit(
     backbones. Propensity is estimated from pre-2016 knownness covariates only, then summarized
     inside matched member/country/source strata.
     """
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
     eligible["member_bin"] = _safe_qcut(
-        np.log1p(eligible["member_count_train"].fillna(0.0)),
+        np.log1p(eligible["member_count_train"].pipe(fill0)),
         q=4,
     )
-    eligible["country_bin"] = _safe_qcut(eligible["n_countries_train"].fillna(0.0), q=4)
+    eligible["country_bin"] = _safe_qcut(eligible["n_countries_train"].pipe(fill0), q=4)
     eligible["source_bin"] = np.where(
-        eligible["refseq_share_train"].fillna(0.0).astype(float) >= 0.5,
+        eligible["refseq_share_train"].pipe(fill0).astype(float) >= 0.5,
         "refseq_leaning",
         "insd_leaning",
     )
@@ -1172,7 +1068,10 @@ def build_matched_stratum_propensity_audit(
             ["backbone_id", "model_name", "oof_prediction"],
         ]
         .pivot_table(
-            index="backbone_id", columns="model_name", values="oof_prediction", aggfunc="first"
+            index="backbone_id",
+            columns="model_name",
+            values="oof_prediction",
+            aggfunc="first",
         )
         .reset_index()
     )
@@ -1187,11 +1086,11 @@ def build_matched_stratum_propensity_audit(
     for model_name in model_names:
         if model_name not in eligible.columns:
             continue
-        working = eligible.loc[eligible[model_name].notna()].copy()
+        working = eligible.loc[eligible[model_name].notna()].pipe(copy_frame)
         if len(working) < max(min_stratum_size, 12):
             continue
         threshold = float(
-            working[model_name].quantile(float(np.clip(treatment_quantile, 0.5, 0.95)))
+            working[model_name].quantile(float(np.clip(treatment_quantile, 0.5, 0.95))),
         )
         treatment = working[model_name].ge(threshold).astype(int)
         if treatment.nunique(dropna=True) < 2:
@@ -1208,10 +1107,10 @@ def build_matched_stratum_propensity_audit(
                 ]
             ].assign(
                 member_count_train=lambda frame: np.log1p(
-                    pd.to_numeric(frame["member_count_train"], errors="coerce").fillna(0.0)
+                    to_numeric_series(frame["member_count_train"]).pipe(fill0),
                 ),
                 n_countries_train=lambda frame: np.log1p(
-                    pd.to_numeric(frame["n_countries_train"], errors="coerce").fillna(0.0)
+                    to_numeric_series(frame["n_countries_train"]).pipe(fill0),
                 ),
             ),
             treatment,
@@ -1228,7 +1127,7 @@ def build_matched_stratum_propensity_audit(
         selected_definition = ""
         for stratum_columns in stratum_configs:
             candidate_rows: list[dict[str, object]] = []
-            stratum_frame = working.copy()
+            stratum_frame = working.pipe(copy_frame)
             stratum_frame["matched_stratum"] = (
                 stratum_frame[stratum_columns].astype(str).agg("|".join, axis=1)
             )
@@ -1247,13 +1146,13 @@ def build_matched_stratum_propensity_audit(
                 if float(treated_weights.sum()) <= 0.0 or float(control_weights.sum()) <= 0.0:
                     continue
                 treated_outcome_ipw = float(
-                    np.average(outcome.loc[treated_mask], weights=treated_weights)
+                    np.average(outcome.loc[treated_mask], weights=treated_weights),
                 )
                 control_outcome_ipw = float(
-                    np.average(outcome.loc[control_mask], weights=control_weights)
+                    np.average(outcome.loc[control_mask], weights=control_weights),
                 )
                 naive_risk_difference = float(
-                    outcome.loc[treated_mask].mean() - outcome.loc[control_mask].mean()
+                    outcome.loc[treated_mask].mean() - outcome.loc[control_mask].mean(),
                 )
                 candidate_rows.append(
                     {
@@ -1274,13 +1173,13 @@ def build_matched_stratum_propensity_audit(
                             min(
                                 frame.loc[treated_mask, "propensity_score"].mean(),
                                 1.0 - frame.loc[control_mask, "propensity_score"].mean(),
-                            )
+                            ),
                         ),
                         "treated_outcome_ipw": treated_outcome_ipw,
                         "control_outcome_ipw": control_outcome_ipw,
                         "ipw_risk_difference": float(treated_outcome_ipw - control_outcome_ipw),
                         "naive_risk_difference": naive_risk_difference,
-                    }
+                    },
                 )
             if candidate_rows:
                 selected_rows = candidate_rows
@@ -1306,22 +1205,22 @@ def build_matched_stratum_propensity_audit(
                 "treated_fraction": float(np.average(detail["treated_fraction"], weights=weights)),
                 "treatment_threshold": threshold,
                 "mean_propensity_score": float(
-                    np.average(detail["mean_propensity_score"], weights=weights)
+                    np.average(detail["mean_propensity_score"], weights=weights),
                 ),
                 "propensity_overlap_min": float(detail["propensity_overlap_min"].min()),
                 "treated_outcome_ipw": float(
-                    np.average(detail["treated_outcome_ipw"], weights=weights)
+                    np.average(detail["treated_outcome_ipw"], weights=weights),
                 ),
                 "control_outcome_ipw": float(
-                    np.average(detail["control_outcome_ipw"], weights=weights)
+                    np.average(detail["control_outcome_ipw"], weights=weights),
                 ),
                 "ipw_risk_difference": float(
-                    np.average(detail["ipw_risk_difference"], weights=weights)
+                    np.average(detail["ipw_risk_difference"], weights=weights),
                 ),
                 "naive_risk_difference": float(
-                    np.average(detail["naive_risk_difference"], weights=weights)
+                    np.average(detail["naive_risk_difference"], weights=weights),
                 ),
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -1333,8 +1232,8 @@ def _residualize(
     method: str,
     n_bins: int = 6,
 ) -> pd.Series:
-    y = values.fillna(0.0).astype(float)
-    X = predictors.fillna(0.0).astype(float)
+    y = values.pipe(fill0).astype(float)
+    X = predictors.pipe(fill0).astype(float)
     if method == "linear":
         design = np.column_stack([np.ones(len(X), dtype=float), X.to_numpy(dtype=float)])
         beta = np.linalg.pinv(design) @ y.to_numpy(dtype=float)
@@ -1352,8 +1251,8 @@ def _residualize(
             bins = pd.qcut(score, q=min(n_bins, max(2, score.nunique())), duplicates="drop")
         except ValueError:
             bins = pd.Series("all", index=score.index)
-        residual = y.copy()
-        residual = residual - residual.groupby(bins, observed=False).transform("mean").fillna(0.0)
+        residual = y.pipe(copy_frame)
+        residual = residual - residual.groupby(bins, observed=False).transform("mean").pipe(fill0)
         return residual.astype(float)
     raise ValueError(f"Unsupported residualization method: {method}")
 
@@ -1362,32 +1261,33 @@ def build_nonlinear_deconfounding_audit(scored: pd.DataFrame) -> pd.DataFrame:
     """Audit whether proxy-depleted conclusions survive nonlinear deconfounding."""
     if scored.empty:
         return pd.DataFrame()
-    eligible = scored.loc[scored["spread_label"].notna()].copy()
+    eligible = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
     predictors = eligible[
         ["log1p_member_count_train", "log1p_n_countries_train", "refseq_share_train"]
-    ].copy()
+    ].pipe(copy_frame)
     knownness_score = predictors.mean(axis=1)
     rows: list[dict[str, object]] = []
     methods = {
         "linear_existing": eligible.get(
-            "H_support_norm_residual", pd.Series(0.0, index=eligible.index, dtype=float)
+            "H_support_norm_residual",
+            pd.Series(0.0, index=eligible.index, dtype=float),
         ).astype(float),
         "quadratic": _residualize(eligible["H_support_norm"], predictors, method="quadratic"),
         "stratified": _residualize(eligible["H_support_norm"], predictors, method="stratified"),
     }
     for method_name, residual in methods.items():
-        working = eligible.copy()
+        working = eligible.pipe(copy_frame)
         residual_column = f"H_support_residual_{method_name}"
-        working[residual_column] = residual.fillna(0.0).astype(float)
+        working[residual_column] = residual.pipe(fill0).astype(float)
         n_splits = _recommended_cv_splits(working["spread_label"])
         if n_splits is None:
             rows.append(
                 {
                     "deconfounding_method": method_name,
                     "status": "skipped_insufficient_label_variation",
-                }
+                },
             )
             continue
         result = evaluate_feature_columns(
@@ -1429,15 +1329,15 @@ def build_metadata_quality_table(
     if records.empty:
         return pd.DataFrame()
     training = records.loc[
-        pd.to_numeric(records["resolved_year"], errors="coerce").fillna(0).astype(int) <= split_year
-    ].copy()
+        to_numeric_series(records["resolved_year"]).pipe(int0) <= split_year
+    ].pipe(copy_frame)
     if training.empty:
         return pd.DataFrame()
     training["sequence_accession"] = training["sequence_accession"].astype(str)
     training["nuccore_uid"] = training["nuccore_uid"].astype(str)
-    assembly = assembly.copy()
-    biosample = biosample.copy()
-    nucc_identical = nucc_identical.copy()
+    assembly = assembly.pipe(copy_frame)
+    biosample = biosample.pipe(copy_frame)
+    nucc_identical = nucc_identical.pipe(copy_frame)
     assembly["NUCCORE_UID"] = assembly["NUCCORE_UID"].astype(str)
     biosample["NUCCORE_UID"] = biosample["NUCCORE_UID"].astype(str)
     nucc_identical["NUCCORE_ACC"] = nucc_identical["NUCCORE_ACC"].astype(str)
@@ -1457,10 +1357,10 @@ def build_metadata_quality_table(
         how="left",
     )
     assembly_status = _clean_text(
-        merged.get("ASSEMBLY_Status", pd.Series("", index=merged.index))
+        merged.get("ASSEMBLY_Status", pd.Series("", index=merged.index)),
     ).str.lower()
     completeness = _clean_text(
-        merged.get("NUCCORE_Completeness", pd.Series("", index=merged.index))
+        merged.get("NUCCORE_Completeness", pd.Series("", index=merged.index)),
     ).str.lower()
     duplicate_flag = (
         _clean_text(merged.get("NUCCORE_DuplicatedEntry", pd.Series("", index=merged.index)))
@@ -1470,35 +1370,35 @@ def build_metadata_quality_table(
     merged["record_metadata_quality"] = pd.DataFrame(
         {
             "has_country": _clean_text(merged.get("country", pd.Series("", index=merged.index))).ne(
-                ""
+                "",
             ),
             "has_species": _clean_text(merged.get("species", pd.Series("", index=merged.index))).ne(
-                ""
+                "",
             ),
             "has_family": _clean_text(
-                merged.get("TAXONOMY_family", pd.Series("", index=merged.index))
+                merged.get("TAXONOMY_family", pd.Series("", index=merged.index)),
             ).ne(""),
             "has_assembly_status": assembly_status.ne(""),
             "complete_assembly": assembly_status.str.contains("complete"),
             "complete_nuccore": completeness.str.contains("complete"),
-            "low_contig_count": pd.to_numeric(
+            "low_contig_count": to_numeric_series(
                 merged.get("typing_num_contigs", pd.Series(0.0, index=merged.index)),
                 errors="coerce",
             )
-            .fillna(0.0)
+            .pipe(fill0)
             .between(1, 10),
-            "has_typing_gc": pd.to_numeric(
-                merged.get("typing_gc", pd.Series(0.0, index=merged.index)), errors="coerce"
+            "has_typing_gc": to_numeric_series(
+                merged.get("typing_gc", pd.Series(0.0, index=merged.index)),
             )
-            .fillna(0.0)
+            .pipe(fill0)
             .gt(0),
-            "has_typing_size": pd.to_numeric(
-                merged.get("typing_size", pd.Series(0.0, index=merged.index)), errors="coerce"
+            "has_typing_size": to_numeric_series(
+                merged.get("typing_size", pd.Series(0.0, index=merged.index)),
             )
-            .fillna(0.0)
+            .pipe(fill0)
             .gt(0),
             "not_duplicate": ~duplicate_flag,
-        }
+        },
     ).mean(axis=1)
     rows = merged.groupby("backbone_id", as_index=False).agg(
         metadata_quality_mean=("record_metadata_quality", "mean"),
@@ -1526,12 +1426,12 @@ def build_metadata_quality_table(
             how="left",
         )
         rows["metadata_quality_score"] = (
-            0.75 * rows["metadata_quality_mean"].fillna(0.0)
-            + 0.25 * rows["assignment_confidence_score"].fillna(0.0)
+            0.75 * rows["metadata_quality_mean"].pipe(fill0)
+            + 0.25 * rows["assignment_confidence_score"].pipe(fill0)
         ).clip(lower=0.0, upper=1.0)
     else:
         rows["metadata_quality_score"] = (
-            rows["metadata_quality_mean"].fillna(0.0).clip(lower=0.0, upper=1.0)
+            rows["metadata_quality_mean"].pipe(fill0).clip(lower=0.0, upper=1.0)
         )
     rows["metadata_quality_tier"] = pd.cut(
         rows["metadata_quality_score"],
@@ -1539,7 +1439,8 @@ def build_metadata_quality_table(
         labels=["low", "medium", "high"],
     ).astype(str)
     return rows.sort_values(
-        ["metadata_quality_score", "n_training_records"], ascending=[False, False]
+        ["metadata_quality_score", "n_training_records"],
+        ascending=[False, False],
     ).reset_index(drop=True)
 
 
@@ -1564,17 +1465,17 @@ def build_consensus_shortlist(
     def _dedupe_columns(frame: pd.DataFrame) -> pd.DataFrame:
         if frame.columns.is_unique:
             return frame
-        return frame.loc[:, ~frame.columns.duplicated()].copy()
+        return frame.loc[:, ~frame.columns.duplicated()].pipe(copy_frame)
 
     if not candidate_portfolio.empty:
-        portfolio = candidate_portfolio.copy()
+        portfolio = candidate_portfolio.pipe(copy_frame)
         portfolio["portfolio_track"] = (
             portfolio.get("portfolio_track", pd.Series("", index=portfolio.index))
             .fillna("")
             .astype(str)
         )
-        portfolio["track_rank"] = pd.to_numeric(
-            portfolio.get("track_rank", pd.Series(np.nan, index=portfolio.index)), errors="coerce"
+        portfolio["track_rank"] = to_numeric_series(
+            portfolio.get("track_rank", pd.Series(np.nan, index=portfolio.index)),
         )
         portfolio["_shortlist_track_order"] = (
             portfolio["portfolio_track"]
@@ -1597,7 +1498,7 @@ def build_consensus_shortlist(
         for column in sort_columns:
             ascending.append(False if column == "primary_model_candidate_score" else True)
         portfolio = portfolio.sort_values(sort_columns, ascending=ascending, na_position="last")
-        portfolio = portfolio.drop_duplicates("backbone_id").head(top_k).copy()
+        portfolio = portfolio.drop_duplicates("backbone_id").head(top_k).pipe(copy_frame)
         portfolio = _dedupe_columns(portfolio)
         selected_ids.update(portfolio["backbone_id"].astype(str))
         frames.append(portfolio)
@@ -1605,7 +1506,7 @@ def build_consensus_shortlist(
     if len(selected_ids) < top_k and not consensus_candidates.empty:
         remaining = consensus_candidates.loc[
             ~consensus_candidates["backbone_id"].astype(str).isin(selected_ids)
-        ].copy()
+        ].pipe(copy_frame)
         if not remaining.empty:
             remaining["_selection_origin"] = "consensus_fill"
             remaining["_shortlist_track_order"] = len(track_order_map) + 1
@@ -1636,7 +1537,7 @@ def build_consensus_shortlist(
             suffixes=("", "_stability"),
         )
 
-    shortlist = shortlist.copy()
+    shortlist = shortlist.pipe(copy_frame)
     shortlist = _dedupe_columns(shortlist)
     shortlist = shortlist.sort_values(
         [
@@ -1710,11 +1611,12 @@ def build_false_negative_audit(
     if scored.empty or predictions.empty:
         return pd.DataFrame()
     primary = predictions.loc[
-        predictions["model_name"] == primary_model_name, ["backbone_id", "oof_prediction"]
-    ].copy()
+        predictions["model_name"] == primary_model_name,
+        ["backbone_id", "oof_prediction"],
+    ].pipe(copy_frame)
     if primary.empty:
         return pd.DataFrame()
-    working = scored.loc[scored["spread_label"].notna()].copy()
+    working = scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
     if working.empty:
         return pd.DataFrame()
     working = working.merge(primary, on="backbone_id", how="inner")
@@ -1732,9 +1634,9 @@ def build_false_negative_audit(
         "refseq_share_train_rank",
     } <= set(working.columns):
         working["knownness_score"] = (
-            working["log1p_member_count_train_rank"].fillna(0.0)
-            + working["log1p_n_countries_train_rank"].fillna(0.0)
-            + working["refseq_share_train_rank"].fillna(0.0)
+            working["log1p_member_count_train_rank"].pipe(fill0)
+            + working["log1p_n_countries_train_rank"].pipe(fill0)
+            + working["refseq_share_train_rank"].pipe(fill0)
         ) / 3.0
     else:
         working["knownness_score"] = np.nan
@@ -1787,11 +1689,11 @@ def build_false_negative_audit(
         working["threshold_flip_count"] = np.nan
     if "eligible_for_threshold_audit" not in working.columns:
         working["eligible_for_threshold_audit"] = False
-    train_countries = pd.to_numeric(
-        working.get("n_countries_train", pd.Series(np.nan, index=working.index)), errors="coerce"
+    train_countries = to_numeric_series(
+        working.get("n_countries_train", pd.Series(np.nan, index=working.index)),
     )
-    new_countries = pd.to_numeric(
-        working.get("n_new_countries", pd.Series(np.nan, index=working.index)), errors="coerce"
+    new_countries = to_numeric_series(
+        working.get("n_new_countries", pd.Series(np.nan, index=working.index)),
     )
     default_status = (new_countries >= 3).astype(float)
     eligible_threshold = train_countries.between(1, 3, inclusive="both").fillna(False)
@@ -1801,7 +1703,7 @@ def build_false_negative_audit(
             int(new_countries.loc[idx] >= threshold) for threshold in (1, 2, 3, 4, 5)
         ]
         inferred_flip.loc[idx] = float(
-            sum(value != default_status.loc[idx] for value in threshold_labels)
+            sum(value != default_status.loc[idx] for value in threshold_labels),
         )
     working.loc[working["threshold_flip_count"].isna(), "threshold_flip_count"] = inferred_flip.loc[
         working["threshold_flip_count"].isna()
@@ -1813,12 +1715,12 @@ def build_false_negative_audit(
         working["eligible_for_threshold_audit"].astype(bool) | eligible_threshold
     )
 
-    positives = working.loc[working["spread_label"].fillna(0).astype(int) == 1].copy()
+    positives = working.loc[working["spread_label"].pipe(int0) == 1].pipe(copy_frame)
     if positives.empty:
         return pd.DataFrame()
     shortlist_cutoffs = tuple(sorted({int(value) for value in shortlist_cutoffs if int(value) > 0}))
     primary_cutoff = shortlist_cutoffs[0] if shortlist_cutoffs else 25
-    positives = positives.loc[positives["primary_rank"] > primary_cutoff].copy()
+    positives = positives.loc[positives["primary_rank"] > primary_cutoff].pipe(copy_frame)
     if positives.empty:
         return pd.DataFrame()
 
@@ -1855,11 +1757,11 @@ def build_false_negative_audit(
         < 0.55
     )
     positives["threshold_fragile_flag"] = (
-        pd.to_numeric(
+        to_numeric_series(
             positives.get("threshold_flip_count", pd.Series(np.nan, index=positives.index)),
             errors="coerce",
         )
-        .fillna(0.0)
+        .pipe(fill0)
         .astype(float)
         >= 2.0
     )
@@ -1957,7 +1859,7 @@ def build_confirmatory_cohort_summary(
     if scored.empty or predictions.empty or not model_names:
         return pd.DataFrame()
 
-    working = scored.copy()
+    working = scored.pipe(copy_frame)
     if metadata_quality is not None and not metadata_quality.empty:
         meta_columns = [
             column
@@ -1977,19 +1879,19 @@ def build_confirmatory_cohort_summary(
                 how="left",
             )
 
-    eligible = working.loc[working["spread_label"].notna()].copy()
+    eligible = working.loc[working["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
 
-    meta_score = pd.to_numeric(
+    meta_score = to_numeric_series(
         eligible.get("metadata_quality_score", pd.Series(np.nan, index=eligible.index)),
         errors="coerce",
     )
-    country_coverage = pd.to_numeric(
+    country_coverage = to_numeric_series(
         eligible.get("country_coverage_fraction", pd.Series(np.nan, index=eligible.index)),
         errors="coerce",
     )
-    duplicate_fraction = pd.to_numeric(
+    duplicate_fraction = to_numeric_series(
         eligible.get("duplicate_fraction", pd.Series(np.nan, index=eligible.index)),
         errors="coerce",
     )
@@ -2010,7 +1912,7 @@ def build_confirmatory_cohort_summary(
 
     rows: list[dict[str, object]] = []
     for cohort_name, mask in cohort_masks.items():
-        cohort = eligible.loc[mask].copy()
+        cohort = eligible.loc[mask].pipe(copy_frame)
         if cohort.empty:
             continue
         cohort_size = int(len(cohort))
@@ -2019,12 +1921,12 @@ def build_confirmatory_cohort_summary(
             model_scores = predictions.loc[
                 predictions["model_name"].astype(str) == str(model_name),
                 ["backbone_id", "oof_prediction"],
-            ].copy()
+            ].pipe(copy_frame)
             if model_scores.empty:
                 continue
             merged = cohort.merge(model_scores, on="backbone_id", how="inner")
             valid = merged["spread_label"].notna() & merged["oof_prediction"].notna()
-            merged = merged.loc[valid].copy()
+            merged = merged.loc[valid].pipe(copy_frame)
             if merged.empty:
                 rows.append(
                     {
@@ -2035,7 +1937,7 @@ def build_confirmatory_cohort_summary(
                         "n_positive": 0,
                         "positive_prevalence": np.nan,
                         "share_of_primary_eligible": share,
-                    }
+                    },
                 )
                 continue
             y = merged["spread_label"].astype(int).to_numpy()
@@ -2050,7 +1952,7 @@ def build_confirmatory_cohort_summary(
                         "n_positive": int(y.sum()),
                         "positive_prevalence": float(positive_prevalence(y)),
                         "share_of_primary_eligible": share,
-                    }
+                    },
                 )
                 continue
             rows.append(
@@ -2068,7 +1970,7 @@ def build_confirmatory_cohort_summary(
                     "ece": float(expected_calibration_error(y, p)),
                     "expected_calibration_error": float(expected_calibration_error(y, p)),
                     "max_calibration_error": float(max_calibration_error(y, p)),
-                }
+                },
             )
 
     if not rows:
@@ -2093,20 +1995,18 @@ def build_event_timing_outcomes(
     """Derive event-time style outcomes from post-split country expansion."""
     if records.empty:
         return pd.DataFrame()
-    working = records.copy()
+    working = records.pipe(copy_frame)
     working["backbone_id"] = working["backbone_id"].astype(str)
-    working["resolved_year"] = (
-        pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
-    )
+    working["resolved_year"] = to_numeric_series(working["resolved_year"]).pipe(int0)
     working["country_clean"] = _clean_text(_series_or_default(working, "country"))
     training = working.loc[
         (working["resolved_year"] <= split_year) & working["country_clean"].ne("")
-    ].copy()
+    ].pipe(copy_frame)
     testing = working.loc[
         (working["resolved_year"] > split_year)
         & (working["resolved_year"] <= test_year_end)
         & working["country_clean"].ne("")
-    ].copy()
+    ].pipe(copy_frame)
     backbone_order = working["backbone_id"].drop_duplicates().tolist()
     train_country_pairs = training[["backbone_id", "country_clean"]].drop_duplicates()
     test_country_first = (
@@ -2123,9 +2023,10 @@ def build_event_timing_outcomes(
     new_country_events = new_country_events.loc[
         new_country_events["_merge"] == "left_only",
         ["backbone_id", "country_clean", "resolved_year"],
-    ].copy()
+    ].pipe(copy_frame)
     new_country_events["event_rank"] = new_country_events.groupby(
-        "backbone_id", sort=False
+        "backbone_id",
+        sort=False,
     ).cumcount()
     result = pd.DataFrame({"backbone_id": backbone_order})
     n_train_countries = (
@@ -2142,16 +2043,16 @@ def build_event_timing_outcomes(
     )
     first_year = new_country_events.groupby("backbone_id", sort=False)["resolved_year"].min()
     third_year = new_country_events.loc[new_country_events["event_rank"] == 2].set_index(
-        "backbone_id"
+        "backbone_id",
     )["resolved_year"]
     result["time_to_first_new_country_years"] = result["backbone_id"].map(first_year).astype(
-        float
+        float,
     ) - float(split_year)
     result.loc[result["backbone_id"].map(first_year).isna(), "time_to_first_new_country_years"] = (
         math.nan
     )
     result["time_to_third_new_country_years"] = result["backbone_id"].map(third_year).astype(
-        float
+        float,
     ) - float(split_year)
     result.loc[result["backbone_id"].map(third_year).isna(), "time_to_third_new_country_years"] = (
         math.nan
@@ -2160,19 +2061,29 @@ def build_event_timing_outcomes(
     first_delta = result["time_to_first_new_country_years"]
     third_delta = result["time_to_third_new_country_years"]
     result["event_within_1y_label"] = np.where(
-        eligible, ((first_delta <= 1) & first_delta.notna()).astype(float), np.nan
+        eligible,
+        ((first_delta <= 1) & first_delta.notna()).astype(float),
+        np.nan,
     )
     result["event_within_3y_label"] = np.where(
-        eligible, ((first_delta <= 3) & first_delta.notna()).astype(float), np.nan
+        eligible,
+        ((first_delta <= 3) & first_delta.notna()).astype(float),
+        np.nan,
     )
     result["event_within_5y_label"] = np.where(
-        eligible, ((first_delta <= 5) & first_delta.notna()).astype(float), np.nan
+        eligible,
+        ((first_delta <= 5) & first_delta.notna()).astype(float),
+        np.nan,
     )
     result["three_countries_within_3y_label"] = np.where(
-        eligible, ((third_delta <= 3) & third_delta.notna()).astype(float), np.nan
+        eligible,
+        ((third_delta <= 3) & third_delta.notna()).astype(float),
+        np.nan,
     )
     result["three_countries_within_5y_label"] = np.where(
-        eligible, ((third_delta <= 5) & third_delta.notna()).astype(float), np.nan
+        eligible,
+        ((third_delta <= 5) & third_delta.notna()).astype(float),
+        np.nan,
     )
     severity = pd.Series(np.nan, index=result.index, dtype=float)
     severity.loc[eligible & result["n_new_countries_recomputed"].eq(0)] = 0.0
@@ -2198,11 +2109,12 @@ def build_ordinal_outcome_alignment(
     if predictions.empty or outcomes.empty or ordinal_column not in outcomes.columns:
         return pd.DataFrame()
     rows: list[dict[str, object]] = []
-    base = outcomes[["backbone_id", ordinal_column]].copy()
+    base = outcomes[["backbone_id", ordinal_column]].pipe(copy_frame)
     for model_name in model_names:
         model_rows = predictions.loc[
-            predictions["model_name"] == model_name, ["backbone_id", "oof_prediction"]
-        ].copy()
+            predictions["model_name"] == model_name,
+            ["backbone_id", "oof_prediction"],
+        ].pipe(copy_frame)
         if model_rows.empty:
             continue
         merged = base.merge(model_rows, on="backbone_id", how="inner")
@@ -2213,7 +2125,7 @@ def build_ordinal_outcome_alignment(
                     "model_name": model_name,
                     "ordinal_column": ordinal_column,
                     "status": "skipped_insufficient_rows",
-                }
+                },
             )
             continue
         severity = merged.loc[valid, ordinal_column].astype(float)
@@ -2226,14 +2138,15 @@ def build_ordinal_outcome_alignment(
                 "status": "ok",
                 "n_backbones": int(valid.sum()),
                 "spearman_corr": _safe_series_correlation(
-                    severity.rank(method="average"), score.rank(method="average")
+                    severity.rank(method="average"),
+                    score.rank(method="average"),
                 ),
                 "pearson_corr": _safe_series_correlation(severity, score),
                 "mean_ordinal_top_25": float(top25[ordinal_column].mean())
                 if not top25.empty
                 else float("nan"),
                 "mean_ordinal_overall": float(severity.mean()),
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -2248,23 +2161,23 @@ def build_country_missingness_bounds(
     """Summarize observed vs bounded new-country outcomes under country missingness."""
     if records.empty:
         return pd.DataFrame()
-    working = records.copy()
+    working = records.pipe(copy_frame)
     working["backbone_id"] = working["backbone_id"].astype(str)
-    working["resolved_year"] = (
-        pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
-    )
+    working["resolved_year"] = to_numeric_series(working["resolved_year"]).pipe(int0)
     working["country_clean"] = _clean_text(_series_or_default(working, "country"))
-    training = working.loc[working["resolved_year"] <= split_year].copy()
+    training = working.loc[working["resolved_year"] <= split_year].pipe(copy_frame)
     testing = working.loc[
         (working["resolved_year"] > split_year) & (working["resolved_year"] <= test_year_end)
-    ].copy()
+    ].pipe(copy_frame)
     backbone_order = working["backbone_id"].drop_duplicates().tolist()
     result = pd.DataFrame({"backbone_id": backbone_order})
     train_known_pairs = training.loc[
-        training["country_clean"].ne(""), ["backbone_id", "country_clean"]
+        training["country_clean"].ne(""),
+        ["backbone_id", "country_clean"],
     ].drop_duplicates()
     test_known_pairs = testing.loc[
-        testing["country_clean"].ne(""), ["backbone_id", "country_clean", "sequence_accession"]
+        testing["country_clean"].ne(""),
+        ["backbone_id", "country_clean", "sequence_accession"],
     ].drop_duplicates()
     observed_new_pairs = test_known_pairs.merge(
         train_known_pairs,
@@ -2273,7 +2186,8 @@ def build_country_missingness_bounds(
         indicator=True,
     )
     observed_new_pairs = observed_new_pairs.loc[
-        observed_new_pairs["_merge"] == "left_only", ["backbone_id", "country_clean"]
+        observed_new_pairs["_merge"] == "left_only",
+        ["backbone_id", "country_clean"],
     ].drop_duplicates()
     result["n_countries_train"] = (
         result["backbone_id"]
@@ -2299,17 +2213,17 @@ def build_country_missingness_bounds(
     )
     observed_new = observed_new_pairs.groupby("backbone_id", sort=False).size()
     result["training_country_missing_fraction"] = (
-        result["backbone_id"].map(training_missing_fraction).fillna(0.0).astype(float)
+        result["backbone_id"].map(training_missing_fraction).pipe(fill0).astype(float)
     )
     result["testing_country_missing_fraction"] = (
-        result["backbone_id"].map(testing_missing_fraction).fillna(0.0).astype(float)
+        result["backbone_id"].map(testing_missing_fraction).pipe(fill0).astype(float)
     )
-    result["observed_new_countries"] = result["backbone_id"].map(observed_new).fillna(0).astype(int)
-    missing_counts = result["backbone_id"].map(missing_test_records).fillna(0).astype(int)
-    known_counts = result["backbone_id"].map(known_test_records).fillna(0).astype(int)
+    result["observed_new_countries"] = result["backbone_id"].map(observed_new).pipe(int0)
+    missing_counts = result["backbone_id"].map(missing_test_records).pipe(int0)
+    known_counts = result["backbone_id"].map(known_test_records).pipe(int0)
     result["optimistic_new_countries"] = result["observed_new_countries"] + missing_counts
     result["midpoint_new_countries"] = result["observed_new_countries"] + np.ceil(
-        missing_counts / 2.0
+        missing_counts / 2.0,
     ).astype(int)
     result["weighted_new_countries"] = np.where(
         (result["observed_new_countries"] > 0) | (missing_counts > 0),
@@ -2318,7 +2232,9 @@ def build_country_missingness_bounds(
         0.0,
     )
     result["eligible_for_country_bounds"] = result["n_countries_train"].between(
-        1, 3, inclusive="both"
+        1,
+        3,
+        inclusive="both",
     )
     result["label_observed"] = np.where(
         result["eligible_for_country_bounds"],
@@ -2370,39 +2286,42 @@ def build_geographic_jump_distance_table(
     """Quantify geographic expansion distance rather than only country counts."""
     if records.empty:
         return pd.DataFrame()
-    working = records.copy()
-    working["resolved_year"] = (
-        pd.to_numeric(working["resolved_year"], errors="coerce").fillna(0).astype(int)
-    )
+    working = records.pipe(copy_frame)
+    working["resolved_year"] = to_numeric_series(working["resolved_year"]).pipe(int0)
     working["country_clean"] = _clean_text(_series_or_default(working, "country"))
     working["macro_region"] = working["country_clean"].map(country_to_macro_region)
     working["lat"] = _series_or_default(working, "LOCATION_lat").map(_parse_float)
     working["lng"] = _series_or_default(working, "LOCATION_lng").map(_parse_float)
-    training = working.loc[working["resolved_year"] <= split_year].copy()
+    training = working.loc[working["resolved_year"] <= split_year].pipe(copy_frame)
     testing = working.loc[
         (working["resolved_year"] > split_year) & (working["resolved_year"] <= test_year_end)
-    ].copy()
+    ].pipe(copy_frame)
     train_groups = {
-        str(backbone_id): frame.copy()
+        str(backbone_id): frame.pipe(copy_frame)
         for backbone_id, frame in training.groupby("backbone_id", sort=False)
     }
     test_groups = {
-        str(backbone_id): frame.copy()
+        str(backbone_id): frame.pipe(copy_frame)
         for backbone_id, frame in testing.groupby("backbone_id", sort=False)
     }
     rows: list[dict[str, object]] = []
     for backbone_id in working["backbone_id"].astype(str).drop_duplicates().tolist():
         train_frame = train_groups.get(
-            str(backbone_id), pd.DataFrame(columns=training.columns)
-        ).copy()
-        test_frame = test_groups.get(str(backbone_id), pd.DataFrame(columns=testing.columns)).copy()
+            str(backbone_id),
+            pd.DataFrame(columns=training.columns),
+        ).pipe(copy_frame)
+        test_frame = test_groups.get(str(backbone_id), pd.DataFrame(columns=testing.columns)).pipe(
+            copy_frame
+        )
         train_coords = [
             (float(lat), float(lng))
             for lat, lng in zip(train_frame["lat"], train_frame["lng"])
             if lat is not None and lng is not None
         ]
         train_countries = set(_clean_text(train_frame["country_clean"]).loc[lambda s: s != ""])
-        test_new = test_frame.loc[~test_frame["country_clean"].isin(train_countries)].copy()
+        test_new = test_frame.loc[~test_frame["country_clean"].isin(train_countries)].pipe(
+            copy_frame
+        )
         jump_distances: list[float] = []
         for row in test_new.itertuples(index=False):
             if row.lat is None or row.lng is None or not train_coords:
@@ -2410,13 +2329,13 @@ def build_geographic_jump_distance_table(
             jump_distances.append(
                 min(
                     _haversine_km(
-                        _coerce_float(getattr(row, "lat", np.nan)),
-                        _coerce_float(getattr(row, "lng", np.nan)),
+                        float(getattr(row, "lat", np.nan)),
+                        float(getattr(row, "lng", np.nan)),
                         base_lat,
                         base_lng,
                     )
                     for base_lat, base_lng in train_coords
-                )
+                ),
             )
         train_regions = set(_clean_text(train_frame["macro_region"]).loc[lambda s: s != ""])
         test_regions = set(_clean_text(test_new["macro_region"]).loc[lambda s: s != ""])
@@ -2435,7 +2354,7 @@ def build_geographic_jump_distance_table(
                 "long_jump_label": float(int(max_jump >= 2000.0 or interregional >= 1))
                 if eligible
                 else np.nan,
-            }
+            },
         )
     return pd.DataFrame(rows)
 
@@ -2451,8 +2370,8 @@ def build_duplicate_completeness_change_audit(
     if records.empty:
         return pd.DataFrame()
     training = records.loc[
-        pd.to_numeric(records["resolved_year"], errors="coerce").fillna(0).astype(int) <= split_year
-    ].copy()
+        to_numeric_series(records["resolved_year"]).pipe(int0) <= split_year
+    ].pipe(copy_frame)
     if training.empty:
         return pd.DataFrame()
     training["sequence_accession"] = training["sequence_accession"].astype(str)
@@ -2462,13 +2381,15 @@ def build_duplicate_completeness_change_audit(
         how="left",
     )
     if not changes.empty:
-        change_payload = changes.rename(columns={"NUCCORE_ACC": "sequence_accession"}).copy()
+        change_payload = changes.rename(columns={"NUCCORE_ACC": "sequence_accession"}).pipe(
+            copy_frame
+        )
         change_payload["change_flag_present"] = _clean_text(
-            _series_or_default(change_payload, "Flag")
+            _series_or_default(change_payload, "Flag"),
         ).ne("") | _clean_text(_series_or_default(change_payload, "Comment")).ne("")
         merged = merged.merge(
             change_payload[["sequence_accession", "change_flag_present"]].drop_duplicates(
-                "sequence_accession"
+                "sequence_accession",
             ),
             on="sequence_accession",
             how="left",
@@ -2491,14 +2412,15 @@ def build_duplicate_completeness_change_audit(
         change_flag_fraction=("change_flag_present", "mean"),
     )
     result["duplicate_completeness_score"] = np.clip(
-        0.50 * result["complete_fraction"].fillna(0.0)
-        + 0.30 * (1.0 - result["duplicate_fraction"].fillna(0.0))
-        + 0.20 * (1.0 - result["change_flag_fraction"].fillna(0.0)),
+        0.50 * result["complete_fraction"].pipe(fill0)
+        + 0.30 * (1.0 - result["duplicate_fraction"].pipe(fill0))
+        + 0.20 * (1.0 - result["change_flag_fraction"].pipe(fill0)),
         0.0,
         1.0,
     )
     return result.sort_values(
-        ["duplicate_completeness_score", "n_training_records"], ascending=[False, False]
+        ["duplicate_completeness_score", "n_training_records"],
+        ascending=[False, False],
     ).reset_index(drop=True)
 
 
@@ -2512,22 +2434,22 @@ def build_amr_uncertainty_table(
     if backbones.empty or amr_hits.empty:
         return pd.DataFrame()
     training = backbones.loc[
-        pd.to_numeric(backbones["resolved_year"], errors="coerce").fillna(0).astype(int)
-        <= split_year
-    ].copy()
+        to_numeric_series(backbones["resolved_year"]).pipe(int0) <= split_year
+    ].pipe(copy_frame)
     if training.empty:
         return pd.DataFrame()
     training["sequence_accession"] = training["sequence_accession"].astype(str)
-    hits = amr_hits.copy()
+    hits = amr_hits.pipe(copy_frame)
     hits["NUCCORE_ACC"] = hits["NUCCORE_ACC"].astype(str)
     hits["analysis_software_name"] = _clean_text(
-        _series_or_default(hits, "analysis_software_name")
+        _series_or_default(hits, "analysis_software_name"),
     ).str.lower()
     accession_rows: list[dict[str, object]] = []
     software_pairs = {"amrfinderplus", "rgi"}
     training_accessions = set(training["sequence_accession"].astype(str))
     for accession, frame in hits.loc[hits["NUCCORE_ACC"].isin(training_accessions)].groupby(
-        "NUCCORE_ACC", sort=False
+        "NUCCORE_ACC",
+        sort=False,
     ):
         gene_by_tool = {
             tool: set(_clean_text(group["gene_symbol"]).loc[lambda s: s != ""])
@@ -2538,7 +2460,7 @@ def build_amr_uncertainty_table(
                 *[
                     _split_field_tokens(value)
                     for value in group.get("drug_class", pd.Series(dtype=object))
-                ]
+                ],
             )
             for tool, group in frame.groupby("analysis_software_name", sort=False)
         }
@@ -2551,7 +2473,8 @@ def build_amr_uncertainty_table(
             class_union = class_by_tool[left] | class_by_tool[right]
             gene_jaccard = len(gene_by_tool[left] & gene_by_tool[right]) / max(len(gene_union), 1)
             class_jaccard = len(class_by_tool[left] & class_by_tool[right]) / max(
-                len(class_union), 1
+                len(class_union),
+                1,
             )
         else:
             gene_jaccard = 1.0 if tools else math.nan
@@ -2571,7 +2494,7 @@ def build_amr_uncertainty_table(
                 "amr_uncertainty_score": float(1.0 - np.nanmean([gene_jaccard, class_jaccard]))
                 if has_gene or has_class
                 else math.nan,
-            }
+            },
         )
     accession_table = pd.DataFrame(accession_rows)
     if accession_table.empty:
@@ -2590,13 +2513,14 @@ def build_amr_uncertainty_table(
     )
     result["amr_agreement_score"] = np.nanmean(
         [
-            result["mean_gene_agreement_jaccard"].fillna(0.0).to_numpy(dtype=float),
-            result["mean_class_agreement_jaccard"].fillna(0.0).to_numpy(dtype=float),
+            result["mean_gene_agreement_jaccard"].pipe(fill0).to_numpy(dtype=float),
+            result["mean_class_agreement_jaccard"].pipe(fill0).to_numpy(dtype=float),
         ],
         axis=0,
     )
     return result.sort_values(
-        ["mean_amr_uncertainty_score", "n_training_records"], ascending=[True, False]
+        ["mean_amr_uncertainty_score", "n_training_records"],
+        ascending=[True, False],
     ).reset_index(drop=True)
 
 
@@ -2614,9 +2538,9 @@ def build_mash_similarity_graph_table(
     if records.empty or mash_pairs.empty:
         return pd.DataFrame()
     training = records.loc[
-        pd.to_numeric(records["resolved_year"], errors="coerce").fillna(0).astype(int) <= split_year
-    ].copy()
-    training = training.loc[training["sequence_accession"].notna()].copy()
+        to_numeric_series(records["resolved_year"]).pipe(int0) <= split_year
+    ].pipe(copy_frame)
+    training = training.loc[training["sequence_accession"].notna()].pipe(copy_frame)
     if training.empty:
         return pd.DataFrame()
     accession_to_backbone = (
@@ -2631,10 +2555,12 @@ def build_mash_similarity_graph_table(
     )
     if not accession_to_backbone:
         return pd.DataFrame()
-    pairs = mash_pairs.copy()
+    pairs = mash_pairs.pipe(copy_frame)
     pairs["left_backbone"] = pairs.iloc[:, 0].astype(str).map(accession_to_backbone)
     pairs["right_backbone"] = pairs.iloc[:, 1].astype(str).map(accession_to_backbone)
-    pairs = pairs.loc[pairs["left_backbone"].notna() | pairs["right_backbone"].notna()].copy()
+    pairs = pairs.loc[pairs["left_backbone"].notna() | pairs["right_backbone"].notna()].pipe(
+        copy_frame
+    )
     backbone_order = training["backbone_id"].astype(str).drop_duplicates().tolist()
     result = pd.DataFrame({"backbone_id": backbone_order})
     edge_counts = pd.concat(
@@ -2658,15 +2584,15 @@ def build_mash_similarity_graph_table(
         & pairs["right_backbone"].notna()
         & pairs["left_backbone"].astype(str).ne(pairs["right_backbone"].astype(str)),
         ["left_backbone", "right_backbone"],
-    ].copy()
+    ].pipe(copy_frame)
     if not cross_edges.empty:
         cross_pairs = pd.concat(
             [
                 cross_edges.rename(
-                    columns={"left_backbone": "backbone_id", "right_backbone": "neighbor_backbone"}
+                    columns={"left_backbone": "backbone_id", "right_backbone": "neighbor_backbone"},
                 ),
                 cross_edges.rename(
-                    columns={"right_backbone": "backbone_id", "left_backbone": "neighbor_backbone"}
+                    columns={"right_backbone": "backbone_id", "left_backbone": "neighbor_backbone"},
                 ),
             ],
             ignore_index=True,
@@ -2674,12 +2600,10 @@ def build_mash_similarity_graph_table(
         external_neighbor_count = cross_pairs.groupby("backbone_id", sort=False).size()
     else:
         external_neighbor_count = pd.Series(dtype=int)
-    result["mash_graph_edge_count"] = result["backbone_id"].map(edge_counts).fillna(0).astype(int)
-    result["mash_graph_within_edge_count"] = (
-        result["backbone_id"].map(within_counts).fillna(0).astype(int)
-    )
+    result["mash_graph_edge_count"] = result["backbone_id"].map(edge_counts).pipe(int0)
+    result["mash_graph_within_edge_count"] = result["backbone_id"].map(within_counts).pipe(int0)
     result["mash_graph_external_neighbor_count"] = (
-        result["backbone_id"].map(external_neighbor_count).fillna(0).astype(int)
+        result["backbone_id"].map(external_neighbor_count).pipe(int0)
     )
     result["mash_graph_bridge_fraction"] = (
         (result["mash_graph_edge_count"] - result["mash_graph_within_edge_count"])
@@ -2703,22 +2627,25 @@ def build_mash_similarity_graph_table(
         if G.number_of_nodes() > 0:
             degree_cent = nx.degree_centrality(G)
             result["graph_degree_centrality_norm"] = (
-                result["backbone_id"].map(degree_cent).fillna(0.0).astype(float)
+                result["backbone_id"].map(degree_cent).pipe(fill0).astype(float)
             )
 
             if G.number_of_nodes() <= 2000:
                 betweenness_cent = nx.betweenness_centrality(G, normalized=True)
             else:
                 betweenness_cent = nx.betweenness_centrality(
-                    G, normalized=True, k=min(200, G.number_of_nodes()), seed=42
+                    G,
+                    normalized=True,
+                    k=min(200, G.number_of_nodes()),
+                    seed=42,
                 )
             result["graph_betweenness_centrality_norm"] = (
-                result["backbone_id"].map(betweenness_cent).fillna(0.0).astype(float)
+                result["backbone_id"].map(betweenness_cent).pipe(fill0).astype(float)
             )
 
             pagerank_scores = nx.pagerank(G, alpha=0.85, max_iter=200, tol=1e-06)
             result["graph_pagerank_norm"] = (
-                result["backbone_id"].map(pagerank_scores).fillna(0.0).astype(float)
+                result["backbone_id"].map(pagerank_scores).pipe(fill0).astype(float)
             )
 
             # neighborhood risk: fraction of direct neighbors that have
@@ -2730,7 +2657,7 @@ def build_mash_similarity_graph_table(
                     "backbone_id",
                 ]
                 .astype(str)
-                .tolist()
+                .tolist(),
             )
             neigh_risk: dict[str, float] = {}
             for node in G.nodes():
@@ -2740,7 +2667,7 @@ def build_mash_similarity_graph_table(
                 else:
                     neigh_risk[node] = float(len(neighbors & high_connectivity)) / len(neighbors)
             result["graph_neighborhood_risk_norm"] = (
-                result["backbone_id"].map(neigh_risk).fillna(0.0).astype(float)
+                result["backbone_id"].map(neigh_risk).pipe(fill0).astype(float)
             )
         else:
             result["graph_degree_centrality_norm"] = 0.0
@@ -2769,8 +2696,8 @@ def augment_scored_with_structural_audit_features(
 ) -> pd.DataFrame:
     """Merge training-only graph and AMR-agreement features onto the scored backbone table."""
     if scored.empty:
-        return scored.copy()
-    working = scored.copy()
+        return scored.pipe(copy_frame)
+    working = scored.pipe(copy_frame)
 
     if records is not None and not records.empty and raw_amr is not None and not raw_amr.empty:
         amr_uncertainty = build_amr_uncertainty_table(records, raw_amr)
@@ -2816,12 +2743,10 @@ def augment_scored_with_structural_audit_features(
         if column not in working.columns:
             working[column] = default
         if isinstance(default, int):
-            working[column] = (
-                pd.to_numeric(working[column], errors="coerce").fillna(default).astype(int)
-            )
+            working[column] = to_numeric_series(working[column]).fillna(default).astype(int)
         else:
             working[column] = (
-                pd.to_numeric(working[column], errors="coerce").fillna(float(default)).astype(float)
+                to_numeric_series(working[column]).fillna(float(default)).astype(float)
             )
     return working
 
@@ -2837,22 +2762,28 @@ def build_counterfactual_shortlist_comparison(
     """Compare shortlist yield under matched knownness/source budgets."""
     if scored.empty or predictions.empty:
         return pd.DataFrame()
-    eligible = annotate_knownness_metadata(scored.loc[scored["spread_label"].notna()].copy())
+    eligible = annotate_knownness_metadata(
+        scored.loc[scored["spread_label"].notna()].pipe(copy_frame)
+    )
     if eligible.empty:
         return pd.DataFrame()
     primary = predictions.loc[
-        predictions["model_name"] == primary_model_name, ["backbone_id", "oof_prediction"]
+        predictions["model_name"] == primary_model_name,
+        ["backbone_id", "oof_prediction"],
     ].rename(columns={"oof_prediction": "primary_score"})
     baseline = predictions.loc[
-        predictions["model_name"] == baseline_model_name, ["backbone_id", "oof_prediction"]
+        predictions["model_name"] == baseline_model_name,
+        ["backbone_id", "oof_prediction"],
     ].rename(columns={"oof_prediction": "baseline_score"})
     merged = eligible.merge(primary, on="backbone_id", how="inner").merge(
-        baseline, on="backbone_id", how="inner"
+        baseline,
+        on="backbone_id",
+        how="inner",
     )
     if merged.empty:
         return pd.DataFrame()
     merged["matched_source_band"] = np.where(
-        merged["refseq_share_train"].fillna(0.0).astype(float) >= 0.5,
+        merged["refseq_share_train"].pipe(fill0).astype(float) >= 0.5,
         "refseq_leaning",
         "insd_leaning",
     )
@@ -2864,8 +2795,8 @@ def build_counterfactual_shortlist_comparison(
     )
 
     def _summarize(frame: pd.DataFrame, *, label: str, top_k: int) -> dict[str, object]:
-        subset = frame.head(min(top_k, len(frame))).copy()
-        positives = subset["spread_label"].fillna(0).astype(int)
+        subset = frame.head(min(top_k, len(frame))).pipe(copy_frame)
+        positives = subset["spread_label"].pipe(int0)
         return {
             "selection_mode": label,
             "top_k": int(top_k),
@@ -2873,14 +2804,14 @@ def build_counterfactual_shortlist_comparison(
             "n_positive_selected": int(positives.sum()),
             "precision_at_k": float(positives.mean()) if len(subset) else np.nan,
             "mean_n_new_countries": float(
-                pd.to_numeric(
-                    subset.get("n_new_countries", pd.Series(dtype=float)), errors="coerce"
-                ).mean()
+                to_numeric_series(
+                    subset.get("n_new_countries", pd.Series(dtype=float)),
+                ).mean(),
             )
             if len(subset)
             else np.nan,
             "mean_knownness_score": float(
-                pd.to_numeric(subset["knownness_score"], errors="coerce").mean()
+                to_numeric_series(subset["knownness_score"]).mean(),
             )
             if len(subset)
             else np.nan,
@@ -2893,7 +2824,7 @@ def build_counterfactual_shortlist_comparison(
         rows.append(_summarize(primary_ranked, label="primary_natural", top_k=top_k))
         rows.append(_summarize(baseline_ranked, label="baseline_natural", top_k=top_k))
 
-        baseline_top = baseline_ranked.head(min(top_k, len(baseline_ranked))).copy()
+        baseline_top = baseline_ranked.head(min(top_k, len(baseline_ranked))).pipe(copy_frame)
         primary_matched_frames: list[pd.DataFrame] = []
         for stratum, frame in baseline_top.groupby("matched_budget_stratum", sort=False):
             quota = int(len(frame))
@@ -2912,10 +2843,10 @@ def build_counterfactual_shortlist_comparison(
                 primary_matched.sort_values("primary_score", ascending=False),
                 label="primary_matched_to_baseline",
                 top_k=top_k,
-            )
+            ),
         )
 
-        primary_top = primary_ranked.head(min(top_k, len(primary_ranked))).copy()
+        primary_top = primary_ranked.head(min(top_k, len(primary_ranked))).pipe(copy_frame)
         baseline_matched_frames: list[pd.DataFrame] = []
         for stratum, frame in primary_top.groupby("matched_budget_stratum", sort=False):
             quota = int(len(frame))
@@ -2934,7 +2865,7 @@ def build_counterfactual_shortlist_comparison(
                 baseline_matched.sort_values("baseline_score", ascending=False),
                 label="baseline_matched_to_primary",
                 top_k=top_k,
-            )
+            ),
         )
     return pd.DataFrame(rows)
 
@@ -2984,20 +2915,20 @@ def build_rolling_prospective_simulation(
     """
     if scored_temporal.empty:
         return pd.DataFrame()
-    working = scored_temporal.copy()
+    working = scored_temporal.pipe(copy_frame)
     if "model_name" in working.columns:
-        working = working.loc[working["model_name"] == model_name].copy()
+        working = working.loc[working["model_name"] == model_name].pipe(copy_frame)
     required = {"split_year", "oof_prediction", "spread_label"}
     if not required.issubset(working.columns):
         return pd.DataFrame()
-    working["split_year"] = pd.to_numeric(working["split_year"], errors="coerce")
-    working["oof_prediction"] = pd.to_numeric(working["oof_prediction"], errors="coerce")
-    working["spread_label"] = pd.to_numeric(working["spread_label"], errors="coerce")
+    working["split_year"] = to_numeric_series(working["split_year"])
+    working["oof_prediction"] = to_numeric_series(working["oof_prediction"])
+    working["spread_label"] = to_numeric_series(working["spread_label"])
     working = working.loc[
         working["split_year"].notna()
         & working["oof_prediction"].notna()
         & working["spread_label"].notna()
-    ].copy()
+    ].pipe(copy_frame)
     if working.empty:
         return pd.DataFrame()
     working["split_year"] = working["split_year"].astype(int)
@@ -3012,27 +2943,27 @@ def build_rolling_prospective_simulation(
         if n_test < 5 or len(np.unique(y)) < 2:
             year_rows.append(
                 {
-                    "split_year": _coerce_int(year),
+                    "split_year": coerce_int(year),
                     "n_test": n_test,
                     "n_positive": n_positive,
                     "positive_rate": float(n_positive / max(n_test, 1)),
                     "roc_auc": np.nan,
                     "status": "skipped_insufficient_label_variation",
-                }
+                },
             )
             continue
         auc = float(roc_auc_score(y, p))
         year_rows.append(
             {
-                "split_year": _coerce_int(year),
+                "split_year": coerce_int(year),
                 "n_test": n_test,
                 "n_positive": n_positive,
                 "positive_rate": float(n_positive / max(n_test, 1)),
                 "roc_auc": auc,
                 "status": "ok",
-            }
+            },
         )
-        year_data[_coerce_int(year)] = (y, p)
+        year_data[coerce_int(year)] = (y, p)
 
     result = pd.DataFrame(year_rows)
     if result.empty:
@@ -3062,7 +2993,7 @@ def build_rolling_prospective_simulation(
                                 + (n_a - 1) * (q1_a - auc_a_val**2)
                                 + (n_a - 1) * (q2_a - auc_a_val**2)
                             )
-                            / n_a
+                            / n_a,
                         )
                         if n_a > 1
                         else np.nan
@@ -3076,7 +3007,7 @@ def build_rolling_prospective_simulation(
                                 + (n_b - 1) * (q1_b - auc_b_val**2)
                                 + (n_b - 1) * (q2_b - auc_b_val**2)
                             )
-                            / n_b
+                            / n_b,
                         )
                         if n_b > 1
                         else np.nan
@@ -3098,7 +3029,7 @@ def build_rolling_prospective_simulation(
                             "auc_diff": auc_a_val - auc_b_val,
                             "comparison_z_stat": z_stat,
                             "comparison_p_value": p_value,
-                        }
+                        },
                     )
                 except (ValueError, TypeError, ImportError):
                     comparison_rows.append(
@@ -3110,13 +3041,13 @@ def build_rolling_prospective_simulation(
                             "auc_diff": np.nan,
                             "comparison_z_stat": np.nan,
                             "comparison_p_value": np.nan,
-                        }
+                        },
                     )
 
         if comparison_rows:
             comparison_df = pd.DataFrame(comparison_rows)
             # FDR-adjust p-values
-            p_vals = pd.to_numeric(comparison_df["comparison_p_value"], errors="coerce").to_numpy()
+            p_vals = to_numeric_series(comparison_df["comparison_p_value"]).to_numpy()
             valid_mask = np.isfinite(p_vals)
             if valid_mask.any():
                 try:
@@ -3170,39 +3101,42 @@ def build_cross_source_validation(
     if scored.empty or predictions.empty or not model_names:
         return pd.DataFrame()
 
-    working = scored.copy()
+    working = scored.pipe(copy_frame)
     if "dominant_source" not in working.columns and "refseq_share_train" in working.columns:
         working["dominant_source"] = np.where(
-            working["refseq_share_train"].fillna(0.0).astype(float) >= 0.5,
+            working["refseq_share_train"].pipe(fill0).astype(float) >= 0.5,
             "refseq_leaning",
             "insd_leaning",
         )
     if "dominant_source" not in working.columns:
         return pd.DataFrame()
 
-    eligible = working.loc[working["spread_label"].notna()].copy()
+    eligible = working.loc[working["spread_label"].notna()].pipe(copy_frame)
     if eligible.empty:
         return pd.DataFrame()
-    eligible["spread_label"] = pd.to_numeric(eligible["spread_label"], errors="coerce")
+    eligible["spread_label"] = to_numeric_series(eligible["spread_label"])
 
     rows: list[dict[str, object]] = []
     for model_name in model_names:
         model_preds = (
-            predictions.loc[predictions["model_name"] == model_name].copy()
+            predictions.loc[predictions["model_name"] == model_name].pipe(copy_frame)
             if "model_name" in predictions.columns
-            else predictions.copy()
+            else predictions.pipe(copy_frame)
         )
         if model_preds.empty:
             continue
-        model_preds["oof_prediction"] = pd.to_numeric(
-            model_preds["oof_prediction"], errors="coerce"
+        model_preds["oof_prediction"] = to_numeric_series(
+            model_preds["oof_prediction"],
         )
 
         for source_group in ["refseq_leaning", "insd_leaning"]:
             source_backbones = eligible.loc[
-                eligible["dominant_source"] == source_group, "backbone_id"
+                eligible["dominant_source"] == source_group,
+                "backbone_id",
             ]
-            source_eval = model_preds.loc[model_preds["backbone_id"].isin(source_backbones)].copy()
+            source_eval = model_preds.loc[model_preds["backbone_id"].isin(source_backbones)].pipe(
+                copy_frame
+            )
             if source_eval.empty:
                 continue
             source_eval = source_eval.merge(
@@ -3223,7 +3157,7 @@ def build_cross_source_validation(
                         "n_positive": n_positive,
                         "roc_auc": np.nan,
                         "status": "skipped_insufficient_label_variation",
-                    }
+                    },
                 )
                 continue
             auc = float(roc_auc_score(y, p))
@@ -3235,7 +3169,7 @@ def build_cross_source_validation(
                     "n_positive": n_positive,
                     "roc_auc": auc,
                     "status": "ok",
-                }
+                },
             )
 
     return pd.DataFrame(rows)
@@ -3269,19 +3203,19 @@ def build_literature_validation_table(
             "in_top_k",
             "rank",
             "oof_prediction",
-        ]
+        ],
     )
     if predictions.empty:
         return empty_result
 
-    working = predictions.copy()
+    working = predictions.pipe(copy_frame)
     if "model_name" in working.columns:
-        working = working.loc[working["model_name"] == model_name].copy()
+        working = working.loc[working["model_name"] == model_name].pipe(copy_frame)
     if working.empty:
         return empty_result
 
-    working["oof_prediction"] = pd.to_numeric(working["oof_prediction"], errors="coerce")
-    working = working.loc[working["oof_prediction"].notna()].copy()
+    working["oof_prediction"] = to_numeric_series(working["oof_prediction"])
+    working = working.loc[working["oof_prediction"].notna()].pipe(copy_frame)
     if working.empty:
         return empty_result
 
@@ -3311,7 +3245,7 @@ def build_literature_validation_table(
                     "in_top_k": False,
                     "rank": np.nan,
                     "oof_prediction": np.nan,
-                }
+                },
             )
             continue
         best = matching.iloc[0]
@@ -3324,7 +3258,7 @@ def build_literature_validation_table(
                 "in_top_k": bid in top_k_set,
                 "rank": int(best["rank"]),
                 "oof_prediction": float(best["oof_prediction"]),
-            }
+            },
         )
 
     return pd.DataFrame(rows)

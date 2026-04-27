@@ -81,6 +81,7 @@ This protocol is generated from the canonical authority surface:
     "parsimonious_priority",
     "support_synergy_priority"
   ],
+  "ece_max": 0.05,
   "eligibility_rules": {
     "require_temporal_metadata": true,
     "require_training_only_assignment": true,
@@ -98,6 +99,7 @@ This protocol is generated from the canonical authority surface:
   },
   "horizon_years": 5,
   "label_proxy_caveats": {},
+  "matched_knownness_gap_min": -0.005,
   "min_new_countries_for_spread": 3,
   "min_new_host_families_for_transfer": 1,
   "min_new_host_genera_for_transfer": 2,
@@ -168,6 +170,8 @@ This protocol is generated from the canonical authority surface:
     "predictive_power": 0.4,
     "reliability": 0.4
   },
+  "source_holdout_gap_min": -0.005,
+  "spatial_holdout_gap_min": -0.03,
   "split_year": 2015
 }
 ```

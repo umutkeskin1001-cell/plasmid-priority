@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -16,10 +15,11 @@ class ApiClientError(RuntimeError):
 
 @dataclass
 class PlasmidPrioritySDK:
-    """Small sync SDK covering REST, async batch, and GraphQL endpoints."""
+    """Small sync SDK covering the stable REST API surface."""
 
     base_url: str = "http://127.0.0.1:8000"
     timeout_seconds: float = 30.0
+    api_key: str | None = None
 
     def _request(
         self,
@@ -30,6 +30,8 @@ class PlasmidPrioritySDK:
         url = f"{self.base_url.rstrip('/')}{path}"
         body: bytes | None = None
         headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["x-api-key"] = str(self.api_key)
         if payload is not None:
             body = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json"
@@ -53,45 +55,26 @@ class PlasmidPrioritySDK:
     def health(self) -> dict[str, Any]:
         return self._request("GET", "/health")
 
+    def config(self) -> dict[str, Any]:
+        return self._request("GET", "/config")
+
     def models(self) -> dict[str, Any]:
         return self._request("GET", "/models")
 
-    def score_backbones(self, backbone_ids: list[str]) -> dict[str, Any]:
+    def score_backbones(
+        self,
+        backbone_ids: list[str],
+        *,
+        config_key: str = "geo_spread",
+    ) -> dict[str, Any]:
         return self._request(
             "POST",
             "/score/backbones",
-            {"backbone_ids": list(backbone_ids)},
+            {"backbone_ids": list(backbone_ids), "config_key": config_key},
         )
 
-    def start_score_batch(self, backbone_ids: list[str]) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/score/backbones/batch",
-            {"backbone_ids": list(backbone_ids)},
-        )
+    def explain_backbone(self, backbone_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/explain/{backbone_id}")
 
-    def batch_status(self, job_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/score/backbones/batch/{job_id}")
-
-    def wait_for_batch(
-        self,
-        job_id: str,
-        *,
-        timeout_seconds: float = 60.0,
-        poll_interval_seconds: float = 0.2,
-    ) -> dict[str, Any]:
-        deadline = time.time() + float(timeout_seconds)
-        while time.time() <= deadline:
-            payload = self.batch_status(job_id)
-            status = str(payload.get("status", "")).lower()
-            if status in {"completed", "failed"}:
-                return payload
-            time.sleep(max(0.01, float(poll_interval_seconds)))
-        raise ApiClientError(f"Batch job timed out: {job_id}")
-
-    def graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/graphql",
-            {"query": query, "variables": variables or {}},
-        )
+    def get_evidence(self, backbone_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/evidence/{backbone_id}")

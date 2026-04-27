@@ -77,9 +77,11 @@ def test_evaluate_release_readiness_passes_for_minimal_surface() -> None:
         _write(
             root / "src/plasmid_priority/api/app.py",
             "from plasmid_priority.api.artifact_registry import ArtifactRegistry, ArtifactUnavailableError\n"
+            '@app.get("/models")\n'
+            '@app.post("/score")\n'
             '@app.post("/score/backbones")\n'
-            '@app.post("/score/backbones/batch")\n'
-            '@app.post("/graphql")\n',
+            '@app.get("/explain/{backbone_id}")\n'
+            '@app.get("/evidence/{backbone_id}")\n',
         )
         _write(
             root / "config/performance_budgets.yaml",

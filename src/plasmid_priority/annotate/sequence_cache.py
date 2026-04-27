@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,6 +10,8 @@ import pandas as pd
 
 from plasmid_priority.cache import stable_hash
 from plasmid_priority.utils.files import ensure_directory
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _stringify(value: object) -> str:
@@ -92,7 +95,12 @@ class SequenceAnnotationCache:
             return pd.DataFrame()
         try:
             cached = pd.read_parquet(self.table_path)
-        except Exception:
+        except Exception as exc:
+            LOGGER.warning(
+                "Caught suppressed exception: %s",
+                exc,
+                exc_info=True,
+            )
             return pd.DataFrame()
         return cached if isinstance(cached, pd.DataFrame) else pd.DataFrame()
 
